@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
+import { translations, type Language } from './i18n'
 import { stepBodies } from './physics/engine'
 import { getPreset } from './presets'
 import type { BodyState, PresetId } from './types'
 
 const PHYSICS_DT = 0.0015
 const MAX_STEPS_PER_FRAME = 4000
+const LANGUAGE_STORAGE_KEY = '3bp-language'
+
+function getInitialLanguage(): Language {
+  const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY)
+  return saved === 'en' ? 'en' : 'ko'
+}
 
 export default function App() {
   const [preset, setPreset] = useState<PresetId>('figure8')
@@ -15,14 +22,20 @@ export default function App() {
   const [speed, setSpeed] = useState(1)
   const [time, setTime] = useState(0)
   const [trailVersion, setTrailVersion] = useState(0)
+  const [language, setLanguage] = useState<Language>(getInitialLanguage)
 
   const bodiesRef = useRef(bodies)
   const runningRef = useRef(isRunning)
   const speedRef = useRef(speed)
+  const t = translations[language]
 
   useEffect(() => { bodiesRef.current = bodies }, [bodies])
   useEffect(() => { runningRef.current = isRunning }, [isRunning])
   useEffect(() => { speedRef.current = speed }, [speed])
+  useEffect(() => {
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
+    document.documentElement.lang = language === 'ko' ? 'ko' : 'en'
+  }, [language])
 
   const loadPreset = useCallback((nextPreset: PresetId) => {
     setPreset(nextPreset)
@@ -93,7 +106,7 @@ export default function App() {
         <SimulationView bodies={bodies} trailVersion={trailVersion} />
         <div className="viewport-badge">
           <span className={isRunning ? 'status-dot running' : 'status-dot'} />
-          {isRunning ? `${speed}× RUNNING` : 'PAUSED'}
+          {isRunning ? `${speed}× ${t.running}` : t.paused}
         </div>
       </section>
       <ControlPanel
@@ -102,6 +115,8 @@ export default function App() {
         speed={speed}
         time={time}
         preset={preset}
+        language={language}
+        onLanguageChange={setLanguage}
         onRunningChange={setIsRunning}
         onSpeedChange={setSpeed}
         onPresetChange={loadPreset}
