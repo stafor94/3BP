@@ -19,6 +19,37 @@ button { cursor: pointer; }
   background: #03050a;
 }
 
+.language-picker {
+  position: fixed;
+  z-index: 20;
+  top: 16px;
+  right: 16px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(144, 169, 205, 0.22);
+  border-radius: 50%;
+  background: rgba(7, 11, 20, 0.78);
+  backdrop-filter: blur(14px);
+  color: #aab9cf;
+  cursor: pointer;
+  transition: .15s ease;
+}
+.language-picker:hover { border-color: #46536d; background: rgba(18, 25, 39, 0.94); color: #e8eef9; }
+.language-picker svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.language-picker select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
 .viewport-shell { position: relative; min-width: 0; overflow: hidden; }
 .simulation-view { position: absolute; inset: 0; }
 .simulation-view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
@@ -52,7 +83,7 @@ button { cursor: pointer; }
   scrollbar-color: #273044 transparent;
 }
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.panel-header-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+.panel-header-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; padding-right: 38px; }
 .panel-toggle { display: none; }
 .eyebrow, .section-label, .field-group-title { display: block; color: #7f8da3; font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
 h1 { margin: 5px 0 0; font-size: 26px; line-height: 1.05; letter-spacing: -.04em; }
@@ -116,6 +147,7 @@ input[type="color"] { padding: 4px; }
 @media (max-width: 760px) {
   body { overflow: hidden; }
   .app-shell { display: block; position: relative; }
+  .language-picker { top: 14px; right: 14px; width: 32px; height: 32px; }
   .viewport-shell { height: 100dvh; }
   .control-panel {
     position: absolute;
@@ -138,6 +170,7 @@ input[type="color"] { padding: 4px; }
   }
   .control-panel.collapsed .panel-content { display: none; }
   .panel-header { min-height: 48px; }
+  .panel-header-actions { padding-right: 0; }
   .panel-header h1 { font-size: 21px; }
   .panel-toggle {
     display: inline-flex;
