@@ -11,7 +11,7 @@ type Props = {
   trailVersion: number
   trailEnabled: boolean
   trailDuration: number
-  autoTrack: boolean
+  trackedBodyId: string | null
 }
 
 type TrailPoint = {
@@ -77,19 +77,24 @@ const trailFragmentShader = `
   }
 `
 
-export function SimulationView({ bodies, trailVersion, trailEnabled, trailDuration, autoTrack }: Props) {
+function isBodyDescendedFrom(bodyId: string, trackedBodyId: string) {
+  const bodyParts = new Set(bodyId.split('+'))
+  return trackedBodyId.split('+').every((part) => bodyParts.has(part))
+}
+
+export function SimulationView({ bodies, trailVersion, trailEnabled, trailDuration, trackedBodyId }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const latestBodies = useRef(bodies)
   const latestTrailVersion = useRef(trailVersion)
   const latestTrailEnabled = useRef(trailEnabled)
   const latestTrailDuration = useRef(trailDuration)
-  const latestAutoTrack = useRef(autoTrack)
+  const latestTrackedBodyId = useRef(trackedBodyId)
 
   latestBodies.current = bodies
   latestTrailVersion.current = trailVersion
   latestTrailEnabled.current = trailEnabled
   latestTrailDuration.current = trailDuration
-  latestAutoTrack.current = autoTrack
+  latestTrackedBodyId.current = trackedBodyId
 
   useEffect(() => {
     const host = hostRef.current
@@ -163,7 +168,8 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
     const visuals = new Map<string, VisualBody>()
     let observedTrailVersion = latestTrailVersion.current
     let observedTrailEnabled = latestTrailEnabled.current
-    let observedBodyCount = latestBodies.current.length
+    let observedTrackedBodyId = latestTrackedBodyId.current
+    let wasTrackingBody = false
 
     const clearTrail = (visual: VisualBody) => {
       visual.points = []
@@ -365,12 +371,17 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
 
     const moveCameraTargetTo = (target: THREE.Vector3) => {
       cameraShift.copy(target).sub(controls.target)
+      if (cameraShift.lengthSq() <= 1e-12) return
+
       camera.position.add(cameraShift)
       controls.target.copy(target)
+      starLayers.forEach((layer) => layer.points.position.addScaledVector(cameraShift, layer.follow))
+    }
 
-      if (cameraShift.lengthSq() > 25) {
-        starLayers.forEach((layer) => layer.points.position.add(cameraShift))
-      }
+    const getTrackedBody = (current: BodyState[]) => {
+      const id = latestTrackedBodyId.current
+      if (!id) return undefined
+      return current.find((body) => body.id === id) ?? current.find((body) => isBodyDescendedFrom(body.id, id))
     }
 
     let compositionMode: 'mobile' | 'desktop' | null = null
@@ -379,15 +390,16 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       if (nextMode === compositionMode) return
 
       compositionOffset.set(0, nextMode === 'mobile' ? -1 : 0, 0)
-      const current = latestBodies.current
-      if (latestAutoTrack.current && current.length === 1) {
-        const body = current[0]
+      const trackedBody = getTrackedBody(latestBodies.current)
+      if (trackedBody) {
         targetScratch
-          .set(body.position.x, body.position.y, body.position.z)
+          .set(trackedBody.position.x, trackedBody.position.y, trackedBody.position.z)
           .add(compositionOffset)
         moveCameraTargetTo(targetScratch)
+        wasTrackingBody = true
       } else {
         moveCameraTargetTo(compositionOffset)
+        wasTrackingBody = false
       }
 
       controls.update()
@@ -421,19 +433,20 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       const trailEnabledNow = latestTrailEnabled.current
       const trailDurationMs = Math.max(1, latestTrailDuration.current) * 1000
       const cutoff = now - trailDurationMs
+      const trackedBody = getTrackedBody(current)
+      const trackingSelectionChanged = observedTrackedBodyId !== latestTrackedBodyId.current
 
-      if (observedBodyCount !== current.length) {
-        if (current.length > 1) moveCameraTargetTo(compositionOffset)
-        observedBodyCount = current.length
-      }
-
-      if (latestAutoTrack.current && current.length === 1) {
-        const body = current[0]
+      if (trackedBody) {
         targetScratch
-          .set(body.position.x, body.position.y, body.position.z)
+          .set(trackedBody.position.x, trackedBody.position.y, trackedBody.position.z)
           .add(compositionOffset)
         moveCameraTargetTo(targetScratch)
+        wasTrackingBody = true
+      } else if (wasTrackingBody || trackingSelectionChanged) {
+        moveCameraTargetTo(compositionOffset)
+        wasTrackingBody = false
       }
+      observedTrackedBodyId = latestTrackedBodyId.current
 
       if (observedTrailVersion !== latestTrailVersion.current) {
         Array.from(visuals.keys()).forEach(removeVisual)
@@ -504,7 +517,6 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
 
       if (shouldCaptureTrail) lastTrailCapture = now
       controls.update()
-      starLayers.forEach((layer) => layer.points.position.lerp(camera.position, layer.follow))
       renderer.render(scene, camera)
     }
 
