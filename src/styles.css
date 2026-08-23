@@ -90,6 +90,7 @@ h1 { margin: 5px 0 0; font-size: 26px; line-height: 1.05; letter-spacing: -.04em
 .time-readout { color: #9eabc0; font-variant-numeric: tabular-nums; font-size: 12px; white-space: nowrap; }
 
 .primary-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 24px 0 22px; }
+.collapsed-primary-controls { display: none; }
 button, select, input {
   border: 1px solid #242c3d;
   border-radius: 9px;
@@ -164,11 +165,20 @@ input[type="color"] { padding: 4px; }
     transition: height .22s ease, padding .22s ease;
   }
   .control-panel.collapsed {
-    height: 80px;
+    height: 142px;
     overflow: hidden;
     padding-bottom: 14px;
   }
   .control-panel.collapsed .panel-content { display: none; }
+  .control-panel.collapsed .collapsed-primary-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+    margin-top: 10px;
+  }
+  .control-panel.collapsed .collapsed-primary-controls button {
+    min-height: 42px;
+  }
   .panel-header { min-height: 48px; }
   .panel-header-actions { padding-right: 0; }
   .panel-header h1 { font-size: 21px; }
