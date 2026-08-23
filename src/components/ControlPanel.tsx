@@ -11,7 +11,6 @@ type Props = {
   language: Language
   trailEnabled: boolean
   trailDuration: number
-  onLanguageChange: (language: Language) => void
   onTrailEnabledChange: (enabled: boolean) => void
   onTrailDurationChange: (duration: number) => void
   onRunningChange: (running: boolean) => void
@@ -21,7 +20,7 @@ type Props = {
   onBodyChange: (id: string, next: BodyState) => void
 }
 
-const SPEEDS = [0.1, 1, 10, 100]
+const SPEEDS = [0.1, 1, 5, 10]
 const vectorKeys = ['x', 'y', 'z'] as const
 
 function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange: (n: number) => void; step?: number }) {
@@ -44,7 +43,6 @@ export function ControlPanel({
   language,
   trailEnabled,
   trailDuration,
-  onLanguageChange,
   onTrailEnabledChange,
   onTrailDurationChange,
   onRunningChange,
@@ -79,19 +77,6 @@ export function ControlPanel({
       </div>
 
       <div className="panel-content">
-        <section className="language-section">
-          <label className="section-label" htmlFor="language">{t.language}</label>
-          <select
-            id="language"
-            value={language}
-            onChange={(event) => onLanguageChange(event.target.value as Language)}
-            aria-label={t.language}
-          >
-            <option value="ko">{t.korean}</option>
-            <option value="en">{t.english}</option>
-          </select>
-        </section>
-
         <div className="primary-controls">
           <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
             {isRunning ? t.pause : t.start}
