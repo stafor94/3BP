@@ -120,6 +120,15 @@
     padding-top: 7px;
   }
 
+  .body-fields {
+    grid-template-columns: minmax(0, 1.35fr) 44px minmax(0, 0.9fr) minmax(0, 0.9fr);
+    gap: 7px;
+  }
+
+  .body-fields input[type="color"] {
+    min-width: 0;
+  }
+
   @media (max-width: 390px) {
     .control-panel.control-panel.collapsed {
       padding-left: 12px !important;
