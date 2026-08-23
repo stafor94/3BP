@@ -1,0 +1,39 @@
+@media (max-width: 760px) {
+  .control-panel.collapsed {
+    height: 96px;
+    padding-bottom: 12px;
+  }
+
+  .collapsed-action-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .control-panel.collapsed .collapsed-primary-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+  }
+
+  .control-panel.collapsed .collapsed-primary-controls button,
+  .control-panel.collapsed .panel-toggle {
+    min-height: 29px;
+    height: 29px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 10px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .control-panel.collapsed .collapsed-primary-controls .start-button {
+    min-width: 54px;
+  }
+
+  .control-panel.collapsed .collapsed-primary-controls .secondary-button {
+    min-width: 48px;
+  }
+}
