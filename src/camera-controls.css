@@ -1,0 +1,17 @@
+.setting-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.setting-description {
+  color: #617087;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.camera-section .trail-toggle {
+  flex: 0 0 auto;
+}
