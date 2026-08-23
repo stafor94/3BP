@@ -3,8 +3,8 @@ import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
 import { translations, type Language } from './i18n'
 import { stepBodies } from './physics/engine'
-import { getPreset } from './presets'
-import type { BodyState, PresetId } from './types'
+import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
+import type { BodyCount, BodyState, PresetId } from './types'
 
 const PHYSICS_DT = 0.0015
 const MAX_STEPS_PER_FRAME = 4000
@@ -28,6 +28,7 @@ function getInitialTrailDuration() {
 
 export default function App() {
   const [preset, setPreset] = useState<PresetId>('figure8')
+  const [bodyCount, setBodyCount] = useState<BodyCount>(3)
   const [bodies, setBodies] = useState<BodyState[]>(() => getPreset('figure8'))
   const [isRunning, setIsRunning] = useState(false)
   const [speed, setSpeed] = useState(1)
@@ -58,6 +59,7 @@ export default function App() {
 
   const loadPreset = useCallback((nextPreset: PresetId) => {
     setPreset(nextPreset)
+    setBodyCount(getPresetBodyCount(nextPreset))
     const next = getPreset(nextPreset)
     bodiesRef.current = next
     setBodies(next)
@@ -65,6 +67,10 @@ export default function App() {
     setIsRunning(false)
     setTrailVersion((v) => v + 1)
   }, [])
+
+  const changeBodyCount = useCallback((count: BodyCount) => {
+    loadPreset(DEFAULT_PRESET_BY_BODY_COUNT[count])
+  }, [loadPreset])
 
   const reset = useCallback(() => loadPreset(preset), [loadPreset, preset])
 
@@ -146,6 +152,7 @@ export default function App() {
       </section>
       <ControlPanel
         bodies={bodies}
+        bodyCount={bodyCount}
         isRunning={isRunning}
         speed={speed}
         time={time}
@@ -157,6 +164,7 @@ export default function App() {
         onTrailDurationChange={setTrailDuration}
         onRunningChange={setIsRunning}
         onSpeedChange={setSpeed}
+        onBodyCountChange={changeBodyCount}
         onPresetChange={loadPreset}
         onReset={reset}
         onBodyChange={updateBody}
