@@ -313,12 +313,9 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       const trailDurationMs = Math.max(1, latestTrailDuration.current) * 1000
       const cutoff = now - trailDurationMs
 
-      Array.from(visuals.keys()).forEach((id) => {
-        if (!currentIds.has(id)) removeVisual(id)
-      })
-
       if (observedTrailVersion !== latestTrailVersion.current) {
-        visuals.forEach(clearTrail)
+        // A preset/reset is a true scene reset, so old merged-body visuals can go too.
+        Array.from(visuals.keys()).forEach(removeVisual)
         observedTrailVersion = latestTrailVersion.current
         lastTrailCapture = now
       }
@@ -329,11 +326,32 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
         lastTrailCapture = now - TRAIL_CAPTURE_INTERVAL
       }
 
+      // Bodies removed by a collision keep only their fading trail until its
+      // configured lifetime expires. Their sphere/light disappear immediately.
+      Array.from(visuals.entries()).forEach(([id, visual]) => {
+        if (currentIds.has(id)) return
+        visual.mesh.visible = false
+        visual.light.visible = false
+
+        if (!trailEnabledNow) {
+          removeVisual(id)
+          return
+        }
+
+        while (visual.points.length > 0 && visual.points[0].capturedAt < cutoff) {
+          visual.points.shift()
+        }
+        updateTrailVisual(visual, now, trailDurationMs)
+        if (visual.points.length === 0) removeVisual(id)
+      })
+
       const shouldCaptureTrail = trailEnabledNow && now - lastTrailCapture >= TRAIL_CAPTURE_INTERVAL
 
       current.forEach((body) => {
         const visual = ensureVisual(body)
         const position = new THREE.Vector3(body.position.x, body.position.y, body.position.z)
+        visual.mesh.visible = true
+        visual.light.visible = true
         visual.mesh.position.copy(position)
         visual.mesh.scale.setScalar(Math.max(body.radius, 0.025))
         visual.light.position.copy(position)
