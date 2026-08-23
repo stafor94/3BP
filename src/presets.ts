@@ -90,9 +90,11 @@ export function binaryCollisionPreset(): BodyState[] {
 }
 
 export function binaryFlybyPreset(): BodyState[] {
+  // Offset the incoming body enough to create a clear gravitational slingshot
+  // instead of an accidental collision/merge at the default 1x time scale.
   return [
     body('a', 'Alpha', 1.25, 0.085, [0, 0, 0], [0, 0, 0], colors[0]),
-    body('b', 'Beta', 0.35, 0.06, [-2.4, -0.8, 0], [1.05, 0.27, 0], colors[1]),
+    body('b', 'Beta', 0.35, 0.06, [-2.4, -1.3, 0], [1.3, 0.15, 0], colors[1]),
   ]
 }
 
@@ -165,16 +167,18 @@ export function tripleCollisionPreset(): BodyState[] {
 }
 
 export function randomPreset(): BodyState[] {
-  const masses = colors.map(() => 0.82 + Math.random() * 0.36)
+  // Keep the random preset near a rotating triangular solution, then perturb it
+  // enough to produce varied motion without making immediate collapse the norm.
+  const masses = colors.map(() => 0.91 + Math.random() * 0.18)
   const baseAngle = Math.random() * Math.PI * 2
 
   const rawPositions = colors.map((_, index) => {
-    const angle = baseAngle + index * (Math.PI * 2 / 3) + (Math.random() - 0.5) * 0.34
-    const radius = 1.05 + Math.random() * 0.5
+    const angle = baseAngle + index * (Math.PI * 2 / 3) + (Math.random() - 0.5) * 0.16
+    const radius = 1.1 + Math.random() * 0.28
     return {
       x: Math.cos(angle) * radius,
       y: Math.sin(angle) * radius,
-      z: (Math.random() - 0.5) * 0.18,
+      z: (Math.random() - 0.5) * 0.1,
     }
   })
 
@@ -198,12 +202,12 @@ export function randomPreset(): BodyState[] {
   }))
 
   const meanRadius = positions.reduce((sum, position) => sum + Math.hypot(position.x, position.y), 0) / 3
-  const angularSpeed = Math.sqrt(totalMass / Math.max(meanRadius ** 3, 0.25)) * (0.44 + Math.random() * 0.1)
+  const angularSpeed = Math.sqrt(totalMass / Math.max(meanRadius ** 3, 0.25)) * (0.47 + Math.random() * 0.02)
   const direction = Math.random() < 0.5 ? -1 : 1
 
   const raw = colors.map((color, index) => {
     const position = positions[index]
-    const jitter = 0.055
+    const jitter = 0.025
     return body(
       String.fromCharCode(97 + index),
       ['Alpha', 'Beta', 'Gamma'][index],
@@ -213,7 +217,7 @@ export function randomPreset(): BodyState[] {
       [
         -position.y * angularSpeed * direction + (Math.random() - 0.5) * jitter,
         position.x * angularSpeed * direction + (Math.random() - 0.5) * jitter,
-        (Math.random() - 0.5) * 0.035,
+        (Math.random() - 0.5) * 0.02,
       ],
       color,
     )
