@@ -57,30 +57,31 @@ export function ControlPanel({
 
   return (
     <aside className={`control-panel${isCollapsed ? ' collapsed' : ''}`}>
+      <button
+        type="button"
+        className="panel-toggle"
+        onClick={() => setIsCollapsed((value) => !value)}
+        aria-expanded={!isCollapsed}
+        aria-label={isCollapsed ? t.expand : t.collapse}
+        title={isCollapsed ? t.expand : t.collapse}
+      >
+        <svg viewBox="0 0 24 14" aria-hidden="true">
+          <path d={isCollapsed ? 'M5 10.5 12 3.5l7 7' : 'M5 3.5 12 10.5l7-7'} />
+        </svg>
+      </button>
+
       <div className="panel-header">
-        <div>
+        <div className="panel-title-block">
           <span className="eyebrow">{t.simulator}</span>
           <h1>3 Body Problem</h1>
         </div>
         <div className="panel-header-actions">
           <span className="time-readout">t = {time.toFixed(2)}</span>
-          <div className="collapsed-action-row">
-            <div className="collapsed-primary-controls" aria-hidden={!isCollapsed}>
-              <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
-                {isRunning ? t.pause : t.start}
-              </button>
-              <button className="secondary-button" onClick={onReset}>{t.reset}</button>
-            </div>
-            <button
-              type="button"
-              className="panel-toggle"
-              onClick={() => setIsCollapsed((value) => !value)}
-              aria-expanded={!isCollapsed}
-              aria-label={isCollapsed ? t.expand : t.collapse}
-            >
-              <span aria-hidden="true">{isCollapsed ? '⌃' : '⌄'}</span>
-              {isCollapsed ? t.expand : t.collapse}
+          <div className="collapsed-primary-controls" aria-hidden={!isCollapsed}>
+            <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
+              {isRunning ? t.pause : t.start}
             </button>
+            <button className="secondary-button" onClick={onReset}>{t.reset}</button>
           </div>
         </div>
       </div>
