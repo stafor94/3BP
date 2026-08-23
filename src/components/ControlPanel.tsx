@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { translations, type Language } from '../i18n'
 import type { BodyState, PresetId } from '../types'
+import '../mobile-controls.css'
 
 type Props = {
   bodies: BodyState[]
@@ -63,24 +64,25 @@ export function ControlPanel({
         </div>
         <div className="panel-header-actions">
           <span className="time-readout">t = {time.toFixed(2)}</span>
-          <button
-            type="button"
-            className="panel-toggle"
-            onClick={() => setIsCollapsed((value) => !value)}
-            aria-expanded={!isCollapsed}
-            aria-label={isCollapsed ? t.expand : t.collapse}
-          >
-            <span aria-hidden="true">{isCollapsed ? '⌃' : '⌄'}</span>
-            {isCollapsed ? t.expand : t.collapse}
-          </button>
+          <div className="collapsed-action-row">
+            <div className="collapsed-primary-controls" aria-hidden={!isCollapsed}>
+              <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
+                {isRunning ? t.pause : t.start}
+              </button>
+              <button className="secondary-button" onClick={onReset}>{t.reset}</button>
+            </div>
+            <button
+              type="button"
+              className="panel-toggle"
+              onClick={() => setIsCollapsed((value) => !value)}
+              aria-expanded={!isCollapsed}
+              aria-label={isCollapsed ? t.expand : t.collapse}
+            >
+              <span aria-hidden="true">{isCollapsed ? '⌃' : '⌄'}</span>
+              {isCollapsed ? t.expand : t.collapse}
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div className="collapsed-primary-controls" aria-hidden={!isCollapsed}>
-        <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
-          {isRunning ? t.pause : t.start}
-        </button>
-        <button className="secondary-button" onClick={onReset}>{t.reset}</button>
       </div>
 
       <div className="panel-content">
