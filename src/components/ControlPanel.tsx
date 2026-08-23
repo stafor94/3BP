@@ -16,8 +16,10 @@ type Props = {
   language: Language
   trailEnabled: boolean
   trailDuration: number
+  autoTrack: boolean
   onTrailEnabledChange: (enabled: boolean) => void
   onTrailDurationChange: (duration: number) => void
+  onAutoTrackChange: (enabled: boolean) => void
   onRunningChange: (running: boolean) => void
   onSpeedChange: (speed: number) => void
   onBodyCountChange: (count: BodyCount) => void
@@ -51,8 +53,10 @@ export function ControlPanel({
   language,
   trailEnabled,
   trailDuration,
+  autoTrack,
   onTrailEnabledChange,
   onTrailDurationChange,
+  onAutoTrackChange,
   onRunningChange,
   onSpeedChange,
   onBodyCountChange,
@@ -139,6 +143,25 @@ export function ControlPanel({
                 {item}×
               </button>
             ))}
+          </div>
+        </section>
+
+        <section className="trail-section camera-section">
+          <div className="trail-heading-row">
+            <div className="setting-copy">
+              <span className="section-label">{t.autoTrack}</span>
+              <span className="setting-description">{t.autoTrackHint}</span>
+            </div>
+            <label className="trail-toggle">
+              <input
+                type="checkbox"
+                checked={autoTrack}
+                aria-label={t.autoTrack}
+                onChange={(event) => onAutoTrackChange(event.target.checked)}
+              />
+              <span className="switch-track" aria-hidden="true"><span className="switch-thumb" /></span>
+              <span className="toggle-state">{autoTrack ? t.on : t.off}</span>
+            </label>
           </div>
         </section>
 
