@@ -4,6 +4,7 @@ import { PRESETS_BY_BODY_COUNT } from '../presets'
 import type { BodyCount, BodyState, PresetId } from '../types'
 import { APP_VERSION } from '../version'
 import '../mobile-controls.css'
+import '../version.css'
 
 type Props = {
   bodies: BodyState[]
