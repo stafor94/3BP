@@ -1,4 +1,4 @@
-import type { BodyState, PresetId } from './types'
+import type { BodyCount, BodyState, PresetId } from './types'
 
 const colors = ['#ffb347', '#62a9ff', '#ff667f']
 
@@ -19,6 +19,55 @@ const body = (
   position: { x: position[0], y: position[1], z: position[2] },
   velocity: { x: velocity[0], y: velocity[1], z: velocity[2] },
 })
+
+export const PRESETS_BY_BODY_COUNT: Record<BodyCount, PresetId[]> = {
+  1: ['singleStill', 'singleDrift'],
+  2: ['binaryOrbit', 'binaryCollision', 'binaryFlyby'],
+  3: ['figure8', 'triangle', 'random'],
+}
+
+export const DEFAULT_PRESET_BY_BODY_COUNT: Record<BodyCount, PresetId> = {
+  1: 'singleStill',
+  2: 'binaryOrbit',
+  3: 'figure8',
+}
+
+export function getPresetBodyCount(id: PresetId): BodyCount {
+  if (PRESETS_BY_BODY_COUNT[1].includes(id)) return 1
+  if (PRESETS_BY_BODY_COUNT[2].includes(id)) return 2
+  return 3
+}
+
+export function singleStillPreset(): BodyState[] {
+  return [body('a', 'Alpha', 1, 0.09, [0, 0, 0], [0, 0, 0], colors[0])]
+}
+
+export function singleDriftPreset(): BodyState[] {
+  return [body('a', 'Alpha', 1, 0.09, [-1.2, -0.45, 0], [0.42, 0.16, 0], colors[0])]
+}
+
+export function binaryOrbitPreset(): BodyState[] {
+  // Two equal masses separated by 2 units. For G = 1, each body orbits
+  // the barycenter at radius 1 with speed 0.5.
+  return [
+    body('a', 'Alpha', 1, 0.075, [-1, 0, 0], [0, -0.5, 0], colors[0]),
+    body('b', 'Beta', 1, 0.075, [1, 0, 0], [0, 0.5, 0], colors[1]),
+  ]
+}
+
+export function binaryCollisionPreset(): BodyState[] {
+  return [
+    body('a', 'Alpha', 1, 0.075, [-1.35, 0, 0], [0.18, 0, 0], colors[0]),
+    body('b', 'Beta', 1, 0.075, [1.35, 0, 0], [-0.18, 0, 0], colors[1]),
+  ]
+}
+
+export function binaryFlybyPreset(): BodyState[] {
+  return [
+    body('a', 'Alpha', 1.25, 0.085, [0, 0, 0], [0, 0, 0], colors[0]),
+    body('b', 'Beta', 0.35, 0.06, [-2.4, -0.8, 0], [1.05, 0.27, 0], colors[1]),
+  ]
+}
 
 export function figure8Preset(): BodyState[] {
   return [
@@ -42,8 +91,6 @@ export function randomPreset(): BodyState[] {
   const masses = colors.map(() => 0.82 + Math.random() * 0.36)
   const baseAngle = Math.random() * Math.PI * 2
 
-  // Keep the three initial bodies well separated, roughly around a triangle,
-  // then add enough asymmetry to produce chaotic (rather than identical) runs.
   const rawPositions = colors.map((_, index) => {
     const angle = baseAngle + index * (Math.PI * 2 / 3) + (Math.random() - 0.5) * 0.34
     const radius = 1.05 + Math.random() * 0.5
@@ -74,8 +121,6 @@ export function randomPreset(): BodyState[] {
   }))
 
   const meanRadius = positions.reduce((sum, position) => sum + Math.hypot(position.x, position.y), 0) / 3
-  // About 45–55% of the point-mass circular estimate works well for a
-  // three-body triangle and still leaves enough variation for chaotic motion.
   const angularSpeed = Math.sqrt(totalMass / Math.max(meanRadius ** 3, 0.25)) * (0.44 + Math.random() * 0.1)
   const direction = Math.random() < 0.5 ? -1 : 1
 
@@ -117,6 +162,11 @@ export function randomPreset(): BodyState[] {
 }
 
 export function getPreset(id: PresetId): BodyState[] {
+  if (id === 'singleStill') return singleStillPreset()
+  if (id === 'singleDrift') return singleDriftPreset()
+  if (id === 'binaryOrbit') return binaryOrbitPreset()
+  if (id === 'binaryCollision') return binaryCollisionPreset()
+  if (id === 'binaryFlyby') return binaryFlybyPreset()
   if (id === 'triangle') return trianglePreset()
   if (id === 'random') return randomPreset()
   return figure8Preset()
