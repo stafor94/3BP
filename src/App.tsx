@@ -121,6 +121,17 @@ export default function App() {
 
   return (
     <main className="app-shell">
+      <label className="language-picker" title={t.language} aria-label={t.language}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3.5 12h17M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21M12 3C9.5 5.6 8.2 8.6 8.2 12S9.5 18.4 12 21" />
+        </svg>
+        <select value={language} onChange={(event) => setLanguage(event.target.value as Language)} aria-label={t.language}>
+          <option value="ko">{t.korean}</option>
+          <option value="en">{t.english}</option>
+        </select>
+      </label>
+
       <section className="viewport-shell">
         <SimulationView
           bodies={bodies}
@@ -142,7 +153,6 @@ export default function App() {
         language={language}
         trailEnabled={trailEnabled}
         trailDuration={trailDuration}
-        onLanguageChange={setLanguage}
         onTrailEnabledChange={setTrailEnabled}
         onTrailDurationChange={setTrailDuration}
         onRunningChange={setIsRunning}
