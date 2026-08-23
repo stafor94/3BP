@@ -16,10 +16,10 @@ type Props = {
   language: Language
   trailEnabled: boolean
   trailDuration: number
-  autoTrack: boolean
+  trackedBodyId: string | null
   onTrailEnabledChange: (enabled: boolean) => void
   onTrailDurationChange: (duration: number) => void
-  onAutoTrackChange: (enabled: boolean) => void
+  onTrackedBodyChange: (bodyId: string | null) => void
   onRunningChange: (running: boolean) => void
   onSpeedChange: (speed: number) => void
   onBodyCountChange: (count: BodyCount) => void
@@ -53,10 +53,10 @@ export function ControlPanel({
   language,
   trailEnabled,
   trailDuration,
-  autoTrack,
+  trackedBodyId,
   onTrailEnabledChange,
   onTrailDurationChange,
-  onAutoTrackChange,
+  onTrackedBodyChange,
   onRunningChange,
   onSpeedChange,
   onBodyCountChange,
@@ -146,25 +146,6 @@ export function ControlPanel({
           </div>
         </section>
 
-        <section className="trail-section camera-section">
-          <div className="trail-heading-row">
-            <div className="setting-copy">
-              <span className="section-label">{t.autoTrack}</span>
-              <span className="setting-description">{t.autoTrackHint}</span>
-            </div>
-            <label className="trail-toggle">
-              <input
-                type="checkbox"
-                checked={autoTrack}
-                aria-label={t.autoTrack}
-                onChange={(event) => onAutoTrackChange(event.target.checked)}
-              />
-              <span className="switch-track" aria-hidden="true"><span className="switch-thumb" /></span>
-              <span className="toggle-state">{autoTrack ? t.on : t.off}</span>
-            </label>
-          </div>
-        </section>
-
         <section className="trail-section">
           <div className="trail-heading-row">
             <span className="section-label">{t.trail}</span>
@@ -195,64 +176,83 @@ export function ControlPanel({
         </section>
 
         <div className="body-list">
-          {bodies.map((body) => (
-            <details className="body-card" key={body.id} open={bodies.length <= 3}>
-              <summary>
-                <span className="body-dot" style={{ background: body.color }} />
-                <strong>{body.name}</strong>
-                <span>{body.mass.toFixed(2)} M</span>
-              </summary>
+          {bodies.map((body) => {
+            const isTracked = trackedBodyId === body.id
+            return (
+              <details className="body-card" key={body.id} open={bodies.length <= 3}>
+                <summary>
+                  <span className="body-dot" style={{ background: body.color }} />
+                  <strong>{body.name}</strong>
+                  <span>{body.mass.toFixed(2)} M</span>
+                </summary>
 
-              <div className="body-fields">
-                <label>
-                  {t.name}
-                  <input value={body.name} onChange={(e) => onBodyChange(body.id, { ...body, name: e.target.value })} />
-                </label>
-                <label>
-                  {t.color}
-                  <input type="color" value={body.color} onChange={(e) => onBodyChange(body.id, { ...body, color: e.target.value })} />
-                </label>
-                <label>
-                  {t.mass}
-                  <NumberField value={body.mass} step={0.05} onChange={(mass) => onBodyChange(body.id, { ...body, mass: Math.max(0.001, mass) })} />
-                </label>
-                <label>
-                  {t.radius}
-                  <NumberField value={body.radius} step={0.005} onChange={(radius) => onBodyChange(body.id, { ...body, radius: Math.max(0.005, radius) })} />
-                </label>
-              </div>
-
-              <span className="field-group-title">{t.position}</span>
-              <div className="vector-grid">
-                {vectorKeys.map((key) => (
-                  <label key={key}>
-                    {key.toUpperCase()}
-                    <NumberField
-                      value={body.position[key]}
-                      onChange={(value) => onBodyChange(body.id, { ...body, position: { ...body.position, [key]: value } })}
+                <div className="body-track-row">
+                  <span>
+                    <strong>{t.trackBody}</strong>
+                    <small>{t.trackBodyHint}</small>
+                  </span>
+                  <label className="body-track-check">
+                    <input
+                      type="checkbox"
+                      checked={isTracked}
+                      aria-label={`${body.name} ${t.trackBody}`}
+                      onChange={(event) => onTrackedBodyChange(event.target.checked ? body.id : null)}
                     />
+                    <span aria-hidden="true" />
                   </label>
-                ))}
-              </div>
+                </div>
 
-              <span className="field-group-title">{t.velocity}</span>
-              <div className="vector-grid">
-                {vectorKeys.map((key) => (
-                  <label key={key}>
-                    V{key.toUpperCase()}
-                    <NumberField
-                      value={body.velocity[key]}
-                      onChange={(value) => onBodyChange(body.id, { ...body, velocity: { ...body.velocity, [key]: value } })}
-                    />
+                <div className="body-fields">
+                  <label>
+                    {t.name}
+                    <input value={body.name} onChange={(e) => onBodyChange(body.id, { ...body, name: e.target.value })} />
                   </label>
-                ))}
-              </div>
+                  <label>
+                    {t.color}
+                    <input type="color" value={body.color} onChange={(e) => onBodyChange(body.id, { ...body, color: e.target.value })} />
+                  </label>
+                  <label>
+                    {t.mass}
+                    <NumberField value={body.mass} step={0.05} onChange={(mass) => onBodyChange(body.id, { ...body, mass: Math.max(0.001, mass) })} />
+                  </label>
+                  <label>
+                    {t.radius}
+                    <NumberField value={body.radius} step={0.005} onChange={(radius) => onBodyChange(body.id, { ...body, radius: Math.max(0.005, radius) })} />
+                  </label>
+                </div>
 
-              <div className="coordinates">
-                x {body.position.x.toFixed(3)} · y {body.position.y.toFixed(3)} · z {body.position.z.toFixed(3)}
-              </div>
-            </details>
-          ))}
+                <span className="field-group-title">{t.position}</span>
+                <div className="vector-grid">
+                  {vectorKeys.map((key) => (
+                    <label key={key}>
+                      {key.toUpperCase()}
+                      <NumberField
+                        value={body.position[key]}
+                        onChange={(value) => onBodyChange(body.id, { ...body, position: { ...body.position, [key]: value } })}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <span className="field-group-title">{t.velocity}</span>
+                <div className="vector-grid">
+                  {vectorKeys.map((key) => (
+                    <label key={key}>
+                      V{key.toUpperCase()}
+                      <NumberField
+                        value={body.velocity[key]}
+                        onChange={(value) => onBodyChange(body.id, { ...body, velocity: { ...body.velocity, [key]: value } })}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div className="coordinates">
+                  x {body.position.x.toFixed(3)} · y {body.position.y.toFixed(3)} · z {body.position.z.toFixed(3)}
+                </div>
+              </details>
+            )
+          })}
         </div>
 
         <p className="panel-note">{t.controlsHint}</p>
