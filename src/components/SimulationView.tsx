@@ -27,14 +27,16 @@ type VisualBody = {
   trailPositions: Float32Array
   trailAlphas: Float32Array
   trailSizes: Float32Array
+  trailGlow: Line2
+  trailGlowMaterial: LineMaterial
   trailCore: Line2
   trailCoreGeometry: LineGeometry
   trailCoreMaterial: LineMaterial
   points: TrailPoint[]
 }
 
-const MAX_TRAIL_POINTS = 2200
-const TRAIL_CAPTURE_INTERVAL = 30
+const MAX_TRAIL_POINTS = 3600
+const TRAIL_CAPTURE_INTERVAL = 16
 
 const trailVertexShader = `
   attribute float aAlpha;
@@ -55,12 +57,13 @@ const trailFragmentShader = `
 
   void main() {
     vec2 centered = gl_PointCoord - vec2(0.5);
-    float distanceFromCenter = length(centered) * 2.0;
-    if (distanceFromCenter > 1.0) discard;
+    float radius = length(centered) * 2.0;
+    if (radius > 1.0) discard;
 
-    float halo = 1.0 - smoothstep(0.18, 1.0, distanceFromCenter);
-    float core = 1.0 - smoothstep(0.0, 0.28, distanceFromCenter);
-    float alpha = vAlpha * (0.30 * halo + 0.82 * core);
+    float halo = exp(-3.2 * radius * radius);
+    float core = exp(-18.0 * radius * radius);
+    float edge = 1.0 - smoothstep(0.72, 1.0, radius);
+    float alpha = vAlpha * (0.46 * halo + 0.76 * core) * edge;
 
     gl_FragColor = vec4(uColor, alpha);
   }
@@ -128,18 +131,20 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       visual.points = []
       visual.trailGeometry.setDrawRange(0, 0)
       visual.trailPoints.visible = false
+      visual.trailGlow.visible = false
       visual.trailCore.visible = false
     }
 
     const removeVisual = (id: string) => {
       const visual = visuals.get(id)
       if (!visual) return
-      scene.remove(visual.mesh, visual.light, visual.trailPoints, visual.trailCore)
+      scene.remove(visual.mesh, visual.light, visual.trailPoints, visual.trailGlow, visual.trailCore)
       visual.mesh.geometry.dispose()
       ;(visual.mesh.material as THREE.Material).dispose()
       visual.trailGeometry.dispose()
       visual.trailMaterial.dispose()
       visual.trailCoreGeometry.dispose()
+      visual.trailGlowMaterial.dispose()
       visual.trailCoreMaterial.dispose()
       visuals.delete(id)
     }
@@ -190,15 +195,32 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       const trailPoints = new THREE.Points(trailGeometry, trailMaterial)
       trailPoints.visible = false
       trailPoints.frustumCulled = false
-      trailPoints.renderOrder = 30
+      trailPoints.renderOrder = 29
 
       const trailCoreGeometry = new LineGeometry()
       trailCoreGeometry.setPositions([0, 0, 0, 0, 0, 0])
+
+      const trailGlowMaterial = new LineMaterial({
+        color: new THREE.Color(body.color).getHex(),
+        linewidth: 6.2,
+        transparent: true,
+        opacity: 0.09,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      })
+      trailGlowMaterial.resolution.set(Math.max(host.clientWidth, 1), Math.max(host.clientHeight, 1))
+      const trailGlow = new Line2(trailCoreGeometry, trailGlowMaterial)
+      trailGlow.visible = false
+      trailGlow.frustumCulled = false
+      trailGlow.renderOrder = 30
+
       const trailCoreMaterial = new LineMaterial({
         color: new THREE.Color(body.color).getHex(),
-        linewidth: 2.2,
+        linewidth: 2.6,
         transparent: true,
-        opacity: 0.42,
+        opacity: 0.34,
         depthTest: false,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
@@ -210,7 +232,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       trailCore.frustumCulled = false
       trailCore.renderOrder = 31
 
-      scene.add(trailPoints, trailCore, mesh, light)
+      scene.add(trailPoints, trailGlow, trailCore, mesh, light)
       const created: VisualBody = {
         mesh,
         light,
@@ -220,6 +242,8 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
         trailPositions,
         trailAlphas,
         trailSizes,
+        trailGlow,
+        trailGlowMaterial,
         trailCore,
         trailCoreGeometry,
         trailCoreMaterial,
@@ -234,6 +258,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       if (count === 0) {
         visual.trailGeometry.setDrawRange(0, 0)
         visual.trailPoints.visible = false
+        visual.trailGlow.visible = false
         visual.trailCore.visible = false
         return
       }
@@ -251,9 +276,9 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
 
         const ageRatio = THREE.MathUtils.clamp((now - point.capturedAt) / durationMs, 0, 1)
         const freshness = 1 - ageRatio
-        const fade = Math.pow(freshness, 2.65)
-        visual.trailAlphas[index] = fade * 0.98
-        visual.trailSizes[index] = 5.5 + 12.5 * Math.pow(freshness, 1.45)
+        const fade = Math.pow(freshness, 1.8)
+        visual.trailAlphas[index] = fade * 0.82
+        visual.trailSizes[index] = 4.5 + 17.5 * Math.pow(freshness, 1.7)
       }
 
       positionAttribute.needsUpdate = true
@@ -262,19 +287,36 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       visual.trailGeometry.setDrawRange(0, count)
       visual.trailPoints.visible = latestTrailEnabled.current
 
-      const coreCutoff = now - Math.min(durationMs * 0.18, 1100)
-      const corePoints = visual.points.filter((point) => point.capturedAt >= coreCutoff)
-      if (corePoints.length >= 2) {
-        const positions = new Array<number>(corePoints.length * 3)
-        corePoints.forEach((point, index) => {
+      const coreCutoff = now - Math.min(durationMs * 0.36, 2600)
+      const recentPoints = visual.points.filter((point) => point.capturedAt >= coreCutoff)
+      const curvePoints: THREE.Vector3[] = []
+      recentPoints.forEach((point) => {
+        const previous = curvePoints[curvePoints.length - 1]
+        if (!previous || previous.distanceToSquared(point.position) > 1e-8) {
+          curvePoints.push(point.position.clone())
+        }
+      })
+
+      if (curvePoints.length >= 2) {
+        let smoothPoints = curvePoints
+        if (curvePoints.length >= 3) {
+          const curve = new THREE.CatmullRomCurve3(curvePoints, false, 'centripetal')
+          const segments = Math.min(480, Math.max(curvePoints.length * 3, 24))
+          smoothPoints = curve.getPoints(segments)
+        }
+
+        const positions = new Array<number>(smoothPoints.length * 3)
+        smoothPoints.forEach((point, index) => {
           const offset = index * 3
-          positions[offset] = point.position.x
-          positions[offset + 1] = point.position.y
-          positions[offset + 2] = point.position.z
+          positions[offset] = point.x
+          positions[offset + 1] = point.y
+          positions[offset + 2] = point.z
         })
         visual.trailCoreGeometry.setPositions(positions)
+        visual.trailGlow.visible = latestTrailEnabled.current
         visual.trailCore.visible = latestTrailEnabled.current
       } else {
+        visual.trailGlow.visible = false
         visual.trailCore.visible = false
       }
     }
@@ -295,7 +337,10 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       camera.aspect = width / height
       camera.updateProjectionMatrix()
       renderer.setSize(width, height, false)
-      visuals.forEach((visual) => visual.trailCoreMaterial.resolution.set(width, height))
+      visuals.forEach((visual) => {
+        visual.trailGlowMaterial.resolution.set(width, height)
+        visual.trailCoreMaterial.resolution.set(width, height)
+      })
       applyComposition()
     }
 
@@ -314,7 +359,6 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       const cutoff = now - trailDurationMs
 
       if (observedTrailVersion !== latestTrailVersion.current) {
-        // A preset/reset is a true scene reset, so old merged-body visuals can go too.
         Array.from(visuals.keys()).forEach(removeVisual)
         observedTrailVersion = latestTrailVersion.current
         lastTrailCapture = now
@@ -326,8 +370,6 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
         lastTrailCapture = now - TRAIL_CAPTURE_INTERVAL
       }
 
-      // Bodies removed by a collision keep only their fading trail until its
-      // configured lifetime expires. Their sphere/light disappear immediately.
       Array.from(visuals.entries()).forEach(([id, visual]) => {
         if (currentIds.has(id)) return
         visual.mesh.visible = false
@@ -361,10 +403,12 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
         bodyMaterial.emissive.set(body.color)
         visual.light.color.set(body.color)
         ;(visual.trailMaterial.uniforms.uColor.value as THREE.Color).set(body.color)
+        visual.trailGlowMaterial.color.set(body.color)
         visual.trailCoreMaterial.color.set(body.color)
 
         if (!trailEnabledNow) {
           visual.trailPoints.visible = false
+          visual.trailGlow.visible = false
           visual.trailCore.visible = false
           return
         }
