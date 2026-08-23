@@ -1,3 +1,4 @@
+import { translations, type Language } from '../i18n'
 import type { BodyState, PresetId } from '../types'
 
 type Props = {
@@ -6,6 +7,8 @@ type Props = {
   speed: number
   time: number
   preset: PresetId
+  language: Language
+  onLanguageChange: (language: Language) => void
   onRunningChange: (running: boolean) => void
   onSpeedChange: (speed: number) => void
   onPresetChange: (preset: PresetId) => void
@@ -33,40 +36,57 @@ export function ControlPanel({
   speed,
   time,
   preset,
+  language,
+  onLanguageChange,
   onRunningChange,
   onSpeedChange,
   onPresetChange,
   onReset,
   onBodyChange,
 }: Props) {
+  const t = translations[language]
+
   return (
     <aside className="control-panel">
       <div className="panel-header">
         <div>
-          <span className="eyebrow">NEWTONIAN SIMULATOR</span>
+          <span className="eyebrow">{t.simulator}</span>
           <h1>3 Body Problem</h1>
         </div>
         <span className="time-readout">t = {time.toFixed(2)}</span>
       </div>
 
+      <section className="language-section">
+        <label className="section-label" htmlFor="language">{t.language}</label>
+        <select
+          id="language"
+          value={language}
+          onChange={(event) => onLanguageChange(event.target.value as Language)}
+          aria-label={t.language}
+        >
+          <option value="ko">{t.korean}</option>
+          <option value="en">{t.english}</option>
+        </select>
+      </section>
+
       <div className="primary-controls">
         <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
-          {isRunning ? 'Pause' : 'Start'}
+          {isRunning ? t.pause : t.start}
         </button>
-        <button className="secondary-button" onClick={onReset}>Reset</button>
+        <button className="secondary-button" onClick={onReset}>{t.reset}</button>
       </div>
 
       <section>
-        <label className="section-label" htmlFor="preset">Preset</label>
+        <label className="section-label" htmlFor="preset">{t.preset}</label>
         <select id="preset" value={preset} onChange={(event) => onPresetChange(event.target.value as PresetId)}>
-          <option value="figure8">Figure-8</option>
-          <option value="triangle">Rotating Triangle</option>
-          <option value="random">Random</option>
+          <option value="figure8">{t.figure8}</option>
+          <option value="triangle">{t.triangle}</option>
+          <option value="random">{t.random}</option>
         </select>
       </section>
 
       <section>
-        <span className="section-label">Time scale</span>
+        <span className="section-label">{t.timeScale}</span>
         <div className="speed-grid">
           {SPEEDS.map((item) => (
             <button key={item} className={speed === item ? 'active' : ''} onClick={() => onSpeedChange(item)}>
@@ -87,24 +107,24 @@ export function ControlPanel({
 
             <div className="body-fields">
               <label>
-                Name
+                {t.name}
                 <input value={body.name} onChange={(e) => onBodyChange(body.id, { ...body, name: e.target.value })} />
               </label>
               <label>
-                Color
+                {t.color}
                 <input type="color" value={body.color} onChange={(e) => onBodyChange(body.id, { ...body, color: e.target.value })} />
               </label>
               <label>
-                Mass
+                {t.mass}
                 <NumberField value={body.mass} step={0.05} onChange={(mass) => onBodyChange(body.id, { ...body, mass: Math.max(0.001, mass) })} />
               </label>
               <label>
-                Radius
+                {t.radius}
                 <NumberField value={body.radius} step={0.005} onChange={(radius) => onBodyChange(body.id, { ...body, radius: Math.max(0.005, radius) })} />
               </label>
             </div>
 
-            <span className="field-group-title">Position</span>
+            <span className="field-group-title">{t.position}</span>
             <div className="vector-grid">
               {vectorKeys.map((key) => (
                 <label key={key}>
@@ -117,7 +137,7 @@ export function ControlPanel({
               ))}
             </div>
 
-            <span className="field-group-title">Velocity</span>
+            <span className="field-group-title">{t.velocity}</span>
             <div className="vector-grid">
               {vectorKeys.map((key) => (
                 <label key={key}>
@@ -137,7 +157,7 @@ export function ControlPanel({
         ))}
       </div>
 
-      <p className="panel-note">Drag to orbit · Scroll/pinch to zoom · G = 1 normalized units</p>
+      <p className="panel-note">{t.controlsHint}</p>
     </aside>
   )
 }
