@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { translations, type Language } from '../i18n'
-import type { BodyState, PresetId } from '../types'
+import { PRESETS_BY_BODY_COUNT } from '../presets'
+import type { BodyCount, BodyState, PresetId } from '../types'
 import '../mobile-controls.css'
 
 type Props = {
   bodies: BodyState[]
+  bodyCount: BodyCount
   isRunning: boolean
   speed: number
   time: number
@@ -16,12 +18,14 @@ type Props = {
   onTrailDurationChange: (duration: number) => void
   onRunningChange: (running: boolean) => void
   onSpeedChange: (speed: number) => void
+  onBodyCountChange: (count: BodyCount) => void
   onPresetChange: (preset: PresetId) => void
   onReset: () => void
   onBodyChange: (id: string, next: BodyState) => void
 }
 
 const SPEEDS = [0.1, 1, 5, 10]
+const BODY_COUNTS: BodyCount[] = [1, 2, 3]
 const vectorKeys = ['x', 'y', 'z'] as const
 
 function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange: (n: number) => void; step?: number }) {
@@ -37,6 +41,7 @@ function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange
 
 export function ControlPanel({
   bodies,
+  bodyCount,
   isRunning,
   speed,
   time,
@@ -48,12 +53,14 @@ export function ControlPanel({
   onTrailDurationChange,
   onRunningChange,
   onSpeedChange,
+  onBodyCountChange,
   onPresetChange,
   onReset,
   onBodyChange,
 }: Props) {
   const t = translations[language]
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const availablePresets = PRESETS_BY_BODY_COUNT[bodyCount]
 
   return (
     <aside className={`control-panel${isCollapsed ? ' collapsed' : ''}`}>
@@ -95,11 +102,27 @@ export function ControlPanel({
         </div>
 
         <section>
-          <label className="section-label" htmlFor="preset">{t.preset}</label>
+          <div className="preset-heading-row">
+            <div className="body-count-control" role="group" aria-label={t.bodyCount}>
+              {BODY_COUNTS.map((count) => (
+                <button
+                  key={count}
+                  type="button"
+                  className={bodyCount === count ? 'active' : ''}
+                  aria-pressed={bodyCount === count}
+                  title={`${t.bodyCount}: ${count}`}
+                  onClick={() => onBodyCountChange(count)}
+                >
+                  {count}
+                </button>
+              ))}
+            </div>
+            <label className="section-label" htmlFor="preset">{t.preset}</label>
+          </div>
           <select id="preset" value={preset} onChange={(event) => onPresetChange(event.target.value as PresetId)}>
-            <option value="figure8">{t.figure8}</option>
-            <option value="triangle">{t.triangle}</option>
-            <option value="random">{t.random}</option>
+            {availablePresets.map((item) => (
+              <option key={item} value={item}>{t[item]}</option>
+            ))}
           </select>
         </section>
 
