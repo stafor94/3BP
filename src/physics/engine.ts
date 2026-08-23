@@ -63,7 +63,14 @@ function mergeCollisions(input: BodyState[]): BodyState[] {
 }
 
 export function stepBodies(input: BodyState[], dt: number): BodyState[] {
-  if (input.length < 2 || dt <= 0) return input.map(cloneBody)
+  if (dt <= 0) return input.map(cloneBody)
+
+  if (input.length < 2) {
+    return input.map((body) => ({
+      ...cloneBody(body),
+      position: add(body.position, scale(body.velocity, dt)),
+    }))
+  }
 
   const bodies = input.map(cloneBody)
   const a0 = accelerations(bodies)
