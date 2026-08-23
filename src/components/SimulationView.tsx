@@ -6,24 +6,36 @@ import type { BodyState } from '../types'
 type Props = {
   bodies: BodyState[]
   trailVersion: number
+  trailEnabled: boolean
+  trailDuration: number
+}
+
+type TrailPoint = {
+  position: THREE.Vector3
+  capturedAt: number
 }
 
 type VisualBody = {
   mesh: THREE.Mesh
   light: THREE.PointLight
   trail: THREE.Line
-  points: THREE.Vector3[]
+  points: TrailPoint[]
 }
 
-const MAX_TRAIL_POINTS = 900
+const MAX_TRAIL_POINTS = 3600
+const TRAIL_CAPTURE_INTERVAL = 32
 
-export function SimulationView({ bodies, trailVersion }: Props) {
+export function SimulationView({ bodies, trailVersion, trailEnabled, trailDuration }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const latestBodies = useRef(bodies)
   const latestTrailVersion = useRef(trailVersion)
+  const latestTrailEnabled = useRef(trailEnabled)
+  const latestTrailDuration = useRef(trailDuration)
 
   latestBodies.current = bodies
   latestTrailVersion.current = trailVersion
+  latestTrailEnabled.current = trailEnabled
+  latestTrailDuration.current = trailDuration
 
   useEffect(() => {
     const host = hostRef.current
@@ -69,6 +81,12 @@ export function SimulationView({ bodies, trailVersion }: Props) {
 
     const visuals = new Map<string, VisualBody>()
     let observedTrailVersion = latestTrailVersion.current
+    let observedTrailEnabled = latestTrailEnabled.current
+
+    const clearTrail = (visual: VisualBody) => {
+      visual.points = []
+      visual.trail.geometry.setFromPoints([])
+    }
 
     const removeVisual = (id: string) => {
       const visual = visuals.get(id)
@@ -94,8 +112,15 @@ export function SimulationView({ bodies, trailVersion }: Props) {
       const mesh = new THREE.Mesh(geometry, material)
       const light = new THREE.PointLight(body.color, 8, 8, 1.8)
       const trailGeometry = new THREE.BufferGeometry().setFromPoints([])
-      const trailMaterial = new THREE.LineBasicMaterial({ color: body.color, transparent: true, opacity: 0.68 })
+      const trailMaterial = new THREE.LineBasicMaterial({
+        color: body.color,
+        transparent: true,
+        opacity: 0.46,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
       const trail = new THREE.Line(trailGeometry, trailMaterial)
+      trail.visible = latestTrailEnabled.current
 
       scene.add(mesh, light, trail)
       const created = { mesh, light, trail, points: [] }
@@ -103,11 +128,21 @@ export function SimulationView({ bodies, trailVersion }: Props) {
       return created
     }
 
+    let compositionMode: 'mobile' | 'desktop' | null = null
+    const applyComposition = () => {
+      const nextMode = host.clientWidth <= 760 ? 'mobile' : 'desktop'
+      if (nextMode === compositionMode) return
+      controls.target.set(0, nextMode === 'mobile' ? -1 : 0, 0)
+      controls.update()
+      compositionMode = nextMode
+    }
+
     const resize = () => {
       const { clientWidth, clientHeight } = host
       camera.aspect = Math.max(clientWidth, 1) / Math.max(clientHeight, 1)
       camera.updateProjectionMatrix()
       renderer.setSize(clientWidth, clientHeight, false)
+      applyComposition()
     }
 
     const observer = new ResizeObserver(resize)
@@ -120,18 +155,29 @@ export function SimulationView({ bodies, trailVersion }: Props) {
       frame = requestAnimationFrame(animate)
       const current = latestBodies.current
       const currentIds = new Set(current.map((body) => body.id))
+      const trailEnabledNow = latestTrailEnabled.current
+      const trailDurationMs = Math.max(1, latestTrailDuration.current) * 1000
 
       Array.from(visuals.keys()).forEach((id) => {
         if (!currentIds.has(id)) removeVisual(id)
       })
 
       if (observedTrailVersion !== latestTrailVersion.current) {
-        visuals.forEach((visual) => {
-          visual.points = []
-          visual.trail.geometry.setFromPoints([])
-        })
+        visuals.forEach(clearTrail)
         observedTrailVersion = latestTrailVersion.current
       }
+
+      if (observedTrailEnabled !== trailEnabledNow) {
+        visuals.forEach((visual) => {
+          visual.trail.visible = trailEnabledNow
+          clearTrail(visual)
+        })
+        observedTrailEnabled = trailEnabledNow
+        lastTrailCapture = now
+      }
+
+      const shouldCaptureTrail = trailEnabledNow && now - lastTrailCapture >= TRAIL_CAPTURE_INTERVAL
+      const cutoff = now - trailDurationMs
 
       current.forEach((body) => {
         const visual = ensureVisual(body)
@@ -139,6 +185,7 @@ export function SimulationView({ bodies, trailVersion }: Props) {
         visual.mesh.position.copy(position)
         visual.mesh.scale.setScalar(Math.max(body.radius, 0.025))
         visual.light.position.copy(position)
+        visual.trail.visible = trailEnabledNow
 
         const material = visual.mesh.material as THREE.MeshStandardMaterial
         material.color.set(body.color)
@@ -146,17 +193,29 @@ export function SimulationView({ bodies, trailVersion }: Props) {
         ;(visual.trail.material as THREE.LineBasicMaterial).color.set(body.color)
         visual.light.color.set(body.color)
 
-        if (now - lastTrailCapture > 24) {
-          const previous = visual.points[visual.points.length - 1]
+        if (!trailEnabledNow) return
+
+        let trailChanged = false
+        while (visual.points.length > 0 && visual.points[0].capturedAt < cutoff) {
+          visual.points.shift()
+          trailChanged = true
+        }
+
+        if (shouldCaptureTrail) {
+          const previous = visual.points[visual.points.length - 1]?.position
           if (!previous || previous.distanceToSquared(position) > 0.00001) {
-            visual.points.push(position.clone())
+            visual.points.push({ position: position.clone(), capturedAt: now })
             if (visual.points.length > MAX_TRAIL_POINTS) visual.points.shift()
-            visual.trail.geometry.setFromPoints(visual.points)
+            trailChanged = true
           }
+        }
+
+        if (trailChanged) {
+          visual.trail.geometry.setFromPoints(visual.points.map((point) => point.position))
         }
       })
 
-      if (now - lastTrailCapture > 24) lastTrailCapture = now
+      if (shouldCaptureTrail) lastTrailCapture = now
       controls.update()
       renderer.render(scene, camera)
     }
