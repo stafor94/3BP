@@ -11,7 +11,6 @@ const MAX_STEPS_PER_FRAME = 4000
 const LANGUAGE_STORAGE_KEY = '3bp-language'
 const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
 const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
-const AUTO_TRACK_STORAGE_KEY = '3bp-auto-track'
 
 function getInitialLanguage(): Language {
   const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY)
@@ -27,8 +26,9 @@ function getInitialTrailDuration() {
   return Number.isFinite(saved) && saved >= 1 && saved <= 60 ? saved : 8
 }
 
-function getInitialAutoTrack() {
-  return localStorage.getItem(AUTO_TRACK_STORAGE_KEY) !== 'false'
+function isBodyDescendedFrom(bodyId: string, trackedBodyId: string) {
+  const bodyParts = new Set(bodyId.split('+'))
+  return trackedBodyId.split('+').every((part) => bodyParts.has(part))
 }
 
 export default function App() {
@@ -41,7 +41,7 @@ export default function App() {
   const [trailVersion, setTrailVersion] = useState(0)
   const [trailEnabled, setTrailEnabled] = useState(getInitialTrailEnabled)
   const [trailDuration, setTrailDuration] = useState(getInitialTrailDuration)
-  const [autoTrack, setAutoTrack] = useState(getInitialAutoTrack)
+  const [trackedBodyId, setTrackedBodyId] = useState<string | null>(null)
   const [language, setLanguage] = useState<Language>(getInitialLanguage)
 
   const bodiesRef = useRef(bodies)
@@ -63,8 +63,12 @@ export default function App() {
     localStorage.setItem(TRAIL_DURATION_STORAGE_KEY, String(trailDuration))
   }, [trailDuration])
   useEffect(() => {
-    localStorage.setItem(AUTO_TRACK_STORAGE_KEY, String(autoTrack))
-  }, [autoTrack])
+    setTrackedBodyId((current) => {
+      if (!current) return null
+      if (bodies.some((body) => body.id === current)) return current
+      return bodies.find((body) => isBodyDescendedFrom(body.id, current))?.id ?? null
+    })
+  }, [bodies])
 
   const loadPreset = useCallback((nextPreset: PresetId) => {
     setPreset(nextPreset)
@@ -72,6 +76,7 @@ export default function App() {
     const next = getPreset(nextPreset)
     bodiesRef.current = next
     setBodies(next)
+    setTrackedBodyId(null)
     setTime(0)
     setIsRunning(false)
     setTrailVersion((v) => v + 1)
@@ -153,7 +158,7 @@ export default function App() {
           trailVersion={trailVersion}
           trailEnabled={trailEnabled}
           trailDuration={trailDuration}
-          autoTrack={autoTrack}
+          trackedBodyId={trackedBodyId}
         />
         <div className="viewport-badge">
           <span className={isRunning ? 'status-dot running' : 'status-dot'} />
@@ -170,10 +175,10 @@ export default function App() {
         language={language}
         trailEnabled={trailEnabled}
         trailDuration={trailDuration}
-        autoTrack={autoTrack}
+        trackedBodyId={trackedBodyId}
         onTrailEnabledChange={setTrailEnabled}
         onTrailDurationChange={setTrailDuration}
-        onAutoTrackChange={setAutoTrack}
+        onTrackedBodyChange={setTrackedBodyId}
         onRunningChange={setIsRunning}
         onSpeedChange={setSpeed}
         onBodyCountChange={changeBodyCount}
