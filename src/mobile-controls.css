@@ -1,9 +1,10 @@
-.body-fields {
+.control-panel .body-fields {
+  display: grid;
   grid-template-columns: minmax(0, 1.35fr) 44px minmax(0, 0.9fr) minmax(0, 0.9fr);
   gap: 7px;
 }
 
-.body-fields input[type="color"] {
+.control-panel .body-fields input[type="color"] {
   min-width: 0;
 }
 
