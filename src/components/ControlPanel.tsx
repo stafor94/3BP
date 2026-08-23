@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { translations, type Language } from '../i18n'
 import { PRESETS_BY_BODY_COUNT } from '../presets'
 import type { BodyCount, BodyState, PresetId } from '../types'
+import { APP_VERSION } from '../version'
 import '../mobile-controls.css'
 
 type Props = {
@@ -80,7 +81,10 @@ export function ControlPanel({
       <div className="panel-header">
         <div className="panel-title-block">
           <span className="eyebrow">{t.simulator}</span>
-          <h1>3 Body Problem</h1>
+          <div className="title-line">
+            <h1>3 Body Problem</h1>
+            <span className="app-version" aria-label={`version ${APP_VERSION}`}>v{APP_VERSION}</span>
+          </div>
         </div>
         <div className="panel-header-actions">
           <span className="time-readout">t = {time.toFixed(2)}</span>
