@@ -1,85 +1,149 @@
 @media (max-width: 760px) {
-  .control-panel.collapsed {
-    height: 80px;
-    padding: 10px 14px;
+  .control-panel {
+    position: relative;
+  }
+
+  .control-panel.control-panel.collapsed {
+    height: 82px !important;
+    min-height: 82px !important;
+    padding: 17px 16px 9px !important;
+    overflow: hidden !important;
+  }
+
+  .control-panel.collapsed .panel-content {
+    display: none !important;
+  }
+
+  .control-panel .panel-toggle {
+    position: absolute;
+    z-index: 3;
+    top: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: grid;
+    place-items: center;
+    width: 42px;
+    min-width: 42px;
+    height: 20px;
+    min-height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    color: #7f8da3;
+    background: transparent;
+  }
+
+  .control-panel .panel-toggle:hover {
+    border: 0;
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .control-panel .panel-toggle svg {
+    width: 22px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .control-panel.collapsed .panel-header {
-    min-height: 58px;
-    height: 58px;
+    min-height: 54px !important;
+    height: 54px;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
+    padding-top: 5px;
   }
 
-  .control-panel.collapsed .panel-header > div:first-child {
+  .control-panel.collapsed .panel-title-block {
     min-width: 0;
     flex: 1 1 auto;
   }
 
-  .control-panel.collapsed .eyebrow {
-    font-size: 8px;
-    letter-spacing: .1em;
+  .control-panel.collapsed .panel-title-block .eyebrow {
+    margin-bottom: 3px;
+    font-size: 9px;
+    line-height: 1;
   }
 
-  .control-panel.collapsed .panel-header h1 {
-    margin-top: 3px;
-    font-size: 18px;
+  .control-panel.collapsed .panel-title-block h1 {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.05;
     white-space: nowrap;
   }
 
   .control-panel.collapsed .panel-header-actions {
-    position: relative;
     flex: 0 0 auto;
+    display: flex;
     flex-direction: row;
-    align-items: flex-end;
+    align-items: center;
     gap: 0;
-    padding: 14px 0 0;
+    padding-right: 0;
   }
 
   .control-panel.collapsed .time-readout {
-    position: absolute;
-    top: 0;
-    right: 0;
-    font-size: 9px;
-  }
-
-  .collapsed-action-row {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 8px;
+    display: none;
   }
 
   .control-panel.collapsed .collapsed-primary-controls {
-    display: flex;
+    display: flex !important;
     align-items: center;
     gap: 8px;
-    margin: 0 14px 0 0;
+    margin: 0;
   }
 
-  .control-panel.collapsed .collapsed-primary-controls button,
-  .control-panel.collapsed .panel-toggle {
-    min-height: 32px;
-    height: 32px;
-    padding: 4px 12px;
+  .control-panel.collapsed .collapsed-primary-controls button {
+    height: 38px;
+    min-height: 38px;
+    padding: 0 14px;
     border-radius: 10px;
-    font-size: 10px;
+    font-size: 12px;
     line-height: 1;
     white-space: nowrap;
   }
 
   .control-panel.collapsed .collapsed-primary-controls .start-button {
-    width: 76px;
-    min-width: 76px;
+    min-width: 88px;
   }
 
   .control-panel.collapsed .collapsed-primary-controls .secondary-button {
-    width: 68px;
-    min-width: 68px;
+    min-width: 78px;
   }
 
-  .control-panel.collapsed .panel-toggle {
-    min-width: 58px;
-    border-radius: 999px;
+  .control-panel:not(.collapsed) .collapsed-primary-controls {
+    display: none !important;
+  }
+
+  .control-panel:not(.collapsed) .panel-header {
+    padding-top: 7px;
+  }
+
+  @media (max-width: 390px) {
+    .control-panel.control-panel.collapsed {
+      padding-left: 12px !important;
+      padding-right: 12px !important;
+    }
+
+    .control-panel.collapsed .panel-title-block h1 {
+      font-size: 17px;
+    }
+
+    .control-panel.collapsed .panel-title-block .eyebrow {
+      display: none;
+    }
+
+    .control-panel.collapsed .collapsed-primary-controls {
+      gap: 6px;
+    }
+
+    .control-panel.collapsed .collapsed-primary-controls .start-button {
+      min-width: 70px;
+    }
+
+    .control-panel.collapsed .collapsed-primary-controls .secondary-button {
+      min-width: 64px;
+    }
   }
 }
