@@ -11,6 +11,7 @@ type Props = {
   trailVersion: number
   trailEnabled: boolean
   trailDuration: number
+  autoTrack: boolean
 }
 
 type TrailPoint = {
@@ -33,6 +34,13 @@ type VisualBody = {
   trailCoreGeometry: LineGeometry
   trailCoreMaterial: LineMaterial
   points: TrailPoint[]
+}
+
+type StarLayer = {
+  points: THREE.Points
+  geometry: THREE.BufferGeometry
+  material: THREE.PointsMaterial
+  follow: number
 }
 
 const MAX_TRAIL_POINTS = 3600
@@ -69,17 +77,19 @@ const trailFragmentShader = `
   }
 `
 
-export function SimulationView({ bodies, trailVersion, trailEnabled, trailDuration }: Props) {
+export function SimulationView({ bodies, trailVersion, trailEnabled, trailDuration, autoTrack }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const latestBodies = useRef(bodies)
   const latestTrailVersion = useRef(trailVersion)
   const latestTrailEnabled = useRef(trailEnabled)
   const latestTrailDuration = useRef(trailDuration)
+  const latestAutoTrack = useRef(autoTrack)
 
   latestBodies.current = bodies
   latestTrailVersion.current = trailVersion
   latestTrailEnabled.current = trailEnabled
   latestTrailDuration.current = trailDuration
+  latestAutoTrack.current = autoTrack
 
   useEffect(() => {
     const host = hostRef.current
@@ -89,7 +99,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
     scene.background = new THREE.Color('#03050a')
     scene.fog = new THREE.FogExp2('#03050a', 0.018)
 
-    const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 200)
+    const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 500)
     camera.position.set(0, 2.8, 5.4)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -106,26 +116,54 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
 
     scene.add(new THREE.AmbientLight('#6688aa', 0.32))
 
-    const starsGeometry = new THREE.BufferGeometry()
-    const starPositions = new Float32Array(1200 * 3)
-    for (let i = 0; i < starPositions.length; i += 3) {
-      const radius = 18 + Math.random() * 48
-      const theta = Math.random() * Math.PI * 2
-      const phi = Math.acos(2 * Math.random() - 1)
-      starPositions[i] = radius * Math.sin(phi) * Math.cos(theta)
-      starPositions[i + 1] = radius * Math.sin(phi) * Math.sin(theta)
-      starPositions[i + 2] = radius * Math.cos(phi)
+    const createStarLayer = (
+      count: number,
+      minRadius: number,
+      maxRadius: number,
+      size: number,
+      opacity: number,
+      color: string,
+      follow: number,
+    ): StarLayer => {
+      const geometry = new THREE.BufferGeometry()
+      const positions = new Float32Array(count * 3)
+
+      for (let i = 0; i < positions.length; i += 3) {
+        const radius = minRadius + Math.random() * (maxRadius - minRadius)
+        const theta = Math.random() * Math.PI * 2
+        const phi = Math.acos(2 * Math.random() - 1)
+        positions[i] = radius * Math.sin(phi) * Math.cos(theta)
+        positions[i + 1] = radius * Math.sin(phi) * Math.sin(theta)
+        positions[i + 2] = radius * Math.cos(phi)
+      }
+
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      const material = new THREE.PointsMaterial({
+        color,
+        size,
+        sizeAttenuation: false,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        fog: false,
+        toneMapped: false,
+      })
+      const points = new THREE.Points(geometry, material)
+      points.position.copy(camera.position)
+      points.frustumCulled = false
+      scene.add(points)
+      return { points, geometry, material, follow }
     }
-    starsGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
-    const stars = new THREE.Points(
-      starsGeometry,
-      new THREE.PointsMaterial({ color: '#8da4c7', size: 0.045, transparent: true, opacity: 0.48 }),
-    )
-    scene.add(stars)
+
+    const starLayers = [
+      createStarLayer(900, 24, 110, 1.05, 0.46, '#8196b8', 0.18),
+      createStarLayer(180, 10, 34, 1.45, 0.34, '#b4c2d8', 0.07),
+    ]
 
     const visuals = new Map<string, VisualBody>()
     let observedTrailVersion = latestTrailVersion.current
     let observedTrailEnabled = latestTrailEnabled.current
+    let observedBodyCount = latestBodies.current.length
 
     const clearTrail = (visual: VisualBody) => {
       visual.points = []
@@ -321,11 +359,37 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       }
     }
 
+    const compositionOffset = new THREE.Vector3()
+    const cameraShift = new THREE.Vector3()
+    const targetScratch = new THREE.Vector3()
+
+    const moveCameraTargetTo = (target: THREE.Vector3) => {
+      cameraShift.copy(target).sub(controls.target)
+      camera.position.add(cameraShift)
+      controls.target.copy(target)
+
+      if (cameraShift.lengthSq() > 25) {
+        starLayers.forEach((layer) => layer.points.position.add(cameraShift))
+      }
+    }
+
     let compositionMode: 'mobile' | 'desktop' | null = null
     const applyComposition = () => {
       const nextMode = host.clientWidth <= 760 ? 'mobile' : 'desktop'
       if (nextMode === compositionMode) return
-      controls.target.set(0, nextMode === 'mobile' ? -1 : 0, 0)
+
+      compositionOffset.set(0, nextMode === 'mobile' ? -1 : 0, 0)
+      const current = latestBodies.current
+      if (latestAutoTrack.current && current.length === 1) {
+        const body = current[0]
+        targetScratch
+          .set(body.position.x, body.position.y, body.position.z)
+          .add(compositionOffset)
+        moveCameraTargetTo(targetScratch)
+      } else {
+        moveCameraTargetTo(compositionOffset)
+      }
+
       controls.update()
       compositionMode = nextMode
     }
@@ -357,6 +421,19 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       const trailEnabledNow = latestTrailEnabled.current
       const trailDurationMs = Math.max(1, latestTrailDuration.current) * 1000
       const cutoff = now - trailDurationMs
+
+      if (observedBodyCount !== current.length) {
+        if (current.length > 1) moveCameraTargetTo(compositionOffset)
+        observedBodyCount = current.length
+      }
+
+      if (latestAutoTrack.current && current.length === 1) {
+        const body = current[0]
+        targetScratch
+          .set(body.position.x, body.position.y, body.position.z)
+          .add(compositionOffset)
+        moveCameraTargetTo(targetScratch)
+      }
 
       if (observedTrailVersion !== latestTrailVersion.current) {
         Array.from(visuals.keys()).forEach(removeVisual)
@@ -427,6 +504,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
 
       if (shouldCaptureTrail) lastTrailCapture = now
       controls.update()
+      starLayers.forEach((layer) => layer.points.position.lerp(camera.position, layer.follow))
       renderer.render(scene, camera)
     }
 
@@ -437,8 +515,11 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       observer.disconnect()
       controls.dispose()
       Array.from(visuals.keys()).forEach(removeVisual)
-      starsGeometry.dispose()
-      ;(stars.material as THREE.Material).dispose()
+      starLayers.forEach((layer) => {
+        scene.remove(layer.points)
+        layer.geometry.dispose()
+        layer.material.dispose()
+      })
       renderer.dispose()
       renderer.domElement.remove()
     }
