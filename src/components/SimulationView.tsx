@@ -18,19 +18,25 @@ type TrailPoint = {
   capturedAt: number
 }
 
+type TrailLayer = {
+  core: Line2
+  coreGeometry: LineGeometry
+  coreMaterial: LineMaterial
+  glow: Line2
+  glowGeometry: LineGeometry
+  glowMaterial: LineMaterial
+}
+
 type VisualBody = {
   mesh: THREE.Mesh
   light: THREE.PointLight
-  trail: Line2
-  trailGeometry: LineGeometry
-  trailMaterial: LineMaterial
-  trailDots: THREE.Points
-  trailDotsGeometry: THREE.BufferGeometry
+  trailLayers: TrailLayer[]
   points: TrailPoint[]
 }
 
 const MAX_TRAIL_POINTS = 1800
 const TRAIL_CAPTURE_INTERVAL = 40
+const TRAIL_FADE_LAYERS = 7
 
 export function SimulationView({ bodies, trailVersion, trailEnabled, trailDuration }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -90,57 +96,110 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
     let observedTrailVersion = latestTrailVersion.current
     let observedTrailEnabled = latestTrailEnabled.current
 
-    const updateTrailGeometry = (visual: VisualBody) => {
-      const pointCount = visual.points.length
+    const hideTrailLayer = (layer: TrailLayer) => {
+      layer.core.visible = false
+      layer.glow.visible = false
+    }
 
-      if (pointCount >= 2) {
-        const positions = new Array<number>(pointCount * 3)
-        for (let index = 0; index < pointCount; index += 1) {
-          const point = visual.points[index].position
-          const offset = index * 3
-          positions[offset] = point.x
-          positions[offset + 1] = point.y
-          positions[offset + 2] = point.z
+    const updateTrailGeometry = (visual: VisualBody, now: number, durationMs: number) => {
+      if (visual.points.length < 2) {
+        visual.trailLayers.forEach(hideTrailLayer)
+        return
+      }
+
+      const layerPositions = Array.from({ length: TRAIL_FADE_LAYERS }, () => [] as number[])
+
+      for (let index = 1; index < visual.points.length; index += 1) {
+        const previous = visual.points[index - 1]
+        const current = visual.points[index]
+        const ageRatio = THREE.MathUtils.clamp((now - current.capturedAt) / durationMs, 0, 0.999999)
+        const layerIndex = Math.min(TRAIL_FADE_LAYERS - 1, Math.floor(ageRatio * TRAIL_FADE_LAYERS))
+        const positions = layerPositions[layerIndex]
+
+        if (positions.length === 0) {
+          positions.push(previous.position.x, previous.position.y, previous.position.z)
         }
-        visual.trailGeometry.setPositions(positions)
-        visual.trail.visible = latestTrailEnabled.current
-      } else {
-        visual.trail.visible = false
+        positions.push(current.position.x, current.position.y, current.position.z)
       }
 
-      const dotsAttribute = visual.trailDotsGeometry.getAttribute('position') as THREE.BufferAttribute
-      const dotsArray = dotsAttribute.array as Float32Array
-      for (let index = 0; index < pointCount; index += 1) {
-        const point = visual.points[index].position
-        const offset = index * 3
-        dotsArray[offset] = point.x
-        dotsArray[offset + 1] = point.y
-        dotsArray[offset + 2] = point.z
-      }
-      dotsAttribute.needsUpdate = true
-      visual.trailDotsGeometry.setDrawRange(0, pointCount)
-      if (pointCount > 0) visual.trailDotsGeometry.computeBoundingSphere()
-      visual.trailDots.visible = latestTrailEnabled.current && pointCount > 0
+      visual.trailLayers.forEach((layer, index) => {
+        const positions = layerPositions[index]
+        if (positions.length < 6) {
+          hideTrailLayer(layer)
+          return
+        }
+
+        layer.coreGeometry.setPositions(positions)
+        layer.glowGeometry.setPositions(positions)
+        layer.core.visible = latestTrailEnabled.current
+        layer.glow.visible = latestTrailEnabled.current
+      })
     }
 
     const clearTrail = (visual: VisualBody) => {
       visual.points = []
-      visual.trail.visible = false
-      visual.trailDots.visible = false
-      visual.trailDotsGeometry.setDrawRange(0, 0)
+      visual.trailLayers.forEach(hideTrailLayer)
     }
 
     const removeVisual = (id: string) => {
       const visual = visuals.get(id)
       if (!visual) return
-      scene.remove(visual.mesh, visual.light, visual.trail, visual.trailDots)
+      scene.remove(visual.mesh, visual.light)
       visual.mesh.geometry.dispose()
       ;(visual.mesh.material as THREE.Material).dispose()
-      visual.trailGeometry.dispose()
-      visual.trailMaterial.dispose()
-      visual.trailDotsGeometry.dispose()
-      ;(visual.trailDots.material as THREE.Material).dispose()
+
+      visual.trailLayers.forEach((layer) => {
+        scene.remove(layer.core, layer.glow)
+        layer.coreGeometry.dispose()
+        layer.glowGeometry.dispose()
+        layer.coreMaterial.dispose()
+        layer.glowMaterial.dispose()
+      })
       visuals.delete(id)
+    }
+
+    const createTrailLayer = (body: BodyState, layerIndex: number): TrailLayer => {
+      const freshness = 1 - layerIndex / (TRAIL_FADE_LAYERS - 1)
+      const strength = freshness * freshness
+
+      const coreGeometry = new LineGeometry()
+      coreGeometry.setPositions([0, 0, 0, 0, 0, 0])
+      const coreMaterial = new LineMaterial({
+        color: new THREE.Color(body.color).getHex(),
+        linewidth: 1.1 + 2.6 * freshness,
+        transparent: true,
+        opacity: 0.035 + 0.84 * strength,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      })
+      coreMaterial.resolution.set(Math.max(host.clientWidth, 1), Math.max(host.clientHeight, 1))
+      const core = new Line2(coreGeometry, coreMaterial)
+      core.visible = false
+      core.renderOrder = 31 + (TRAIL_FADE_LAYERS - layerIndex)
+      core.frustumCulled = false
+
+      const glowGeometry = new LineGeometry()
+      glowGeometry.setPositions([0, 0, 0, 0, 0, 0])
+      const glowMaterial = new LineMaterial({
+        color: new THREE.Color(body.color).getHex(),
+        linewidth: 3.5 + 5.5 * freshness,
+        transparent: true,
+        opacity: 0.012 + 0.22 * strength,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      })
+      glowMaterial.resolution.set(Math.max(host.clientWidth, 1), Math.max(host.clientHeight, 1))
+      const glow = new Line2(glowGeometry, glowMaterial)
+      glow.visible = false
+      glow.renderOrder = 20 + (TRAIL_FADE_LAYERS - layerIndex)
+      glow.frustumCulled = false
+
+      scene.add(glow, core)
+      return { core, coreGeometry, coreMaterial, glow, glowGeometry, glowMaterial }
     }
 
     const ensureVisual = (body: BodyState) => {
@@ -155,58 +214,10 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       })
       const mesh = new THREE.Mesh(geometry, material)
       const light = new THREE.PointLight(body.color, 8, 8, 1.8)
+      const trailLayers = Array.from({ length: TRAIL_FADE_LAYERS }, (_, index) => createTrailLayer(body, index))
 
-      const trailGeometry = new LineGeometry()
-      trailGeometry.setPositions([0, 0, 0, 0, 0, 0])
-      const trailMaterial = new LineMaterial({
-        color: new THREE.Color(body.color).getHex(),
-        linewidth: 3.2,
-        transparent: true,
-        opacity: 0.72,
-        depthTest: false,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
-      })
-      trailMaterial.resolution.set(Math.max(host.clientWidth, 1), Math.max(host.clientHeight, 1))
-      const trail = new Line2(trailGeometry, trailMaterial)
-      trail.visible = false
-      trail.renderOrder = 30
-      trail.frustumCulled = false
-
-      const trailDotsGeometry = new THREE.BufferGeometry()
-      trailDotsGeometry.setAttribute(
-        'position',
-        new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3).setUsage(THREE.DynamicDrawUsage),
-      )
-      trailDotsGeometry.setDrawRange(0, 0)
-      const trailDotMaterial = new THREE.PointsMaterial({
-        color: body.color,
-        size: 0.035,
-        sizeAttenuation: true,
-        transparent: true,
-        opacity: 0.34,
-        depthTest: false,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
-      })
-      const trailDots = new THREE.Points(trailDotsGeometry, trailDotMaterial)
-      trailDots.visible = false
-      trailDots.renderOrder = 29
-      trailDots.frustumCulled = false
-
-      scene.add(mesh, light, trailDots, trail)
-      const created = {
-        mesh,
-        light,
-        trail,
-        trailGeometry,
-        trailMaterial,
-        trailDots,
-        trailDotsGeometry,
-        points: [],
-      }
+      scene.add(mesh, light)
+      const created = { mesh, light, trailLayers, points: [] }
       visuals.set(body.id, created)
       return created
     }
@@ -227,7 +238,12 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       camera.aspect = width / height
       camera.updateProjectionMatrix()
       renderer.setSize(width, height, false)
-      visuals.forEach((visual) => visual.trailMaterial.resolution.set(width, height))
+      visuals.forEach((visual) => {
+        visual.trailLayers.forEach((layer) => {
+          layer.coreMaterial.resolution.set(width, height)
+          layer.glowMaterial.resolution.set(width, height)
+        })
+      })
       applyComposition()
     }
 
@@ -273,13 +289,14 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
         const bodyMaterial = visual.mesh.material as THREE.MeshStandardMaterial
         bodyMaterial.color.set(body.color)
         bodyMaterial.emissive.set(body.color)
-        visual.trailMaterial.color.set(body.color)
-        ;(visual.trailDots.material as THREE.PointsMaterial).color.set(body.color)
         visual.light.color.set(body.color)
+        visual.trailLayers.forEach((layer) => {
+          layer.coreMaterial.color.set(body.color)
+          layer.glowMaterial.color.set(body.color)
+        })
 
         if (!trailEnabledNow) {
-          visual.trail.visible = false
-          visual.trailDots.visible = false
+          visual.trailLayers.forEach(hideTrailLayer)
           return
         }
 
@@ -295,7 +312,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
           trailChanged = true
         }
 
-        if (trailChanged) updateTrailGeometry(visual)
+        if (trailChanged) updateTrailGeometry(visual, now, trailDurationMs)
       })
 
       if (shouldCaptureTrail) lastTrailCapture = now
