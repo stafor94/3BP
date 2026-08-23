@@ -1,16 +1,18 @@
 # 3 Body Problem
 
-Interactive Newtonian three-body simulator rendered in 3D with Three.js.
+Interactive Newtonian N-body simulator rendered in 3D with Three.js.
 
 ## Features
 
+- One-, two-, and three-body simulation modes
 - Three-dimensional Newtonian gravity with normalized `G = 1` units
 - Velocity Verlet integration with a fixed physics timestep
 - Collision merging that conserves mass and linear momentum
-- Figure-8, rotating-triangle, and random presets
+- Presets for single-body motion, binary systems, Figure-8, rotating triangle, and randomized three-body motion
 - Editable mass, radius, position, velocity, name, and color
-- Orbit/zoom camera controls and trajectory trails
-- 0.1×, 1×, 10×, and 100× time scales
+- Orbit/zoom camera controls and fading trajectory trails
+- 0.1×, 1×, 5×, and 10× time scales
+- Korean/English UI
 - Responsive desktop/mobile control panel
 - Automatic GitHub Pages deployment
 
@@ -26,6 +28,14 @@ Production build:
 ```bash
 npm run build
 ```
+
+## Versioning
+
+The app follows [Semantic Versioning 2.0.0](https://semver.org/) using `MAJOR.MINOR.PATCH`.
+
+The single source of truth for the current version is the `version` field in `package.json`. The web UI reads that value and displays it next to `3 Body Problem`.
+
+See [VERSIONING.md](./VERSIONING.md) for the project-specific version bump and release policy.
 
 ## Numerical model
 
