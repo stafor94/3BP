@@ -1,39 +1,85 @@
 @media (max-width: 760px) {
   .control-panel.collapsed {
-    height: 96px;
-    padding-bottom: 12px;
+    height: 80px;
+    padding: 10px 14px;
+  }
+
+  .control-panel.collapsed .panel-header {
+    min-height: 58px;
+    height: 58px;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .control-panel.collapsed .panel-header > div:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .control-panel.collapsed .eyebrow {
+    font-size: 8px;
+    letter-spacing: .1em;
+  }
+
+  .control-panel.collapsed .panel-header h1 {
+    margin-top: 3px;
+    font-size: 18px;
+    white-space: nowrap;
+  }
+
+  .control-panel.collapsed .panel-header-actions {
+    position: relative;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: flex-end;
+    gap: 0;
+    padding: 14px 0 0;
+  }
+
+  .control-panel.collapsed .time-readout {
+    position: absolute;
+    top: 0;
+    right: 0;
+    font-size: 9px;
   }
 
   .collapsed-action-row {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 6px;
+    gap: 8px;
   }
 
   .control-panel.collapsed .collapsed-primary-controls {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin: 0;
+    gap: 8px;
+    margin: 0 14px 0 0;
   }
 
   .control-panel.collapsed .collapsed-primary-controls button,
   .control-panel.collapsed .panel-toggle {
-    min-height: 29px;
-    height: 29px;
-    padding: 3px 9px;
-    border-radius: 999px;
+    min-height: 32px;
+    height: 32px;
+    padding: 4px 12px;
+    border-radius: 10px;
     font-size: 10px;
     line-height: 1;
     white-space: nowrap;
   }
 
   .control-panel.collapsed .collapsed-primary-controls .start-button {
-    min-width: 54px;
+    width: 76px;
+    min-width: 76px;
   }
 
   .control-panel.collapsed .collapsed-primary-controls .secondary-button {
-    min-width: 48px;
+    width: 68px;
+    min-width: 68px;
+  }
+
+  .control-panel.collapsed .panel-toggle {
+    min-width: 58px;
+    border-radius: 999px;
   }
 }
