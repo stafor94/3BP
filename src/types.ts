@@ -15,4 +15,14 @@ export type SimulationSnapshot = {
   time: number
 }
 
-export type PresetId = 'figure8' | 'triangle' | 'random'
+export type BodyCount = 1 | 2 | 3
+
+export type PresetId =
+  | 'singleStill'
+  | 'singleDrift'
+  | 'binaryOrbit'
+  | 'binaryCollision'
+  | 'binaryFlyby'
+  | 'figure8'
+  | 'triangle'
+  | 'random'
