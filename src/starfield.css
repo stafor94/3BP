@@ -1,3 +1,7 @@
+.simulation-view {
+  z-index: 0;
+}
+
 .simulation-view::before {
   content: '';
   position: absolute;
@@ -17,4 +21,8 @@
 .simulation-view canvas {
   position: relative;
   z-index: 0;
+}
+
+.viewport-badge {
+  z-index: 2;
 }
