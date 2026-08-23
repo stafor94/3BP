@@ -11,6 +11,7 @@ const MAX_STEPS_PER_FRAME = 4000
 const LANGUAGE_STORAGE_KEY = '3bp-language'
 const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
 const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
+const AUTO_TRACK_STORAGE_KEY = '3bp-auto-track'
 
 function getInitialLanguage(): Language {
   const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY)
@@ -26,6 +27,10 @@ function getInitialTrailDuration() {
   return Number.isFinite(saved) && saved >= 1 && saved <= 60 ? saved : 8
 }
 
+function getInitialAutoTrack() {
+  return localStorage.getItem(AUTO_TRACK_STORAGE_KEY) !== 'false'
+}
+
 export default function App() {
   const [preset, setPreset] = useState<PresetId>('figure8')
   const [bodyCount, setBodyCount] = useState<BodyCount>(3)
@@ -36,6 +41,7 @@ export default function App() {
   const [trailVersion, setTrailVersion] = useState(0)
   const [trailEnabled, setTrailEnabled] = useState(getInitialTrailEnabled)
   const [trailDuration, setTrailDuration] = useState(getInitialTrailDuration)
+  const [autoTrack, setAutoTrack] = useState(getInitialAutoTrack)
   const [language, setLanguage] = useState<Language>(getInitialLanguage)
 
   const bodiesRef = useRef(bodies)
@@ -56,6 +62,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(TRAIL_DURATION_STORAGE_KEY, String(trailDuration))
   }, [trailDuration])
+  useEffect(() => {
+    localStorage.setItem(AUTO_TRACK_STORAGE_KEY, String(autoTrack))
+  }, [autoTrack])
 
   const loadPreset = useCallback((nextPreset: PresetId) => {
     setPreset(nextPreset)
@@ -144,6 +153,7 @@ export default function App() {
           trailVersion={trailVersion}
           trailEnabled={trailEnabled}
           trailDuration={trailDuration}
+          autoTrack={autoTrack}
         />
         <div className="viewport-badge">
           <span className={isRunning ? 'status-dot running' : 'status-dot'} />
@@ -160,8 +170,10 @@ export default function App() {
         language={language}
         trailEnabled={trailEnabled}
         trailDuration={trailDuration}
+        autoTrack={autoTrack}
         onTrailEnabledChange={setTrailEnabled}
         onTrailDurationChange={setTrailDuration}
+        onAutoTrackChange={setAutoTrack}
         onRunningChange={setIsRunning}
         onSpeedChange={setSpeed}
         onBodyCountChange={changeBodyCount}
