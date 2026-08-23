@@ -9,10 +9,21 @@ import type { BodyState, PresetId } from './types'
 const PHYSICS_DT = 0.0015
 const MAX_STEPS_PER_FRAME = 4000
 const LANGUAGE_STORAGE_KEY = '3bp-language'
+const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
+const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
 
 function getInitialLanguage(): Language {
   const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY)
   return saved === 'en' ? 'en' : 'ko'
+}
+
+function getInitialTrailEnabled() {
+  return localStorage.getItem(TRAIL_ENABLED_STORAGE_KEY) !== 'false'
+}
+
+function getInitialTrailDuration() {
+  const saved = Number(localStorage.getItem(TRAIL_DURATION_STORAGE_KEY))
+  return Number.isFinite(saved) && saved >= 1 && saved <= 60 ? saved : 8
 }
 
 export default function App() {
@@ -22,6 +33,8 @@ export default function App() {
   const [speed, setSpeed] = useState(1)
   const [time, setTime] = useState(0)
   const [trailVersion, setTrailVersion] = useState(0)
+  const [trailEnabled, setTrailEnabled] = useState(getInitialTrailEnabled)
+  const [trailDuration, setTrailDuration] = useState(getInitialTrailDuration)
   const [language, setLanguage] = useState<Language>(getInitialLanguage)
 
   const bodiesRef = useRef(bodies)
@@ -36,6 +49,12 @@ export default function App() {
     localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
     document.documentElement.lang = language === 'ko' ? 'ko' : 'en'
   }, [language])
+  useEffect(() => {
+    localStorage.setItem(TRAIL_ENABLED_STORAGE_KEY, String(trailEnabled))
+  }, [trailEnabled])
+  useEffect(() => {
+    localStorage.setItem(TRAIL_DURATION_STORAGE_KEY, String(trailDuration))
+  }, [trailDuration])
 
   const loadPreset = useCallback((nextPreset: PresetId) => {
     setPreset(nextPreset)
@@ -103,7 +122,12 @@ export default function App() {
   return (
     <main className="app-shell">
       <section className="viewport-shell">
-        <SimulationView bodies={bodies} trailVersion={trailVersion} />
+        <SimulationView
+          bodies={bodies}
+          trailVersion={trailVersion}
+          trailEnabled={trailEnabled}
+          trailDuration={trailDuration}
+        />
         <div className="viewport-badge">
           <span className={isRunning ? 'status-dot running' : 'status-dot'} />
           {isRunning ? `${speed}× ${t.running}` : t.paused}
@@ -116,7 +140,11 @@ export default function App() {
         time={time}
         preset={preset}
         language={language}
+        trailEnabled={trailEnabled}
+        trailDuration={trailDuration}
         onLanguageChange={setLanguage}
+        onTrailEnabledChange={setTrailEnabled}
+        onTrailDurationChange={setTrailDuration}
         onRunningChange={setIsRunning}
         onSpeedChange={setSpeed}
         onPresetChange={loadPreset}
