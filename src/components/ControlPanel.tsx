@@ -76,6 +76,13 @@ export function ControlPanel({
         </div>
       </div>
 
+      <div className="collapsed-primary-controls" aria-hidden={!isCollapsed}>
+        <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
+          {isRunning ? t.pause : t.start}
+        </button>
+        <button className="secondary-button" onClick={onReset}>{t.reset}</button>
+      </div>
+
       <div className="panel-content">
         <div className="primary-controls">
           <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
