@@ -108,6 +108,7 @@ export function ControlPanel({
 
         <section>
           <div className="preset-heading-row">
+            <label className="section-label" htmlFor="preset">{t.preset}</label>
             <div className="body-count-control" role="group" aria-label={t.bodyCount}>
               {BODY_COUNTS.map((count) => (
                 <button
@@ -122,7 +123,6 @@ export function ControlPanel({
                 </button>
               ))}
             </div>
-            <label className="section-label" htmlFor="preset">{t.preset}</label>
           </div>
           <select id="preset" value={preset} onChange={(event) => onPresetChange(event.target.value as PresetId)}>
             {availablePresets.map((item) => (
