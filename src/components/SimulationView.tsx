@@ -30,6 +30,8 @@ type VisualBody = {
   trailPositions: Float32Array
   trailAlphas: Float32Array
   trailSizes: Float32Array
+  trailGlow: Line2
+  trailGlowMaterial: LineMaterial
   trailCore: Line2
   trailCoreGeometry: LineGeometry
   trailCoreMaterial: LineMaterial
@@ -73,7 +75,6 @@ const trailFragmentShader = `
     float alpha = vAlpha * (0.46 * halo + 0.76 * core) * edge;
 
     gl_FragColor = vec4(uColor, alpha);
-    #include <colorspace_fragment>
   }
 `
 
@@ -202,18 +203,20 @@ export function SimulationView({
       visual.points = []
       visual.trailGeometry.setDrawRange(0, 0)
       visual.trailPoints.visible = false
+      visual.trailGlow.visible = false
       visual.trailCore.visible = false
     }
 
     const removeVisual = (id: string) => {
       const visual = visuals.get(id)
       if (!visual) return
-      scene.remove(visual.mesh, visual.light, visual.trailPoints, visual.trailCore)
+      scene.remove(visual.mesh, visual.light, visual.trailPoints, visual.trailGlow, visual.trailCore)
       visual.mesh.geometry.dispose()
       ;(visual.mesh.material as THREE.Material).dispose()
       visual.trailGeometry.dispose()
       visual.trailMaterial.dispose()
       visual.trailCoreGeometry.dispose()
+      visual.trailGlowMaterial.dispose()
       visual.trailCoreMaterial.dispose()
       visuals.delete(id)
     }
@@ -260,9 +263,7 @@ export function SimulationView({
         depthWrite: false,
         blending: THREE.NormalBlending,
         toneMapped: false,
-        fog: false,
       })
-      trailMaterial.premultipliedAlpha = false
       const trailPoints = new THREE.Points(trailGeometry, trailMaterial)
       trailPoints.visible = false
       trailPoints.frustumCulled = false
@@ -270,6 +271,22 @@ export function SimulationView({
 
       const trailCoreGeometry = new LineGeometry()
       trailCoreGeometry.setPositions([0, 0, 0, 0, 0, 0])
+
+      const trailGlowMaterial = new LineMaterial({
+        color: new THREE.Color(body.color).getHex(),
+        linewidth: 6.2,
+        transparent: true,
+        opacity: 0.09,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.NormalBlending,
+        toneMapped: false,
+      })
+      trailGlowMaterial.resolution.set(Math.max(host.clientWidth, 1), Math.max(host.clientHeight, 1))
+      const trailGlow = new Line2(trailCoreGeometry, trailGlowMaterial)
+      trailGlow.visible = false
+      trailGlow.frustumCulled = false
+      trailGlow.renderOrder = 30
 
       const trailCoreMaterial = new LineMaterial({
         color: new THREE.Color(body.color).getHex(),
@@ -280,16 +297,14 @@ export function SimulationView({
         depthWrite: false,
         blending: THREE.NormalBlending,
         toneMapped: false,
-        fog: false,
       })
-      trailCoreMaterial.premultipliedAlpha = false
       trailCoreMaterial.resolution.set(Math.max(host.clientWidth, 1), Math.max(host.clientHeight, 1))
       const trailCore = new Line2(trailCoreGeometry, trailCoreMaterial)
       trailCore.visible = false
       trailCore.frustumCulled = false
-      trailCore.renderOrder = 30
+      trailCore.renderOrder = 31
 
-      scene.add(trailPoints, trailCore, mesh, light)
+      scene.add(trailPoints, trailGlow, trailCore, mesh, light)
       const created: VisualBody = {
         mesh,
         light,
@@ -299,6 +314,8 @@ export function SimulationView({
         trailPositions,
         trailAlphas,
         trailSizes,
+        trailGlow,
+        trailGlowMaterial,
         trailCore,
         trailCoreGeometry,
         trailCoreMaterial,
@@ -308,13 +325,12 @@ export function SimulationView({
       return created
     }
 
-    const projectedTrailPoint = new THREE.Vector3()
-
     const updateTrailVisual = (visual: VisualBody, currentTime: number, duration: number) => {
-      const sourceCount = visual.points.length
-      if (sourceCount === 0) {
+      const count = visual.points.length
+      if (count === 0) {
         visual.trailGeometry.setDrawRange(0, 0)
         visual.trailPoints.visible = false
+        visual.trailGlow.visible = false
         visual.trailCore.visible = false
         return
       }
@@ -322,55 +338,28 @@ export function SimulationView({
       const positionAttribute = visual.trailGeometry.getAttribute('position') as THREE.BufferAttribute
       const alphaAttribute = visual.trailGeometry.getAttribute('aAlpha') as THREE.BufferAttribute
       const sizeAttribute = visual.trailGeometry.getAttribute('aSize') as THREE.BufferAttribute
-      const coreWindow = Math.min(duration * 0.36, 2.6)
-      const coreCutoff = currentTime - coreWindow
-      const pixelRatio = renderer.getPixelRatio()
-      const viewportWidth = Math.max(host.clientWidth * pixelRatio, 1)
-      const viewportHeight = Math.max(host.clientHeight * pixelRatio, 1)
-      let renderCount = 0
-      let lastScreenX = 0
-      let lastScreenY = 0
-      let hasLastScreenPoint = false
 
-      for (let index = 0; index < sourceCount; index += 1) {
+      for (let index = 0; index < count; index += 1) {
         const point = visual.points[index]
-        if (point.capturedAt >= coreCutoff) continue
+        const offset = index * 3
+        visual.trailPositions[offset] = point.position.x
+        visual.trailPositions[offset + 1] = point.position.y
+        visual.trailPositions[offset + 2] = point.position.z
 
         const ageRatio = THREE.MathUtils.clamp((currentTime - point.capturedAt) / duration, 0, 1)
         const freshness = 1 - ageRatio
         const fade = Math.pow(freshness, 1.8)
-        const size = 4.5 + 17.5 * Math.pow(freshness, 1.7)
-
-        projectedTrailPoint.copy(point.position).project(camera)
-        const screenX = (projectedTrailPoint.x * 0.5 + 0.5) * viewportWidth
-        const screenY = (-projectedTrailPoint.y * 0.5 + 0.5) * viewportHeight
-        const minScreenSpacing = Math.max(1.25, size * 0.28)
-        const nextPoint = visual.points[index + 1]
-        const isTailBoundary = !nextPoint || nextPoint.capturedAt >= coreCutoff
-
-        if (hasLastScreenPoint && !isTailBoundary) {
-          const screenDistance = Math.hypot(screenX - lastScreenX, screenY - lastScreenY)
-          if (screenDistance < minScreenSpacing) continue
-        }
-
-        const offset = renderCount * 3
-        visual.trailPositions[offset] = point.position.x
-        visual.trailPositions[offset + 1] = point.position.y
-        visual.trailPositions[offset + 2] = point.position.z
-        visual.trailAlphas[renderCount] = fade * 0.66
-        visual.trailSizes[renderCount] = size
-        renderCount += 1
-        lastScreenX = screenX
-        lastScreenY = screenY
-        hasLastScreenPoint = true
+        visual.trailAlphas[index] = fade * 0.82
+        visual.trailSizes[index] = 4.5 + 17.5 * Math.pow(freshness, 1.7)
       }
 
       positionAttribute.needsUpdate = true
       alphaAttribute.needsUpdate = true
       sizeAttribute.needsUpdate = true
-      visual.trailGeometry.setDrawRange(0, renderCount)
-      visual.trailPoints.visible = latestTrailEnabled.current && renderCount > 0
+      visual.trailGeometry.setDrawRange(0, count)
+      visual.trailPoints.visible = latestTrailEnabled.current
 
+      const coreCutoff = currentTime - Math.min(duration * 0.36, 2.6)
       const recentPoints = visual.points.filter((point) => point.capturedAt >= coreCutoff)
       const curvePoints: THREE.Vector3[] = []
       recentPoints.forEach((point) => {
@@ -396,8 +385,10 @@ export function SimulationView({
           positions[offset + 2] = point.z
         })
         visual.trailCoreGeometry.setPositions(positions)
+        visual.trailGlow.visible = latestTrailEnabled.current
         visual.trailCore.visible = latestTrailEnabled.current
       } else {
+        visual.trailGlow.visible = false
         visual.trailCore.visible = false
       }
     }
@@ -451,6 +442,7 @@ export function SimulationView({
       camera.updateProjectionMatrix()
       renderer.setSize(width, height, false)
       visuals.forEach((visual) => {
+        visual.trailGlowMaterial.resolution.set(width, height)
         visual.trailCoreMaterial.resolution.set(width, height)
       })
       applyComposition()
@@ -542,10 +534,12 @@ export function SimulationView({
         bodyMaterial.emissive.set(body.color)
         visual.light.color.set(body.color)
         ;(visual.trailMaterial.uniforms.uColor.value as THREE.Color).set(body.color)
+        visual.trailGlowMaterial.color.set(body.color)
         visual.trailCoreMaterial.color.set(body.color)
 
         if (!trailEnabledNow) {
           visual.trailPoints.visible = false
+          visual.trailGlow.visible = false
           visual.trailCore.visible = false
           return
         }
