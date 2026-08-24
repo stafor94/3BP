@@ -207,7 +207,7 @@ export function ControlPanel({
                 <div className="body-fields">
                   <label>
                     {t.name}
-                    <input value={body.name} onChange={(e) => onBodyChange(body.id, { ...body, name: e.target.value })} />
+                    <input value={body.name} readOnly aria-readonly="true" title={body.name} />
                   </label>
                   <div className="stellar-color-field">
                     <span>{t.color}</span>
