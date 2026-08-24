@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
-import { getHierarchicalPresetOverride } from './hierarchicalPresets'
+import { getOrbital3dPresetOverride } from './orbital3dPresets'
 import { translations, type Language } from './i18n'
 import { stepBodies } from './physics/engine'
 import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
@@ -97,7 +97,7 @@ export default function App() {
   const loadPreset = useCallback((nextPreset: PresetId) => {
     setPreset(nextPreset)
     setBodyCount(getPresetBodyCount(nextPreset))
-    const next = getHierarchicalPresetOverride(nextPreset) ?? getPreset(nextPreset)
+    const next = getOrbital3dPresetOverride(nextPreset) ?? getPreset(nextPreset)
     bodiesRef.current = next
     setBodies(next)
     setTrackedBodyId(next.length === 1 ? next[0].id : null)
