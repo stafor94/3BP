@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
+import { getHierarchicalPresetOverride } from './hierarchicalPresets'
 import { translations, type Language } from './i18n'
 import { stepBodies } from './physics/engine'
 import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
@@ -12,6 +13,11 @@ const TRAIL_SAMPLE_INTERVAL = 0.01
 const LANGUAGE_STORAGE_KEY = '3bp-language'
 const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
 const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
+const SHOWCASE_DEFAULT_BY_BODY_COUNT: Partial<Record<BodyCount, PresetId>> = {
+  4: 'quadNested',
+  5: 'pentaNested',
+  6: 'hexaNested',
+}
 
 function getInitialLanguage(): Language {
   const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY)
@@ -91,7 +97,7 @@ export default function App() {
   const loadPreset = useCallback((nextPreset: PresetId) => {
     setPreset(nextPreset)
     setBodyCount(getPresetBodyCount(nextPreset))
-    const next = getPreset(nextPreset)
+    const next = getHierarchicalPresetOverride(nextPreset) ?? getPreset(nextPreset)
     bodiesRef.current = next
     setBodies(next)
     setTrackedBodyId(next.length === 1 ? next[0].id : null)
@@ -102,7 +108,7 @@ export default function App() {
   }, [resetTrailSampling])
 
   const changeBodyCount = useCallback((count: BodyCount) => {
-    loadPreset(DEFAULT_PRESET_BY_BODY_COUNT[count])
+    loadPreset(SHOWCASE_DEFAULT_BY_BODY_COUNT[count] ?? DEFAULT_PRESET_BY_BODY_COUNT[count])
   }, [loadPreset])
 
   const reset = useCallback(() => loadPreset(preset), [loadPreset, preset])
