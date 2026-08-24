@@ -94,30 +94,61 @@
 }
 
 @media (max-width: 760px) {
+  html {
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body,
+  #root,
+  .app-shell {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    overflow: clip;
+  }
+
   .app-shell .control-panel {
     position: absolute;
     z-index: 5;
+    top: auto;
     left: 10px;
     right: 10px;
     bottom: 0;
     display: flex;
     flex-direction: column;
+    width: auto;
+    min-width: 0;
+    max-width: calc(100% - 20px);
     height: min(44dvh, 420px);
     padding: 16px 16px 0;
     border: 1px solid #202a3b;
     border-bottom: 0;
     border-radius: 18px 18px 0 0;
     overflow: visible;
+    transform: none !important;
+    will-change: auto;
+    transition: height .22s ease, padding .22s ease;
   }
 
   .app-shell .control-panel .panel-header {
     flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .app-shell .control-panel .panel-title-block,
+  .app-shell .control-panel .panel-header-actions,
+  .app-shell .control-panel .collapsed-primary-controls {
+    min-width: 0;
   }
 
   .app-shell .control-panel .panel-content {
     flex: 1 1 auto;
+    min-width: 0;
     min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     overscroll-behavior: contain;
     padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     scrollbar-width: thin;
@@ -129,6 +160,7 @@
     min-height: 82px !important;
     padding: 17px 16px 0 !important;
     overflow: visible !important;
+    transform: none !important;
   }
 
   .control-panel.collapsed .panel-content {
@@ -201,7 +233,7 @@
   }
 
   .control-panel.collapsed .panel-header-actions {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     display: flex;
     flex-direction: row;
     align-items: center;
