@@ -10,6 +10,18 @@ export type BodyState = {
   velocity: Vec3
 }
 
+export type TrailSample = {
+  bodyId: string
+  color: string
+  position: Vec3
+  simulatedAt: number
+}
+
+export type TrailSampleBatch = {
+  sequence: number
+  samples: TrailSample[]
+}
+
 export type SimulationSnapshot = {
   bodies: BodyState[]
   time: number
