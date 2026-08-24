@@ -52,5 +52,11 @@ export function SimulationView({
     return createSimulationRenderer(host, () => renderStateRef.current)
   }, [])
 
-  return <div className="simulation-view" ref={hostRef} aria-label="3D three-body simulation" />
+  return (
+    <div
+      className={`simulation-view${trackedBodyId ? ' is-body-tracked' : ''}`}
+      ref={hostRef}
+      aria-label="3D three-body simulation"
+    />
+  )
 }
