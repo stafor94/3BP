@@ -19,28 +19,45 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   min-height: 27px;
 }
 
 .preset-heading-row .section-label {
   margin: 0;
+  flex: 0 0 auto;
 }
 
+.preset-control-groups {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 0;
+}
+
+.space-mode-control,
 .body-count-control {
   display: inline-grid;
-  grid-template-columns: repeat(6, 27px);
-  gap: 3px;
+  gap: 2px;
   padding: 3px;
   border: 1px solid #1d2534;
   border-radius: 9px;
   background: #090e17;
 }
 
+.space-mode-control {
+  grid-template-columns: repeat(2, 42px);
+}
+
+.body-count-control {
+  grid-template-columns: repeat(6, 23px);
+}
+
+.space-mode-control button,
 .body-count-control button {
-  min-width: 27px;
-  width: 27px;
+  min-width: 0;
   min-height: 25px;
   height: 25px;
   padding: 0;
@@ -51,13 +68,25 @@
   font-size: 11px;
   font-weight: 800;
   line-height: 1;
+  white-space: nowrap;
 }
 
+.space-mode-control button {
+  width: 42px;
+  font-size: 10px;
+}
+
+.body-count-control button {
+  width: 23px;
+}
+
+.space-mode-control button:hover,
 .body-count-control button:hover {
   border: 0;
   background: #121927;
 }
 
+.space-mode-control button.active,
 .body-count-control button.active {
   color: #fff;
   border: 0;
@@ -210,6 +239,42 @@
 
     .control-panel.collapsed .collapsed-primary-controls .secondary-button {
       min-width: 64px;
+    }
+
+    .preset-heading-row {
+      gap: 6px;
+    }
+
+    .preset-control-groups {
+      gap: 4px;
+    }
+
+    .space-mode-control,
+    .body-count-control {
+      gap: 2px;
+      padding: 2px;
+    }
+
+    .space-mode-control {
+      grid-template-columns: repeat(2, 35px);
+    }
+
+    .body-count-control {
+      grid-template-columns: repeat(6, 20px);
+    }
+
+    .space-mode-control button {
+      width: 35px;
+      min-height: 24px;
+      height: 24px;
+      font-size: 9px;
+    }
+
+    .body-count-control button {
+      width: 20px;
+      min-height: 24px;
+      height: 24px;
+      font-size: 10px;
     }
   }
 }
