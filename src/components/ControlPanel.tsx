@@ -34,7 +34,7 @@ type Props = {
   onBodyChange: (id: string, next: BodyState) => void
 }
 
-const SPEEDS = [0.1, 1, 5, 10]
+const SPEEDS = [0.1, 0.5, 1, 2, 3, 5, 10]
 const BODY_COUNTS: BodyCount[] = [1, 2, 3, 4, 5, 6]
 const SPACE_MODES: SpaceMode[] = ['2d', '3d']
 const vectorKeys = ['x', 'y', 'z'] as const
