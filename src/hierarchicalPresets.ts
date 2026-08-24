@@ -240,7 +240,7 @@ function createBorealSubsystem(): BodyState[] {
   ])
 }
 
-export function createHierarchicalMoonPreset(totalCount: 4 | 5 | 6): BodyState[] {
+function createPlanetMoonHierarchy(totalCount: 4 | 5 | 6): BodyState[] {
   const result: BodyState[] = [
     body('a', 'Helios', STAR_MASS, 0.16, [0, 0, 0], [0, 0, 0], STELLAR_COLOR_BY_CLASS.G),
   ]
@@ -256,9 +256,300 @@ export function createHierarchicalMoonPreset(totalCount: 4 | 5 | 6): BodyState[]
   return centerSystem(result)
 }
 
+function createCircumbinaryFamily(totalCount: 4 | 5 | 6): BodyState[] {
+  const starOneMass = 1.5
+  const starTwoMass = 1
+  const binaryMass = starOneMass + starTwoMass
+  const separation = 0.8
+  const angularSpeed = Math.sqrt(binaryMass / separation ** 3)
+  const starOneRadius = separation * starTwoMass / binaryMass
+  const starTwoRadius = separation * starOneMass / binaryMass
+
+  const result: BodyState[] = [
+    body(
+      'a',
+      'Aurelia',
+      starOneMass,
+      0.075,
+      [-starOneRadius, 0, 0],
+      [0, -angularSpeed * starOneRadius, 0],
+      STELLAR_COLOR_BY_CLASS.F,
+    ),
+    body(
+      'b',
+      'Vesper',
+      starTwoMass,
+      0.065,
+      [starTwoRadius, 0, 0],
+      [0, angularSpeed * starTwoRadius, 0],
+      STELLAR_COLOR_BY_CLASS.M,
+    ),
+  ]
+
+  const planetMass = 0.28
+  const orbitRadius = 3.2
+  const orbitAngle = Math.PI / 2
+  const inclination = (6 * Math.PI) / 180
+  const barycenterPosition = orbitalPosition(orbitRadius, orbitAngle, inclination)
+  const barycenterVelocity = orbitalVelocity(
+    Math.sqrt((binaryMass + planetMass) / orbitRadius),
+    orbitAngle,
+    inclination,
+  )
+  const localBodies: LocalBody[] = [
+    {
+      id: 'c',
+      name: 'Janus',
+      mass: planetMass,
+      radius: 0.055,
+      position: [0, 0, 0],
+      velocity: [0, 0, 0],
+      color: STELLAR_COLOR_BY_CLASS.K,
+    },
+  ]
+
+  const firstMoonMass = 0.0015
+  const firstMoonRadius = 0.18
+  const firstMoonAngle = 0.4
+  localBodies.push({
+    id: 'd',
+    name: 'Luna',
+    mass: firstMoonMass,
+    radius: 0.015,
+    position: orbitalPosition(firstMoonRadius, firstMoonAngle, inclination),
+    velocity: orbitalVelocity(
+      Math.sqrt((planetMass + firstMoonMass) / firstMoonRadius),
+      firstMoonAngle,
+      inclination,
+    ),
+    color: STELLAR_COLOR_BY_CLASS.A,
+  })
+
+  if (totalCount >= 5) {
+    const secondMoonMass = 0.0008
+    const secondMoonRadius = 0.32
+    const secondMoonAngle = 2.8
+    localBodies.push({
+      id: 'e',
+      name: 'Nereid',
+      mass: secondMoonMass,
+      radius: 0.014,
+      position: orbitalPosition(secondMoonRadius, secondMoonAngle, inclination),
+      velocity: orbitalVelocity(
+        Math.sqrt((planetMass + secondMoonMass) / secondMoonRadius),
+        secondMoonAngle,
+        inclination,
+      ),
+      color: STELLAR_COLOR_BY_CLASS.B,
+    })
+  }
+
+  result.push(...placeSubsystem(barycenterPosition, barycenterVelocity, localBodies))
+
+  if (totalCount === 6) {
+    const outerMass = 0.035
+    const outerRadius = 5.4
+    const outerAngle = Math.PI
+    const outerInclination = (-15 * Math.PI) / 180
+    result.push(
+      body(
+        'f',
+        'Cinder',
+        outerMass,
+        0.035,
+        orbitalPosition(outerRadius, outerAngle, outerInclination),
+        orbitalVelocity(Math.sqrt(binaryMass / outerRadius), outerAngle, outerInclination),
+        STELLAR_COLOR_BY_CLASS.O,
+      ),
+    )
+  }
+
+  return centerSystem(result)
+}
+
+function createThreePlanetShowcase(): BodyState[] {
+  const primaryMass = 8
+  const result: BodyState[] = [
+    body('a', 'Helios', primaryMass, 0.16, [0, 0, 0], [0, 0, 0], STELLAR_COLOR_BY_CLASS.G),
+  ]
+  const configurations: Array<[string, string, number, number, number, number, string]> = [
+    ['b', 'Swift', 0.04, 1.25, 0, -25, STELLAR_COLOR_BY_CLASS.B],
+    ['c', 'Cobalt', 0.025, 2.45, 2.2, 34, STELLAR_COLOR_BY_CLASS.O],
+    ['d', 'Ember', 0.018, 3.75, 4.3, -12, STELLAR_COLOR_BY_CLASS.M],
+  ]
+
+  configurations.forEach(([id, name, mass, orbitRadius, angle, inclinationDegrees, color]) => {
+    const inclination = (inclinationDegrees * Math.PI) / 180
+    result.push(
+      body(
+        id,
+        name,
+        mass,
+        0.038,
+        orbitalPosition(orbitRadius, angle, inclination),
+        orbitalVelocity(Math.sqrt(primaryMass / orbitRadius), angle, inclination),
+        color,
+      ),
+    )
+  })
+
+  return centerSystem(result)
+}
+
+function createTrojanMoonSystem(): BodyState[] {
+  const primaryMass = 8
+  const planetMass = 0.35
+  const orbitRadius = 2.6
+  const inclination = (10 * Math.PI) / 180
+  const barycenterPosition = orbitalPosition(orbitRadius, 0, inclination)
+  const barycenterVelocity = orbitalVelocity(
+    Math.sqrt((primaryMass + planetMass) / orbitRadius),
+    0,
+    inclination,
+  )
+  const moonMass = 0.0015
+  const moonRadius = 0.17
+  const moonAngle = 1.2
+
+  const result: BodyState[] = [
+    body('a', 'Helios', primaryMass, 0.16, [0, 0, 0], [0, 0, 0], STELLAR_COLOR_BY_CLASS.G),
+    ...placeSubsystem(barycenterPosition, barycenterVelocity, [
+      {
+        id: 'b',
+        name: 'Atlas',
+        mass: planetMass,
+        radius: 0.06,
+        position: [0, 0, 0],
+        velocity: [0, 0, 0],
+        color: STELLAR_COLOR_BY_CLASS.K,
+      },
+      {
+        id: 'c',
+        name: 'Selene',
+        mass: moonMass,
+        radius: 0.016,
+        position: orbitalPosition(moonRadius, moonAngle, inclination),
+        velocity: orbitalVelocity(
+          Math.sqrt((planetMass + moonMass) / moonRadius),
+          moonAngle,
+          inclination,
+        ),
+        color: STELLAR_COLOR_BY_CLASS.A,
+      },
+    ]),
+  ]
+
+  const trojanAngle = Math.PI / 3
+  result.push(
+    body(
+      'd',
+      'Trojan',
+      0.004,
+      0.022,
+      orbitalPosition(orbitRadius, trojanAngle, inclination),
+      orbitalVelocity(Math.sqrt(primaryMass / orbitRadius), trojanAngle, inclination),
+      STELLAR_COLOR_BY_CLASS.B,
+    ),
+  )
+
+  const outerRadius = 4.6
+  const outerAngle = Math.PI * 1.25
+  const outerInclination = (-18 * Math.PI) / 180
+  result.push(
+    body(
+      'e',
+      'Ember',
+      0.025,
+      0.036,
+      orbitalPosition(outerRadius, outerAngle, outerInclination),
+      orbitalVelocity(Math.sqrt(primaryMass / outerRadius), outerAngle, outerInclination),
+      STELLAR_COLOR_BY_CLASS.M,
+    ),
+  )
+
+  return centerSystem(result)
+}
+
+function createSixBodyPlanetarySystem(): BodyState[] {
+  const primaryMass = 8
+  const planetMass = 0.32
+  const planetOrbitRadius = 2.35
+  const planetAngle = 0.3
+  const planetInclination = (14 * Math.PI) / 180
+  const barycenterPosition = orbitalPosition(planetOrbitRadius, planetAngle, planetInclination)
+  const barycenterVelocity = orbitalVelocity(
+    Math.sqrt((primaryMass + planetMass) / planetOrbitRadius),
+    planetAngle,
+    planetInclination,
+  )
+  const moonMass = 0.0014
+  const moonRadius = 0.16
+  const moonAngle = 2
+
+  const result: BodyState[] = [
+    body('a', 'Helios', primaryMass, 0.16, [0, 0, 0], [0, 0, 0], STELLAR_COLOR_BY_CLASS.G),
+    ...placeSubsystem(barycenterPosition, barycenterVelocity, [
+      {
+        id: 'b',
+        name: 'Atlas',
+        mass: planetMass,
+        radius: 0.06,
+        position: [0, 0, 0],
+        velocity: [0, 0, 0],
+        color: STELLAR_COLOR_BY_CLASS.K,
+      },
+      {
+        id: 'c',
+        name: 'Selene',
+        mass: moonMass,
+        radius: 0.016,
+        position: orbitalPosition(moonRadius, moonAngle, planetInclination),
+        velocity: orbitalVelocity(
+          Math.sqrt((planetMass + moonMass) / moonRadius),
+          moonAngle,
+          planetInclination,
+        ),
+        color: STELLAR_COLOR_BY_CLASS.A,
+      },
+    ]),
+  ]
+
+  const configurations: Array<[string, string, number, number, number, number, string]> = [
+    ['d', 'Swift', 0.028, 1.15, 3.1, -22, STELLAR_COLOR_BY_CLASS.B],
+    ['e', 'Cobalt', 0.018, 3.55, 5, 31, STELLAR_COLOR_BY_CLASS.O],
+    ['f', 'Ember', 0.012, 5.1, 1.8, -9, STELLAR_COLOR_BY_CLASS.M],
+  ]
+
+  configurations.forEach(([id, name, mass, orbitRadius, angle, inclinationDegrees, color]) => {
+    const inclination = (inclinationDegrees * Math.PI) / 180
+    result.push(
+      body(
+        id,
+        name,
+        mass,
+        0.036,
+        orbitalPosition(orbitRadius, angle, inclination),
+        orbitalVelocity(Math.sqrt(primaryMass / orbitRadius), angle, inclination),
+        color,
+      ),
+    )
+  })
+
+  return centerSystem(result)
+}
+
 export function getHierarchicalPresetOverride(id: PresetId): BodyState[] | null {
-  if (id === 'quadNested') return createHierarchicalMoonPreset(4)
-  if (id === 'pentaNested') return createHierarchicalMoonPreset(5)
-  if (id === 'hexaNested') return createHierarchicalMoonPreset(6)
+  if (id === 'quadNested') return createPlanetMoonHierarchy(4)
+  if (id === 'quadCrown') return createCircumbinaryFamily(4)
+  if (id === 'quadCrossed') return createThreePlanetShowcase()
+
+  if (id === 'pentaNested') return createPlanetMoonHierarchy(5)
+  if (id === 'pentaCrown') return createCircumbinaryFamily(5)
+  if (id === 'pentaCrossed') return createTrojanMoonSystem()
+
+  if (id === 'hexaNested') return createPlanetMoonHierarchy(6)
+  if (id === 'hexaCrown') return createCircumbinaryFamily(6)
+  if (id === 'hexaCrossed') return createSixBodyPlanetarySystem()
+
   return null
 }
