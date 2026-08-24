@@ -1,6 +1,7 @@
+import { STELLAR_COLOR_BY_CLASS } from './starColors'
 import type { BodyCount, BodyState, PresetId } from './types'
 
-const colors = ['#ffb347', '#62a9ff', '#ff667f']
+const colors = [STELLAR_COLOR_BY_CLASS.K, STELLAR_COLOR_BY_CLASS.B, STELLAR_COLOR_BY_CLASS.M]
 
 const body = (
   id: string,
