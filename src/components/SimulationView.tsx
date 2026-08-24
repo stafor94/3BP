@@ -174,9 +174,9 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
     }
 
     const starLayers = [
-      createStarLayer(290, 62, 180, 0.72, 0.9, 0.55, 0.8, 0.05),
-      createStarLayer(150, 38, 108, 0.92, 0.92, 0.68, 0.92, 0.08),
-      createStarLayer(40, 22, 64, 1.25, 0.95, 0.78, 1.0, 0.12),
+      createStarLayer(300, 62, 180, 1.05, 1.0, 0.78, 0.96, 0.05),
+      createStarLayer(150, 38, 108, 1.35, 1.0, 0.86, 1.0, 0.08),
+      createStarLayer(50, 22, 64, 1.75, 1.0, 0.92, 1.0, 0.12),
     ]
 
     const visuals = new Map<string, VisualBody>()
