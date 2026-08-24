@@ -29,6 +29,7 @@ const COLLISION_CONFIRMATION_COUNT = 2
 const COLLISION_REPLAY_LEAD_TIME = 1.2
 const COLLISION_WATCH_MUTE_MS = 12000
 const COLLISION_WATCH_INFO_POST_IMPACT_MS = 3000
+const TRACKING_MIN_MASS_RATIO = 0.5
 const MIN_BODY_SCALE = 0.25
 const MAX_BODY_SCALE = 4
 const LANGUAGE_STORAGE_KEY = '3bp-language'
@@ -56,6 +57,11 @@ type CollisionConfirmation = {
 type BodyScaleBaseline = {
   mass: number
   radius: number
+}
+
+type TrackingBaseline = {
+  sourceId: string
+  initialMass: number
 }
 
 function cloneBodies(input: BodyState[]) {
@@ -131,6 +137,7 @@ export default function App() {
   const speedRef = useRef(speed)
   const bodyScaleRef = useRef(1)
   const bodyScaleBaselineRef = useRef(createBodyScaleBaseline(bodies))
+  const trackingBaselineRef = useRef<TrackingBaseline | null>(null)
   const trailEnabledRef = useRef(trailEnabled)
   const collisionWatchEnabledRef = useRef(collisionWatchEnabled)
   const autoCollisionWatchPairRef = useRef<string | null>(null)
@@ -146,6 +153,27 @@ export default function App() {
   const collisionWatchMuteUntilRef = useRef(0)
   const collisionWatchInfoRef = useRef<CollisionWatchDetails | null>(null)
   const t = translations[language]
+
+  const changeTrackedBody = useCallback((bodyId: string | null) => {
+    if (!bodyId) {
+      trackingBaselineRef.current = null
+      setTrackedBodyId(null)
+      return
+    }
+
+    const target = bodiesRef.current.find((body) => body.id === bodyId && body.bodyType !== 'effect')
+    if (!target) {
+      trackingBaselineRef.current = null
+      setTrackedBodyId(null)
+      return
+    }
+
+    trackingBaselineRef.current = {
+      sourceId: target.id,
+      initialMass: Math.max(target.mass, 0),
+    }
+    setTrackedBodyId(target.id)
+  }, [])
 
   useEffect(() => { bodiesRef.current = bodies }, [bodies])
   useEffect(() => { runningRef.current = isRunning }, [isRunning])
@@ -174,16 +202,35 @@ export default function App() {
   useEffect(() => {
     setTrackedBodyId((current) => {
       if (!current) return null
-      if (bodies.some((body) => body.id === current)) return current
 
-      const largestDescendant = bodies
+      const exact = bodies.find((body) => body.id === current && body.bodyType !== 'effect')
+      const candidate = exact ?? bodies
         .filter((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, current))
         .reduce<BodyState | null>(
           (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
           null,
         )
 
-      return largestDescendant?.id ?? null
+      if (!candidate) {
+        trackingBaselineRef.current = null
+        return null
+      }
+
+      const baseline = trackingBaselineRef.current
+      if (!baseline) {
+        trackingBaselineRef.current = {
+          sourceId: current,
+          initialMass: Math.max(candidate.mass, 0),
+        }
+        return candidate.id
+      }
+
+      if (candidate.mass <= baseline.initialMass * TRACKING_MIN_MASS_RATIO + 1e-12) {
+        trackingBaselineRef.current = null
+        return null
+      }
+
+      return candidate.id
     })
   }, [bodies])
   useEffect(() => {
@@ -267,7 +314,11 @@ export default function App() {
     setBodyScale(1)
     bodiesRef.current = next
     setBodies(next)
-    setTrackedBodyId(next.length === 1 ? next[0].id : null)
+    const initialTrackedBody = next.length === 1 ? next[0] : null
+    trackingBaselineRef.current = initialTrackedBody
+      ? { sourceId: initialTrackedBody.id, initialMass: initialTrackedBody.mass }
+      : null
+    setTrackedBodyId(initialTrackedBody?.id ?? null)
     setTime(0)
     setIsRunning(false)
     resetTrailSampling(0)
@@ -301,6 +352,15 @@ export default function App() {
       bodiesRef.current = updated
       return updated
     })
+    setTrackedBodyId((current) => {
+      if (current === id) {
+        trackingBaselineRef.current = {
+          sourceId: id,
+          initialMass: Math.max(next.mass, 0),
+        }
+      }
+      return current
+    })
     clearCollisionWarning()
     resetTrailSampling(simulationTimeRef.current)
     setTrailVersion((v) => v + 1)
@@ -328,6 +388,13 @@ export default function App() {
         radius: Math.max(0.005, baseline.radius * clamped),
       }
     })
+
+    if (trackingBaselineRef.current) {
+      trackingBaselineRef.current = {
+        ...trackingBaselineRef.current,
+        initialMass: trackingBaselineRef.current.initialMass * (clamped / previousScale),
+      }
+    }
 
     bodyScaleBaselineRef.current = baselines
     bodyScaleRef.current = clamped
@@ -369,16 +436,18 @@ export default function App() {
     beginCollisionWatchInfo(prediction, watchBodies)
 
     const candidates = watchBodies.filter((body) =>
-      body.id === prediction.bodyAId ||
-      body.id === prediction.bodyBId ||
-      isBodyDescendedFrom(body.id, prediction.bodyAId) ||
-      isBodyDescendedFrom(body.id, prediction.bodyBId),
+      body.bodyType !== 'effect' && (
+        body.id === prediction.bodyAId ||
+        body.id === prediction.bodyBId ||
+        isBodyDescendedFrom(body.id, prediction.bodyAId) ||
+        isBodyDescendedFrom(body.id, prediction.bodyBId)
+      ),
     )
     const target = candidates.reduce<BodyState | null>(
       (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
       null,
     )
-    if (target) setTrackedBodyId(target.id)
+    if (target) changeTrackedBody(target.id)
 
     speedRef.current = 0.1
     runningRef.current = true
@@ -393,7 +462,7 @@ export default function App() {
     autoCollisionWatchPairRef.current = null
     setCollisionPrediction(null)
     setCollisionReplayReady(false)
-  }, [beginCollisionWatchInfo, resetTrailSampling])
+  }, [beginCollisionWatchInfo, changeTrackedBody, resetTrailSampling])
 
   useEffect(() => {
     let animationFrame = 0
@@ -446,7 +515,7 @@ export default function App() {
                 : bodyA ?? bodyB
 
               beginCollisionWatchInfo(upcoming, bodiesRef.current)
-              if (target) setTrackedBodyId(target.id)
+              if (target) changeTrackedBody(target.id)
               speedRef.current = 0.1
               setSpeed(0.1)
               autoCollisionWatchPairRef.current = upcoming.pairKey
@@ -558,7 +627,7 @@ export default function App() {
 
     animationFrame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(animationFrame)
-  }, [beginCollisionWatchInfo])
+  }, [beginCollisionWatchInfo, changeTrackedBody])
 
   return (
     <main className="app-shell">
@@ -616,7 +685,7 @@ export default function App() {
         collisionWatchEnabled={collisionWatchEnabled}
         onTrailEnabledChange={setTrailEnabled}
         onTrailDurationChange={setTrailDuration}
-        onTrackedBodyChange={setTrackedBodyId}
+        onTrackedBodyChange={changeTrackedBody}
         onCollisionWatchEnabledChange={setCollisionWatchEnabled}
         onRunningChange={setIsRunning}
         onSpeedChange={setSpeed}
