@@ -46,6 +46,7 @@ type StarLayer = {
 }
 
 const MAX_TRAIL_POINTS = 6000
+const MAX_SINGLE_BODY_CURVE_POINTS = 240
 
 const trailVertexShader = `
   attribute float aAlpha;
@@ -337,6 +338,30 @@ export function SimulationView({
       visual.trailCore.computeLineDistances()
     }
 
+    const collectCurvePoints = (
+      points: TrailPoint[],
+      currentBodyPosition: THREE.Vector3,
+      maxPoints: number,
+    ) => {
+      const curvePoints: THREE.Vector3[] = []
+      const step = Math.max(1, Math.ceil(points.length / Math.max(maxPoints - 1, 1)))
+
+      points.forEach((point, index) => {
+        if (index !== 0 && index !== points.length - 1 && index % step !== 0) return
+        const previous = curvePoints[curvePoints.length - 1]
+        if (!previous || previous.distanceToSquared(point.position) > 1e-10) {
+          curvePoints.push(point.position.clone())
+        }
+      })
+
+      const previous = curvePoints[curvePoints.length - 1]
+      if (!previous || previous.distanceToSquared(currentBodyPosition) > 1e-10) {
+        curvePoints.push(currentBodyPosition.clone())
+      }
+
+      return curvePoints
+    }
+
     const updateTrailVisual = (
       visual: VisualBody,
       currentTime: number,
@@ -360,9 +385,15 @@ export function SimulationView({
         visual.trailCoreMaterial.linewidth = 2.6
         visual.trailCoreMaterial.opacity = 0.5
 
-        const oldestPoint = visual.points[0].position
-        if (oldestPoint.distanceToSquared(currentBodyPosition) > 1e-10) {
-          setLinePositions(visual, [oldestPoint, currentBodyPosition])
+        const curvePoints = collectCurvePoints(visual.points, currentBodyPosition, MAX_SINGLE_BODY_CURVE_POINTS)
+        if (curvePoints.length >= 2) {
+          let smoothPoints = curvePoints
+          if (curvePoints.length >= 3) {
+            const curve = new THREE.CatmullRomCurve3(curvePoints, false, 'centripetal')
+            const segments = Math.min(600, Math.max(curvePoints.length * 3, 32))
+            smoothPoints = curve.getPoints(segments)
+          }
+          setLinePositions(visual, smoothPoints)
           visual.trailCore.visible = latestTrailEnabled.current
         } else {
           visual.trailCore.visible = false
