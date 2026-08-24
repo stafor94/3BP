@@ -94,29 +94,40 @@
 }
 
 @media (max-width: 760px) {
-  .control-panel {
-    position: relative;
+  .app-shell .control-panel {
+    position: absolute;
+    z-index: 5;
+    left: 10px;
+    right: 10px;
+    bottom: 0;
     display: flex;
     flex-direction: column;
+    height: min(44dvh, 420px);
+    padding: 16px 16px 0;
+    border: 1px solid #202a3b;
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
     overflow: visible;
   }
 
-  .control-panel .panel-header {
+  .app-shell .control-panel .panel-header {
     flex: 0 0 auto;
   }
 
-  .control-panel .panel-content {
+  .app-shell .control-panel .panel-content {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
     scrollbar-width: thin;
     scrollbar-color: #273044 transparent;
   }
 
-  .control-panel.control-panel.collapsed {
+  .app-shell .control-panel.control-panel.collapsed {
     height: 82px !important;
     min-height: 82px !important;
-    padding: 17px 16px 9px !important;
+    padding: 17px 16px 0 !important;
     overflow: visible !important;
   }
 
@@ -124,38 +135,41 @@
     display: none !important;
   }
 
-  .control-panel .panel-toggle {
+  .app-shell .control-panel .panel-toggle {
     position: absolute;
-    z-index: 3;
+    z-index: 30;
     top: 0;
     left: 50%;
-    transform: translate(-50%, calc(-100% + 1px));
+    transform: translate(-50%, -100%);
     display: grid;
     place-items: center;
-    width: 76px;
-    min-width: 76px;
-    height: 24px;
-    min-height: 24px;
+    width: 78px;
+    min-width: 78px;
+    height: 28px;
+    min-height: 28px;
     padding: 0;
     border: 1px solid #202a3b;
-    border-bottom-color: rgba(32, 42, 59, 0.7);
-    border-radius: 999px;
-    color: #7f8da3;
+    border-bottom: 0;
+    border-radius: 12px 12px 0 0;
+    color: #98a8bf;
     background: rgba(7, 10, 17, 0.96);
     backdrop-filter: blur(16px);
+    box-shadow: none;
   }
 
-  .control-panel .panel-toggle:hover {
+  .app-shell .control-panel .panel-toggle:hover {
     border: 1px solid #2c3950;
+    border-bottom: 0;
+    color: #c1ccdc;
     background: rgba(12, 17, 27, 0.98);
   }
 
-  .control-panel .panel-toggle svg {
-    width: 22px;
-    height: 13px;
+  .app-shell .control-panel .panel-toggle svg {
+    width: 24px;
+    height: 14px;
     fill: none;
     stroke: currentColor;
-    stroke-width: 1.8;
+    stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
@@ -233,7 +247,7 @@
   }
 
   @media (max-width: 390px) {
-    .control-panel.control-panel.collapsed {
+    .app-shell .control-panel.control-panel.collapsed {
       padding-left: 12px !important;
       padding-right: 12px !important;
     }
