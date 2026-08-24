@@ -8,6 +8,7 @@ import { BodyTypeSelector } from './BodyTypeSelector'
 import '../body-scale-controls.css'
 import '../mobile-controls.css'
 import '../version.css'
+import '../collision-watch-controls.css'
 
 type Props = {
   bodies: BodyState[]
@@ -21,9 +22,11 @@ type Props = {
   trailEnabled: boolean
   trailDuration: number
   trackedBodyId: string | null
+  collisionWatchEnabled: boolean
   onTrailEnabledChange: (enabled: boolean) => void
   onTrailDurationChange: (duration: number) => void
   onTrackedBodyChange: (bodyId: string | null) => void
+  onCollisionWatchEnabledChange: (enabled: boolean) => void
   onRunningChange: (running: boolean) => void
   onSpeedChange: (speed: number) => void
   onBodyScaleChange: (scale: number) => void
@@ -99,9 +102,11 @@ export function ControlPanel({
   trailEnabled,
   trailDuration,
   trackedBodyId,
+  collisionWatchEnabled,
   onTrailEnabledChange,
   onTrailDurationChange,
   onTrackedBodyChange,
+  onCollisionWatchEnabledChange,
   onRunningChange,
   onSpeedChange,
   onBodyScaleChange,
@@ -154,6 +159,14 @@ export function ControlPanel({
             {isRunning ? t.pause : t.start}
           </button>
           <button className="secondary-button" onClick={onReset}>{t.reset}</button>
+          <label className={`collision-watch-toggle${collisionWatchEnabled ? ' active' : ''}`}>
+            <input
+              type="checkbox"
+              checked={collisionWatchEnabled}
+              onChange={(event) => onCollisionWatchEnabledChange(event.target.checked)}
+            />
+            <span>{t.collisionWatch}</span>
+          </label>
         </div>
 
         <section>
