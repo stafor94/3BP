@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { translations, type Language } from '../i18n'
 import { PRESETS_BY_BODY_COUNT } from '../presets'
 import { formatStellarColorOption, getNearestStellarColor, STELLAR_COLOR_OPTIONS } from '../starColors'
-import type { BodyCount, BodyState, PresetId } from '../types'
+import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
 import { APP_VERSION } from '../version'
 import '../mobile-controls.css'
 import '../version.css'
@@ -10,6 +10,7 @@ import '../version.css'
 type Props = {
   bodies: BodyState[]
   bodyCount: BodyCount
+  spaceMode: SpaceMode
   isRunning: boolean
   speed: number
   preset: PresetId
@@ -22,6 +23,7 @@ type Props = {
   onTrackedBodyChange: (bodyId: string | null) => void
   onRunningChange: (running: boolean) => void
   onSpeedChange: (speed: number) => void
+  onSpaceModeChange: (mode: SpaceMode) => void
   onBodyCountChange: (count: BodyCount) => void
   onPresetChange: (preset: PresetId) => void
   onReset: () => void
@@ -30,6 +32,7 @@ type Props = {
 
 const SPEEDS = [0.1, 1, 5, 10]
 const BODY_COUNTS: BodyCount[] = [1, 2, 3, 4, 5, 6]
+const SPACE_MODES: SpaceMode[] = ['2d', '3d']
 const vectorKeys = ['x', 'y', 'z'] as const
 
 function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange: (n: number) => void; step?: number }) {
@@ -46,6 +49,7 @@ function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange
 export function ControlPanel({
   bodies,
   bodyCount,
+  spaceMode,
   isRunning,
   speed,
   preset,
@@ -58,6 +62,7 @@ export function ControlPanel({
   onTrackedBodyChange,
   onRunningChange,
   onSpeedChange,
+  onSpaceModeChange,
   onBodyCountChange,
   onPresetChange,
   onReset,
@@ -111,19 +116,35 @@ export function ControlPanel({
         <section>
           <div className="preset-heading-row">
             <label className="section-label" htmlFor="preset">{t.preset}</label>
-            <div className="body-count-control" role="group" aria-label={t.bodyCount}>
-              {BODY_COUNTS.map((count) => (
-                <button
-                  key={count}
-                  type="button"
-                  className={bodyCount === count ? 'active' : ''}
-                  aria-pressed={bodyCount === count}
-                  title={`${t.bodyCount}: ${count}`}
-                  onClick={() => onBodyCountChange(count)}
-                >
-                  {count}
-                </button>
-              ))}
+            <div className="preset-control-groups">
+              <div className="space-mode-control" role="group" aria-label={t.spaceMode}>
+                {SPACE_MODES.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={spaceMode === mode ? 'active' : ''}
+                    aria-pressed={spaceMode === mode}
+                    title={mode === '2d' ? t.spaceMode2d : t.spaceMode3d}
+                    onClick={() => onSpaceModeChange(mode)}
+                  >
+                    {mode === '2d' ? t.spaceMode2d : t.spaceMode3d}
+                  </button>
+                ))}
+              </div>
+              <div className="body-count-control" role="group" aria-label={t.bodyCount}>
+                {BODY_COUNTS.map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    className={bodyCount === count ? 'active' : ''}
+                    aria-pressed={bodyCount === count}
+                    title={`${t.bodyCount}: ${count}`}
+                    onClick={() => onBodyCountChange(count)}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <select id="preset" value={preset} onChange={(event) => onPresetChange(event.target.value as PresetId)}>
