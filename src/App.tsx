@@ -17,9 +17,9 @@ import type { BodyCount, BodyState, PresetId, SpaceMode, TrailSample, TrailSampl
 const PHYSICS_DT = 0.0015
 const MAX_STEPS_PER_FRAME = 4000
 const TRAIL_SAMPLE_INTERVAL = 0.01
-const COLLISION_CHECK_INTERVAL_MS = 90
+const COLLISION_CHECK_INTERVAL_MS = 60
 const COLLISION_ALERT_HOLD_MS = 4200
-const COLLISION_REPLAY_LEAD_TIME = 0.75
+const COLLISION_REPLAY_LEAD_TIME = 1.2
 const COLLISION_WATCH_MUTE_MS = 12000
 const LANGUAGE_STORAGE_KEY = '3bp-language'
 const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
@@ -190,7 +190,16 @@ export default function App() {
     const prediction = collisionPredictionRef.current
     if (!prediction) return
 
-    const replay = collisionReplayRef.current?.pairKey === prediction.pairKey
+    const exactA = bodiesRef.current.find((body) => body.id === prediction.bodyAId)
+    const exactB = bodiesRef.current.find((body) => body.id === prediction.bodyBId)
+    const predictionStale = performance.now() - collisionLastSeenAtRef.current > COLLISION_CHECK_INTERVAL_MS * 2
+    const collisionAlreadyHappened =
+      !exactA ||
+      !exactB ||
+      (exactA.collisionCooldown ?? 0) > 0 ||
+      (exactB.collisionCooldown ?? 0) > 0 ||
+      predictionStale
+    const replay = collisionAlreadyHappened && collisionReplayRef.current?.pairKey === prediction.pairKey
       ? collisionReplayRef.current
       : null
 
