@@ -1,4 +1,5 @@
 import type { BodyState, Vec3 } from '../types'
+import { getCollisionContactDistance } from './collisionContact'
 
 const G = 1
 const SOFTENING_SQUARED = 1e-6
@@ -97,7 +98,7 @@ function findCollisionDuringStep(
 
       const relativeStart = sub(b.position, a.position)
       const relativeEnd = sub(next[j].position, next[i].position)
-      const fraction = contactFraction(relativeStart, relativeEnd, a.radius + b.radius)
+      const fraction = contactFraction(relativeStart, relativeEnd, getCollisionContactDistance(a, b))
       if (fraction === null || fraction >= earliestFraction) continue
 
       const positionA = interpolate(a.position, next[i].position, fraction)
@@ -112,7 +113,6 @@ function findCollisionDuringStep(
       const normal = scale(separation, 1 / separationLength)
       const radialClosingSpeed = -dot(relativeVelocity, normal)
 
-      // Reject an exit crossing: the surfaces may cross the contact radius while already separating.
       if (radialClosingSpeed <= 1e-5) continue
 
       earliestFraction = fraction
@@ -159,9 +159,6 @@ function integrateStep(bodies: BodyState[], dt: number): BodyState[] {
 export function predictUpcomingCollision(bodies: BodyState[], horizon: number): CollisionPrediction | null {
   if (horizon <= 0) return null
 
-  // Collision debris is deliberately ignored here. Its mass is small, while including dozens of
-  // fragments would make a frequent look-ahead expensive on mobile. Major bodies still follow the
-  // same velocity-Verlet gravity integration used by the live simulation.
   let simulated = bodies.filter(isPredictionBody).map(cloneBody)
   if (simulated.length < 2) return null
 
