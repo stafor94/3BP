@@ -46,12 +46,30 @@ type CollisionConfirmation = {
   count: number
 }
 
+type BodyScaleBaseline = {
+  mass: number
+  radius: number
+}
+
 function cloneBodies(input: BodyState[]) {
   return input.map((body) => ({
     ...body,
     position: { ...body.position },
     velocity: { ...body.velocity },
   }))
+}
+
+function isScalableBody(body: BodyState) {
+  return body.bodyType !== 'fragment' && body.bodyType !== 'effect'
+}
+
+function createBodyScaleBaseline(input: BodyState[], scale = 1) {
+  const safeScale = Math.max(scale, 1e-9)
+  return new Map<string, BodyScaleBaseline>(
+    input
+      .filter(isScalableBody)
+      .map((body) => [body.id, { mass: body.mass / safeScale, radius: body.radius / safeScale }]),
+  )
 }
 
 function getInitialLanguage(): Language {
@@ -99,6 +117,7 @@ export default function App() {
   const runningRef = useRef(isRunning)
   const speedRef = useRef(speed)
   const bodyScaleRef = useRef(1)
+  const bodyScaleBaselineRef = useRef(createBodyScaleBaseline(bodies))
   const trailEnabledRef = useRef(trailEnabled)
   const simulationTimeRef = useRef(0)
   const nextTrailSampleAtRef = useRef(0)
@@ -166,6 +185,7 @@ export default function App() {
       : getOrbital2dPresetOverride(nextPreset) ?? getPreset(nextPreset)
     const next = applyPresetBodyTypes(nextPreset, raw)
     bodyScaleRef.current = 1
+    bodyScaleBaselineRef.current = createBodyScaleBaseline(next)
     setBodyScale(1)
     bodiesRef.current = next
     setBodies(next)
@@ -191,6 +211,13 @@ export default function App() {
 
   const updateBody = useCallback((id: string, next: BodyState) => {
     setIsRunning(false)
+    if (isScalableBody(next)) {
+      const scale = Math.max(bodyScaleRef.current, 1e-9)
+      bodyScaleBaselineRef.current.set(id, {
+        mass: next.mass / scale,
+        radius: next.radius / scale,
+      })
+    }
     setBodies((current) => {
       const updated = current.map((body) => (body.id === id ? next : body))
       bodiesRef.current = updated
@@ -204,19 +231,27 @@ export default function App() {
   const changeBodyScale = useCallback((nextScale: number) => {
     if (!Number.isFinite(nextScale)) return
     const clamped = Math.min(MAX_BODY_SCALE, Math.max(MIN_BODY_SCALE, nextScale))
-    const previousScale = bodyScaleRef.current
+    const previousScale = Math.max(bodyScaleRef.current, 1e-9)
     if (Math.abs(clamped - previousScale) < 1e-9) return
 
-    const ratio = clamped / previousScale
+    const baselines = new Map(bodyScaleBaselineRef.current)
     const nextBodies = bodiesRef.current.map((body) => {
-      if (body.bodyType === 'fragment' || body.bodyType === 'effect') return body
+      if (!isScalableBody(body)) return body
+
+      const baseline = baselines.get(body.id) ?? {
+        mass: body.mass / previousScale,
+        radius: body.radius / previousScale,
+      }
+      baselines.set(body.id, baseline)
+
       return {
         ...body,
-        mass: Math.max(0.001, body.mass * ratio),
-        radius: Math.max(0.005, body.radius * ratio),
+        mass: Math.max(0.001, baseline.mass * clamped),
+        radius: Math.max(0.005, baseline.radius * clamped),
       }
     })
 
+    bodyScaleBaselineRef.current = baselines
     bodyScaleRef.current = clamped
     setBodyScale(clamped)
     bodiesRef.current = nextBodies
