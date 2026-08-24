@@ -1,4 +1,5 @@
 import type { BodyState, BodyType, Vec3 } from '../types'
+import { getCollisionContactDistance, getCollisionContactScale } from './collisionContact'
 import { add, magnitude, magnitudeSquared, scale, sub } from './vector'
 
 const G = 1
@@ -11,6 +12,7 @@ const EFFECT_LIFETIME = 2
 const COLLISION_FLASH_RADIUS = 0.055
 const HIT_RUN_COOLDOWN = 0.055
 const FRAGMENT_COOLDOWN = 0.12
+const TRANSIENT_COLLISION_NAMES = new Set(['Debris', 'Collision spark', 'Collision flash'])
 
 let collisionSerial = 0
 
@@ -61,6 +63,22 @@ function dominantBodyType(a: BodyState, b: BodyState): PhysicalBodyType {
   return 'fragment'
 }
 
+function originalNameParts(body: BodyState) {
+  if (body.bodyType === 'fragment' || body.bodyType === 'effect') return []
+
+  return body.name
+    .split(' + ')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !TRANSIENT_COLLISION_NAMES.has(part))
+}
+
+function mergedBodyName(a: BodyState, b: BodyState) {
+  const names = [...originalNameParts(a), ...originalNameParts(b)]
+  const uniqueNames = names.filter((name, index) => names.indexOf(name) === index)
+  if (uniqueNames.length > 0) return uniqueNames.join(' + ')
+  return a.mass >= b.mass ? a.name : b.name
+}
+
 function hashString(value: string) {
   let hash = 2166136261
   for (let index = 0; index < value.length; index += 1) {
@@ -89,8 +107,9 @@ function getCollisionGeometry(a: BodyState, b: BodyState): CollisionGeometry {
   const normal = distance > 1e-9 ? scale(delta, 1 / distance) : fallback
   const relativeVelocity = sub(b.velocity, a.velocity)
   const relativeSpeed = magnitude(relativeVelocity)
+  const contactDistance = getCollisionContactDistance(a, b)
   const escapeSpeed = Math.sqrt(
-    Math.max(0, (2 * G * (a.mass + b.mass)) / Math.max(a.radius + b.radius, 1e-6)),
+    Math.max(0, (2 * G * (a.mass + b.mass)) / Math.max(contactDistance, 1e-6)),
   )
   const speedRatio = relativeSpeed / Math.max(escapeSpeed, 1e-6)
   const headOn = relativeSpeed > 1e-9 ? clamp(Math.abs(dot(relativeVelocity, normal)) / relativeSpeed, 0, 1) : 1
@@ -300,7 +319,7 @@ function resolveMergedCollision(
   const dominant = a.mass >= b.mass ? a : b
   const remnant: BodyState = {
     id: `${a.id}+${b.id}`,
-    name: `${a.name} + ${b.name}`,
+    name: mergedBodyName(a, b),
     color: dominant.color,
     mass: remnantMass,
     radius: Math.cbrt(remnantVolume),
@@ -347,7 +366,7 @@ function resolveHitAndRun(
   let velocityB = add(b.velocity, scale(geometry.normal, impulseMagnitude / b.mass))
 
   const center = centerOfMassPosition(a, b)
-  const separation = radiusA + radiusB + 1e-4
+  const separation = (radiusA + radiusB) * getCollisionContactScale(a, b) + 1e-4
   const survivorMass = massA + massB
   const positionA = sub(center, scale(geometry.normal, separation * (massB / survivorMass)))
   const positionB = add(center, scale(geometry.normal, separation * (massA / survivorMass)))
@@ -393,7 +412,7 @@ function resolveCollisions(input: BodyState[]): BodyState[] {
         const b = bodies[j]
         if (a.bodyType === 'effect' || b.bodyType === 'effect') continue
         if ((a.collisionCooldown ?? 0) > 0 || (b.collisionCooldown ?? 0) > 0) continue
-        if (magnitude(sub(a.position, b.position)) > a.radius + b.radius) continue
+        if (magnitude(sub(a.position, b.position)) > getCollisionContactDistance(a, b)) continue
 
         collisionSerial += 1
         const geometry = getCollisionGeometry(a, b)
