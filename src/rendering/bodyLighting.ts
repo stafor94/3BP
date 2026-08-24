@@ -5,7 +5,12 @@ import type { BodyState } from '../types'
 
 const MAX_STAR_LIGHTS = 6
 const FRAGMENT_VISUAL_MIN_RADIUS = 0.04
-const EFFECT_VISUAL_MIN_RADIUS = 0.07
+const COLLISION_FLASH_VISUAL_MIN_RADIUS = 0.03
+const STELLAR_PLASMA_VISUAL_MIN_RADIUS = 0.014
+const COLLISION_SPARK_VISUAL_MIN_RADIUS = 0.012
+const COLLISION_FLASH_VISUAL_DURATION = 0.55
+const STELLAR_PLASMA_VISUAL_DURATION = 1.35
+const COLLISION_SPARK_VISUAL_DURATION = 0.9
 
 let installed = false
 let bodyBySeed = new Map<string, BodyState>()
@@ -32,12 +37,22 @@ function isBodyShader(values: Record<string, any> | undefined) {
   )
 }
 
+function fadeOut(age: number, duration: number, power: number) {
+  const progress = THREE.MathUtils.clamp(age / Math.max(duration, 1e-6), 0, 1)
+  return {
+    progress,
+    alpha: Math.pow(1 - progress, power),
+  }
+}
+
 const litBodyFragmentShader = `
   uniform vec3 uIdentityColor;
   uniform float uSeed;
   uniform float uDetailStrength;
   uniform float uRimStrength;
+  uniform float uOpacity;
   uniform float uSelfLuminous;
+  uniform float uEmissionStrength;
   uniform int uLightCount;
   uniform vec3 uLightPositions[${MAX_STAR_LIGHTS}];
   uniform vec3 uLightColors[${MAX_STAR_LIGHTS}];
@@ -108,7 +123,7 @@ const litBodyFragmentShader = `
 
     if (uSelfLuminous > 0.5) {
       float emission = drawBodyEmission(normalWorld, viewDirection);
-      float intensity = min(emission * surfaceDetail + rim, 1.42);
+      float intensity = min((emission * surfaceDetail + rim) * uEmissionStrength, 1.42);
       color = uIdentityColor * intensity;
     } else {
       vec3 albedo = uIdentityColor * surfaceDetail;
@@ -134,7 +149,7 @@ const litBodyFragmentShader = `
       color = min(litColor, vec3(1.35));
     }
 
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(color, uOpacity);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
@@ -148,21 +163,64 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
   if (!body) return
 
   const bodyType = getEffectiveBodyType(body)
-  const selfLuminous = bodyType === 'star' || bodyType === 'effect'
-  material.uniforms.uSelfLuminous.value = selfLuminous ? 1 : 0
-  material.uniforms.uLightCount.value = lightingStars.length
+  const isStar = bodyType === 'star'
+  const isEffect = bodyType === 'effect'
+  const isCollisionFlash = isEffect && body.name === 'Collision flash'
+  const isStellarPlasma = isEffect && body.id.includes('+plasma')
+  const isCollisionSpark = isEffect && body.name === 'Collision spark' && !isStellarPlasma
+  const age = Math.max(body.age ?? 0, 0)
+  const selfLuminous = isStar || isEffect
 
+  let emissionStrength = isStar ? 1 : 0
+  let effectOpacity = 1
   let visualRadius = body.radius
-  let effectProgress = 0
+  let glowInnerScale = 0
+  let glowOuterScale = 0
+  let glowInnerOpacity = 0
+  let glowOuterOpacity = 0
+
   if (bodyType === 'fragment') {
     visualRadius = Math.max(body.radius, FRAGMENT_VISUAL_MIN_RADIUS)
     object.scale.setScalar(visualRadius)
-  } else if (bodyType === 'effect') {
-    effectProgress = THREE.MathUtils.clamp((body.age ?? 0) / Math.max(body.lifetime ?? 1, 1e-6), 0, 1)
-    const pulse = 1 + Math.sin(effectProgress * Math.PI) * 0.75
-    visualRadius = Math.max(body.radius, EFFECT_VISUAL_MIN_RADIUS) * pulse
+  } else if (isCollisionFlash) {
+    const fade = fadeOut(age, COLLISION_FLASH_VISUAL_DURATION, 2.2)
+    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.24
+    visualRadius = Math.max(body.radius, COLLISION_FLASH_VISUAL_MIN_RADIUS) * pulse
+    emissionStrength = 0.88 * fade.alpha
+    effectOpacity = fade.alpha
+    glowInnerScale = 3.0
+    glowOuterScale = 5.0
+    glowInnerOpacity = 0.42 * fade.alpha
+    glowOuterOpacity = 0.10 * Math.pow(1 - fade.progress, 2.6)
+    object.scale.setScalar(visualRadius)
+  } else if (isStellarPlasma) {
+    const fade = fadeOut(age, STELLAR_PLASMA_VISUAL_DURATION, 1.45)
+    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.08
+    visualRadius = Math.max(body.radius, STELLAR_PLASMA_VISUAL_MIN_RADIUS) * pulse
+    emissionStrength = 0.48 * fade.alpha
+    effectOpacity = 0.82 * fade.alpha
+    glowInnerScale = 2.15
+    glowOuterScale = 3.1
+    glowInnerOpacity = 0.18 * fade.alpha
+    glowOuterOpacity = 0.028 * Math.pow(1 - fade.progress, 1.9)
+    object.scale.setScalar(visualRadius)
+  } else if (isCollisionSpark || isEffect) {
+    const fade = fadeOut(age, COLLISION_SPARK_VISUAL_DURATION, 1.8)
+    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.10
+    visualRadius = Math.max(body.radius, COLLISION_SPARK_VISUAL_MIN_RADIUS) * pulse
+    emissionStrength = 0.38 * fade.alpha
+    effectOpacity = 0.72 * fade.alpha
+    glowInnerScale = 1.8
+    glowOuterScale = 2.5
+    glowInnerOpacity = 0.12 * fade.alpha
+    glowOuterOpacity = 0.016 * Math.pow(1 - fade.progress, 2)
     object.scale.setScalar(visualRadius)
   }
+
+  material.uniforms.uSelfLuminous.value = selfLuminous ? 1 : 0
+  material.uniforms.uEmissionStrength.value = emissionStrength
+  material.uniforms.uLightCount.value = lightingStars.length
+  if (isEffect && material.uniforms.uOpacity) material.uniforms.uOpacity.value = effectOpacity
 
   const lightPositions = material.uniforms.uLightPositions.value as THREE.Vector3[]
   const lightColors = material.uniforms.uLightColors.value as THREE.Color[]
@@ -187,29 +245,29 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
     const glowInner = scene.children[objectIndex - 1]
     const glowOuter = scene.children[objectIndex - 2]
 
-    if (glowInner instanceof THREE.Sprite) {
-      glowInner.visible = selfLuminous
-      if (glowInner.material instanceof THREE.SpriteMaterial) {
-        // The render list can already contain this sprite before mesh onBeforeRender runs.
-        // Zeroing opacity is therefore the reliable same-frame guard for planets/moons/fragments.
-        if (!selfLuminous) {
-          glowInner.material.opacity = 0
-        } else if (bodyType === 'effect') {
-          glowInner.scale.setScalar(visualRadius * 7.5)
-          glowInner.material.opacity = 0.9 * (1 - effectProgress * 0.65)
-        }
+    if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
+      if (isStar) {
+        glowInner.visible = true
+      } else if (isEffect && glowInnerOpacity > 0.001) {
+        glowInner.visible = true
+        glowInner.scale.setScalar(visualRadius * glowInnerScale)
+        glowInner.material.opacity = glowInnerOpacity
+      } else {
+        glowInner.visible = false
+        glowInner.material.opacity = 0
       }
     }
 
-    if (glowOuter instanceof THREE.Sprite) {
-      glowOuter.visible = selfLuminous
-      if (glowOuter.material instanceof THREE.SpriteMaterial) {
-        if (!selfLuminous) {
-          glowOuter.material.opacity = 0
-        } else if (bodyType === 'effect') {
-          glowOuter.scale.setScalar(visualRadius * 16)
-          glowOuter.material.opacity = 0.58 * (1 - effectProgress * 0.8)
-        }
+    if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
+      if (isStar) {
+        glowOuter.visible = true
+      } else if (isEffect && glowOuterOpacity > 0.001) {
+        glowOuter.visible = true
+        glowOuter.scale.setScalar(visualRadius * glowOuterScale)
+        glowOuter.material.opacity = glowOuterOpacity
+      } else {
+        glowOuter.visible = false
+        glowOuter.material.opacity = 0
       }
     }
   }
@@ -240,6 +298,7 @@ export function installBodyLighting() {
       uniforms: {
         ...values.uniforms,
         uSelfLuminous: { value: 1 },
+        uEmissionStrength: { value: 1 },
         uLightCount: { value: 0 },
         uLightPositions: {
           value: Array.from({ length: MAX_STAR_LIGHTS }, () => new THREE.Vector3()),
