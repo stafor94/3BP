@@ -30,7 +30,7 @@
 
 .body-count-control {
   display: inline-grid;
-  grid-template-columns: repeat(3, 30px);
+  grid-template-columns: repeat(6, 27px);
   gap: 3px;
   padding: 3px;
   border: 1px solid #1d2534;
@@ -39,8 +39,8 @@
 }
 
 .body-count-control button {
-  min-width: 30px;
-  width: 30px;
+  min-width: 27px;
+  width: 27px;
   min-height: 25px;
   height: 25px;
   padding: 0;
