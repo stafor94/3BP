@@ -1,8 +1,5 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { Line2 } from 'three/addons/lines/Line2.js'
-import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
-import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { getNearestStellarColor } from '../starColors'
 import type { BodyState, TrailSampleBatch } from '../types'
 
@@ -21,10 +18,15 @@ type TrailPoint = {
   capturedAt: number
 }
 
-type TrailLineLayer = {
-  line: Line2
-  geometry: LineGeometry
-  material: LineMaterial
+type TrailRibbon = {
+  mesh: THREE.Mesh
+  geometry: THREE.BufferGeometry
+  material: THREE.ShaderMaterial
+  positions: Float32Array
+  previous: Float32Array
+  next: Float32Array
+  widths: Float32Array
+  alphas: Float32Array
 }
 
 type VisualBody = {
@@ -40,8 +42,7 @@ type VisualBody = {
   trailPositions: Float32Array
   trailAlphas: Float32Array
   trailSizes: Float32Array
-  trailBands: TrailLineLayer[]
-  trailHead: TrailLineLayer
+  trailRibbon: TrailRibbon
   points: TrailPoint[]
 }
 
@@ -73,18 +74,13 @@ const RENDER_TUNING = {
   trail: {
     maxPoints: 6000,
     maxCurvePoints: 360,
-    softPointSizeOld: 5.5,
-    softPointSizeNew: 17.0,
-    softPointAlpha: 0.105,
-    headFreshness: 0.9,
-    headWidth: 1.05,
-    headOpacity: 0.46,
-    bands: [
-      { minFreshness: 0.0, maxFreshness: 0.28, width: 0.82, opacity: 0.075 },
-      { minFreshness: 0.28, maxFreshness: 0.52, width: 1.08, opacity: 0.12 },
-      { minFreshness: 0.52, maxFreshness: 0.76, width: 1.42, opacity: 0.19 },
-      { minFreshness: 0.76, maxFreshness: 1.01, width: 1.92, opacity: 0.3 },
-    ],
+    maxRibbonSamples: 521,
+    softPointSizeOld: 2.4,
+    softPointSizeNew: 7.5,
+    softPointAlpha: 0.055,
+    lineWidthOld: 0.72,
+    lineWidthNew: 1.88,
+    lineOpacity: 0.32,
   },
 } as const
 
@@ -153,8 +149,6 @@ const bodyFragmentShader = `
   }
 
   float drawBodyEmission(vec3 worldNormal, vec3 viewDirection) {
-    // Self-luminous stars stay bright across the visible hemisphere. Stronger
-    // center emission and a gentler limb falloff make the body itself read as luminous.
     float limb = max(dot(worldNormal, viewDirection), 0.0);
     float limbDarkening = 0.82 + 0.18 * pow(limb, 0.55);
     float centerEmission = 1.10 + 0.24 * pow(limb, 0.72);
@@ -173,8 +167,6 @@ const bodyFragmentShader = `
     float emission = drawBodyEmission(normalWorld, viewDirection);
     float rim = drawBodyRim(normalWorld, viewDirection);
 
-    // Every brightness term scales the selected stellar color, so highlights retain
-    // the O/B/A/F/G/K/M hue instead of drifting toward generic white.
     float intensity = min(emission * surfaceDetail + rim, 1.42);
     vec3 color = uIdentityColor * intensity;
 
@@ -184,7 +176,7 @@ const bodyFragmentShader = `
   }
 `
 
-const trailVertexShader = `
+const trailPointVertexShader = `
   attribute float aAlpha;
   attribute float aSize;
   varying float vAlpha;
@@ -197,7 +189,7 @@ const trailVertexShader = `
   }
 `
 
-const trailFragmentShader = `
+const trailPointFragmentShader = `
   uniform vec3 uColor;
   varying float vAlpha;
 
@@ -206,11 +198,67 @@ const trailFragmentShader = `
     float radius = length(centered) * 2.0;
     if (radius > 1.0) discard;
 
-    float softHalo = exp(-4.8 * radius * radius);
-    float edge = 1.0 - smoothstep(0.72, 1.0, radius);
-    float alpha = vAlpha * softHalo * edge;
+    float feather = exp(-5.8 * radius * radius);
+    float edge = 1.0 - smoothstep(0.68, 1.0, radius);
+    float alpha = vAlpha * feather * edge;
 
     gl_FragColor = vec4(uColor, alpha);
+    #include <colorspace_fragment>
+  }
+`
+
+const trailRibbonVertexShader = `
+  attribute vec3 aPrevious;
+  attribute vec3 aNext;
+  attribute float aSide;
+  attribute float aWidth;
+  attribute float aAlpha;
+
+  uniform vec2 uResolution;
+
+  varying float vAlpha;
+
+  void main() {
+    vec4 clipCurrent = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 clipPrevious = projectionMatrix * modelViewMatrix * vec4(aPrevious, 1.0);
+    vec4 clipNext = projectionMatrix * modelViewMatrix * vec4(aNext, 1.0);
+
+    vec2 currentScreen = (clipCurrent.xy / clipCurrent.w) * uResolution * 0.5;
+    vec2 previousScreen = (clipPrevious.xy / clipPrevious.w) * uResolution * 0.5;
+    vec2 nextScreen = (clipNext.xy / clipNext.w) * uResolution * 0.5;
+
+    vec2 direction = nextScreen - previousScreen;
+    float directionLength = length(direction);
+    if (directionLength < 0.0001) {
+      direction = currentScreen - previousScreen;
+      directionLength = length(direction);
+    }
+    if (directionLength < 0.0001) {
+      direction = nextScreen - currentScreen;
+      directionLength = length(direction);
+    }
+    if (directionLength < 0.0001) {
+      direction = vec2(1.0, 0.0);
+    } else {
+      direction /= directionLength;
+    }
+
+    vec2 normal = vec2(-direction.y, direction.x);
+    vec2 offsetScreen = normal * aSide * aWidth * 0.5;
+    vec2 offsetNdc = offsetScreen * 2.0 / max(uResolution, vec2(1.0));
+    clipCurrent.xy += offsetNdc * clipCurrent.w;
+
+    vAlpha = aAlpha;
+    gl_Position = clipCurrent;
+  }
+`
+
+const trailRibbonFragmentShader = `
+  uniform vec3 uColor;
+  varying float vAlpha;
+
+  void main() {
+    gl_FragColor = vec4(uColor, vAlpha);
     #include <colorspace_fragment>
   }
 `
@@ -283,49 +331,6 @@ function createGlowMaterial(texture: THREE.Texture, color: string, opacity: numb
   })
 }
 
-function createTrailLineLayer(color: string, width: number, opacity: number) {
-  const geometry = new LineGeometry()
-  geometry.setPositions([0, 0, 0, 0, 0, 0])
-  const material = new LineMaterial({
-    color: new THREE.Color(color).getHex(),
-    linewidth: width,
-    transparent: true,
-    opacity,
-    depthTest: true,
-    depthWrite: false,
-    blending: THREE.NormalBlending,
-    toneMapped: false,
-  })
-  const line = new Line2(geometry, material)
-  line.visible = false
-  line.frustumCulled = false
-  return { line, geometry, material }
-}
-
-function setLinePoints(layer: TrailLineLayer, points: THREE.Vector3[]) {
-  if (points.length < 2) {
-    layer.line.visible = false
-    return
-  }
-
-  const positions = new Array<number>(points.length * 3)
-  points.forEach((point, index) => {
-    const offset = index * 3
-    positions[offset] = point.x
-    positions[offset + 1] = point.y
-    positions[offset + 2] = point.z
-  })
-  layer.geometry.setPositions(positions)
-  layer.line.computeLineDistances()
-}
-
-function smoothCurvePoints(points: THREE.Vector3[]) {
-  if (points.length < 3) return points
-  const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal')
-  const segments = Math.min(520, Math.max(points.length * 3, 24))
-  return curve.getPoints(segments)
-}
-
 function buildCurveSamples(
   points: TrailPoint[],
   currentPosition: THREE.Vector3 | undefined,
@@ -345,11 +350,47 @@ function buildCurveSamples(
   if (currentPosition) {
     const previous = samples[samples.length - 1]
     if (!previous || previous.position.distanceToSquared(currentPosition) > 1e-10) {
-      samples.push({ position: currentPosition, capturedAt: currentTime })
+      samples.push({ position: currentPosition.clone(), capturedAt: currentTime })
+    } else if (previous.capturedAt < currentTime) {
+      samples[samples.length - 1] = { position: currentPosition.clone(), capturedAt: currentTime }
     }
   }
 
   return samples
+}
+
+function smoothCurveSamples(samples: TrailCurveSample[]) {
+  if (samples.length < 3) return samples.map((sample) => ({
+    position: sample.position.clone(),
+    capturedAt: sample.capturedAt,
+  }))
+
+  const curve = new THREE.CatmullRomCurve3(
+    samples.map((sample) => sample.position),
+    false,
+    'centripetal',
+  )
+  const segments = Math.min(
+    RENDER_TUNING.trail.maxRibbonSamples - 1,
+    Math.max(samples.length * 3, 24),
+  )
+  const curvePoints = curve.getPoints(segments)
+  const sourceSpan = samples.length - 1
+
+  return curvePoints.map((position, index) => {
+    const sourcePosition = (index / segments) * sourceSpan
+    const leftIndex = Math.floor(sourcePosition)
+    const rightIndex = Math.min(leftIndex + 1, samples.length - 1)
+    const localT = sourcePosition - leftIndex
+    return {
+      position,
+      capturedAt: THREE.MathUtils.lerp(
+        samples[leftIndex].capturedAt,
+        samples[rightIndex].capturedAt,
+        localT,
+      ),
+    }
+  })
 }
 
 function getFreshness(sample: TrailCurveSample, currentTime: number, duration: number) {
@@ -357,35 +398,144 @@ function getFreshness(sample: TrailCurveSample, currentTime: number, duration: n
   return 1 - ageRatio
 }
 
-function collectBandPoints(
+function smooth01(value: number) {
+  const clamped = THREE.MathUtils.clamp(value, 0, 1)
+  return clamped * clamped * (3 - 2 * clamped)
+}
+
+function createTrailRibbon(color: string): TrailRibbon {
+  const maxSamples = RENDER_TUNING.trail.maxRibbonSamples
+  const vertexCount = maxSamples * 2
+  const geometry = new THREE.BufferGeometry()
+  const positions = new Float32Array(vertexCount * 3)
+  const previous = new Float32Array(vertexCount * 3)
+  const next = new Float32Array(vertexCount * 3)
+  const sides = new Float32Array(vertexCount)
+  const widths = new Float32Array(vertexCount)
+  const alphas = new Float32Array(vertexCount)
+  const indices = new Uint16Array((maxSamples - 1) * 6)
+
+  for (let sampleIndex = 0; sampleIndex < maxSamples; sampleIndex += 1) {
+    const vertexIndex = sampleIndex * 2
+    sides[vertexIndex] = -1
+    sides[vertexIndex + 1] = 1
+
+    if (sampleIndex >= maxSamples - 1) continue
+    const indexOffset = sampleIndex * 6
+    const left = vertexIndex
+    const right = vertexIndex + 1
+    const nextLeft = vertexIndex + 2
+    const nextRight = vertexIndex + 3
+    indices[indexOffset] = left
+    indices[indexOffset + 1] = right
+    indices[indexOffset + 2] = nextLeft
+    indices[indexOffset + 3] = right
+    indices[indexOffset + 4] = nextRight
+    indices[indexOffset + 5] = nextLeft
+  }
+
+  geometry.setAttribute(
+    'position',
+    new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage),
+  )
+  geometry.setAttribute(
+    'aPrevious',
+    new THREE.BufferAttribute(previous, 3).setUsage(THREE.DynamicDrawUsage),
+  )
+  geometry.setAttribute(
+    'aNext',
+    new THREE.BufferAttribute(next, 3).setUsage(THREE.DynamicDrawUsage),
+  )
+  geometry.setAttribute('aSide', new THREE.BufferAttribute(sides, 1))
+  geometry.setAttribute(
+    'aWidth',
+    new THREE.BufferAttribute(widths, 1).setUsage(THREE.DynamicDrawUsage),
+  )
+  geometry.setAttribute(
+    'aAlpha',
+    new THREE.BufferAttribute(alphas, 1).setUsage(THREE.DynamicDrawUsage),
+  )
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+  geometry.setDrawRange(0, 0)
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(color) },
+      uResolution: { value: new THREE.Vector2(1, 1) },
+    },
+    vertexShader: trailRibbonVertexShader,
+    fragmentShader: trailRibbonFragmentShader,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  })
+
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.visible = false
+  mesh.frustumCulled = false
+  mesh.renderOrder = 20
+
+  return { mesh, geometry, material, positions, previous, next, widths, alphas }
+}
+
+function updateTrailRibbon(
+  ribbon: TrailRibbon,
   samples: TrailCurveSample[],
   currentTime: number,
   duration: number,
-  minFreshness: number,
-  maxFreshness: number,
 ) {
-  let first = -1
-  let last = -1
-
-  samples.forEach((sample, index) => {
-    const freshness = getFreshness(sample, currentTime, duration)
-    if (freshness >= minFreshness && freshness < maxFreshness) {
-      if (first === -1) first = index
-      last = index
-    }
-  })
-
-  if (first === -1 || last === -1) return []
-  first = Math.max(0, first - 1)
-  last = Math.min(samples.length - 1, last + 1)
-
-  const points: THREE.Vector3[] = []
-  for (let index = first; index <= last; index += 1) {
-    const point = samples[index].position
-    const previous = points[points.length - 1]
-    if (!previous || previous.distanceToSquared(point) > 1e-10) points.push(point.clone())
+  const count = Math.min(samples.length, RENDER_TUNING.trail.maxRibbonSamples)
+  if (count < 2) {
+    ribbon.geometry.setDrawRange(0, 0)
+    ribbon.mesh.visible = false
+    return
   }
-  return smoothCurvePoints(points)
+
+  for (let sampleIndex = 0; sampleIndex < count; sampleIndex += 1) {
+    const sample = samples[sampleIndex]
+    const previousSample = samples[Math.max(0, sampleIndex - 1)]
+    const nextSample = samples[Math.min(count - 1, sampleIndex + 1)]
+    const freshness = getFreshness(sample, currentTime, duration)
+    const alphaProgress = smooth01(freshness)
+    const widthProgress = Math.pow(freshness, 0.85)
+    const width = THREE.MathUtils.lerp(
+      RENDER_TUNING.trail.lineWidthOld,
+      RENDER_TUNING.trail.lineWidthNew,
+      widthProgress,
+    )
+    const alpha = RENDER_TUNING.trail.lineOpacity * alphaProgress
+
+    for (let sideIndex = 0; sideIndex < 2; sideIndex += 1) {
+      const vertexIndex = sampleIndex * 2 + sideIndex
+      const offset = vertexIndex * 3
+
+      ribbon.positions[offset] = sample.position.x
+      ribbon.positions[offset + 1] = sample.position.y
+      ribbon.positions[offset + 2] = sample.position.z
+
+      ribbon.previous[offset] = previousSample.position.x
+      ribbon.previous[offset + 1] = previousSample.position.y
+      ribbon.previous[offset + 2] = previousSample.position.z
+
+      ribbon.next[offset] = nextSample.position.x
+      ribbon.next[offset + 1] = nextSample.position.y
+      ribbon.next[offset + 2] = nextSample.position.z
+
+      ribbon.widths[vertexIndex] = width
+      ribbon.alphas[vertexIndex] = alpha
+    }
+  }
+
+  ;(ribbon.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true
+  ;(ribbon.geometry.getAttribute('aPrevious') as THREE.BufferAttribute).needsUpdate = true
+  ;(ribbon.geometry.getAttribute('aNext') as THREE.BufferAttribute).needsUpdate = true
+  ;(ribbon.geometry.getAttribute('aWidth') as THREE.BufferAttribute).needsUpdate = true
+  ;(ribbon.geometry.getAttribute('aAlpha') as THREE.BufferAttribute).needsUpdate = true
+  ribbon.geometry.setDrawRange(0, (count - 1) * 6)
+  ribbon.mesh.visible = true
 }
 
 function updateBodyAppearance(visual: VisualBody, body: BodyState) {
@@ -430,8 +580,7 @@ function updateBodyAppearance(visual: VisualBody, body: BodyState) {
   )
 
   ;(visual.trailMaterial.uniforms.uColor.value as THREE.Color).set(stellarColor)
-  visual.trailBands.forEach((layer) => layer.material.color.set(stellarColor))
-  visual.trailHead.material.color.set(stellarColor)
+  ;(visual.trailRibbon.material.uniforms.uColor.value as THREE.Color).set(stellarColor)
 }
 
 export function createSimulationRenderer(host: HTMLDivElement, getState: () => SimulationRenderState) {
@@ -532,31 +681,29 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     visual.points = []
     visual.trailGeometry.setDrawRange(0, 0)
     visual.trailPoints.visible = false
-    visual.trailBands.forEach((layer) => {
-      layer.line.visible = false
-    })
-    visual.trailHead.line.visible = false
+    visual.trailRibbon.geometry.setDrawRange(0, 0)
+    visual.trailRibbon.mesh.visible = false
   }
 
   const removeVisual = (id: string) => {
     const visual = visuals.get(id)
     if (!visual) return
 
-    scene.remove(visual.mesh, visual.glowInner, visual.glowOuter, visual.trailPoints)
-    visual.trailBands.forEach((layer) => {
-      scene.remove(layer.line)
-      layer.geometry.dispose()
-      layer.material.dispose()
-    })
-    scene.remove(visual.trailHead.line)
+    scene.remove(
+      visual.mesh,
+      visual.glowInner,
+      visual.glowOuter,
+      visual.trailPoints,
+      visual.trailRibbon.mesh,
+    )
 
     visual.bodyMaterial.dispose()
     visual.glowInnerMaterial.dispose()
     visual.glowOuterMaterial.dispose()
     visual.trailGeometry.dispose()
     visual.trailMaterial.dispose()
-    visual.trailHead.geometry.dispose()
-    visual.trailHead.material.dispose()
+    visual.trailRibbon.geometry.dispose()
+    visual.trailRibbon.material.dispose()
     visuals.delete(id)
   }
 
@@ -608,8 +755,8 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       uniforms: {
         uColor: { value: new THREE.Color(stellarColor) },
       },
-      vertexShader: trailVertexShader,
-      fragmentShader: trailFragmentShader,
+      vertexShader: trailPointVertexShader,
+      fragmentShader: trailPointFragmentShader,
       transparent: true,
       depthTest: true,
       depthWrite: false,
@@ -619,23 +766,11 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     const trailPoints = new THREE.Points(trailGeometry, trailMaterial)
     trailPoints.visible = false
     trailPoints.frustumCulled = false
-    trailPoints.renderOrder = 20
+    trailPoints.renderOrder = 21
 
-    const trailBands = RENDER_TUNING.trail.bands.map((band, index) => {
-      const layer = createTrailLineLayer(stellarColor, band.width, band.opacity)
-      layer.line.renderOrder = 21 + index
-      return layer
-    })
-    const trailHead = createTrailLineLayer(
-      stellarColor,
-      RENDER_TUNING.trail.headWidth,
-      RENDER_TUNING.trail.headOpacity,
-    )
-    trailHead.line.renderOrder = 26
+    const trailRibbon = createTrailRibbon(stellarColor)
 
-    scene.add(trailPoints)
-    trailBands.forEach((layer) => scene.add(layer.line))
-    scene.add(trailHead.line, glowOuter, glowInner, mesh)
+    scene.add(trailRibbon.mesh, trailPoints, glowOuter, glowInner, mesh)
 
     const created: VisualBody = {
       mesh,
@@ -650,8 +785,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       trailPositions,
       trailAlphas,
       trailSizes,
-      trailBands,
-      trailHead,
+      trailRibbon,
       points: [],
     }
     visuals.set(body.id, created)
@@ -669,10 +803,8 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     if (!enabled || count === 0) {
       visual.trailGeometry.setDrawRange(0, 0)
       visual.trailPoints.visible = false
-      visual.trailBands.forEach((layer) => {
-        layer.line.visible = false
-      })
-      visual.trailHead.line.visible = false
+      visual.trailRibbon.geometry.setDrawRange(0, 0)
+      visual.trailRibbon.mesh.visible = false
       return
     }
 
@@ -688,11 +820,12 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       visual.trailPositions[offset + 2] = point.position.z
 
       const freshness = getFreshness(point, currentTime, duration)
-      visual.trailAlphas[index] = RENDER_TUNING.trail.softPointAlpha * Math.pow(freshness, 1.35)
+      const featherProgress = smooth01(freshness)
+      visual.trailAlphas[index] = RENDER_TUNING.trail.softPointAlpha * featherProgress
       visual.trailSizes[index] = THREE.MathUtils.lerp(
         RENDER_TUNING.trail.softPointSizeOld,
         RENDER_TUNING.trail.softPointSizeNew,
-        Math.pow(freshness, 1.2),
+        Math.pow(freshness, 0.9),
       )
     }
 
@@ -703,28 +836,8 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     visual.trailPoints.visible = true
 
     const curveSamples = buildCurveSamples(visual.points, currentBodyPosition, currentTime)
-    RENDER_TUNING.trail.bands.forEach((band, index) => {
-      const layer = visual.trailBands[index]
-      const bandPoints = collectBandPoints(
-        curveSamples,
-        currentTime,
-        duration,
-        band.minFreshness,
-        band.maxFreshness,
-      )
-      setLinePoints(layer, bandPoints)
-      layer.line.visible = bandPoints.length >= 2
-    })
-
-    const headPoints = collectBandPoints(
-      curveSamples,
-      currentTime,
-      duration,
-      RENDER_TUNING.trail.headFreshness,
-      1.01,
-    )
-    setLinePoints(visual.trailHead, headPoints)
-    visual.trailHead.line.visible = headPoints.length >= 2
+    const smoothSamples = smoothCurveSamples(curveSamples)
+    updateTrailRibbon(visual.trailRibbon, smoothSamples, currentTime, duration)
   }
 
   const compositionOffset = new THREE.Vector3()
@@ -778,8 +891,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     camera.updateProjectionMatrix()
     renderer.setSize(width, height, false)
     visuals.forEach((visual) => {
-      visual.trailBands.forEach((layer) => layer.material.resolution.set(width, height))
-      visual.trailHead.material.resolution.set(width, height)
+      ;(visual.trailRibbon.material.uniforms.uResolution.value as THREE.Vector2).set(width, height)
     })
     applyComposition()
   }
@@ -840,20 +952,9 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       observedTrailSampleSequence = sampleBatch.sequence
     }
 
-    Array.from(visuals.entries()).forEach(([id, visual]) => {
+    Array.from(visuals.entries()).forEach(([id]) => {
       if (currentIds.has(id)) return
-      visual.mesh.visible = false
-      visual.glowInner.visible = false
-      visual.glowOuter.visible = false
-
-      if (!trailEnabledNow) {
-        removeVisual(id)
-        return
-      }
-
-      while (visual.points.length > 0 && visual.points[0].capturedAt < cutoff) visual.points.shift()
-      updateTrailVisual(visual, simulationTimeNow, trailDurationNow, trailEnabledNow)
-      if (visual.points.length === 0) removeVisual(id)
+      removeVisual(id)
     })
 
     current.forEach((body) => {
@@ -865,10 +966,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
 
       if (!trailEnabledNow) {
         visual.trailPoints.visible = false
-        visual.trailBands.forEach((layer) => {
-          layer.line.visible = false
-        })
-        visual.trailHead.line.visible = false
+        visual.trailRibbon.mesh.visible = false
         return
       }
 
