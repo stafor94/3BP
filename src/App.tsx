@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { applyPresetBodyTypes } from './bodyTypes'
+import { CollisionAlert } from './components/CollisionAlert'
 import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
 import { getOrbital2dPresetOverride } from './orbital2dPresets'
 import { getOrbital3dPresetOverride } from './orbital3dPresets'
 import { translations, type Language } from './i18n'
+import {
+  predictUpcomingCollision,
+  type CollisionPrediction,
+} from './physics/collisionPrediction'
 import { stepBodies } from './physics/engine'
 import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
 import type { BodyCount, BodyState, PresetId, SpaceMode, TrailSample, TrailSampleBatch } from './types'
@@ -12,6 +17,10 @@ import type { BodyCount, BodyState, PresetId, SpaceMode, TrailSample, TrailSampl
 const PHYSICS_DT = 0.0015
 const MAX_STEPS_PER_FRAME = 4000
 const TRAIL_SAMPLE_INTERVAL = 0.01
+const COLLISION_CHECK_INTERVAL_MS = 90
+const COLLISION_ALERT_HOLD_MS = 4200
+const COLLISION_REPLAY_LEAD_TIME = 0.75
+const COLLISION_WATCH_MUTE_MS = 12000
 const LANGUAGE_STORAGE_KEY = '3bp-language'
 const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
 const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
@@ -20,6 +29,20 @@ const SHOWCASE_DEFAULT_BY_BODY_COUNT: Partial<Record<BodyCount, PresetId>> = {
   4: 'quadNested',
   5: 'pentaNested',
   6: 'hexaNested',
+}
+
+type CollisionReplaySnapshot = {
+  pairKey: string
+  bodies: BodyState[]
+  time: number
+}
+
+function cloneBodies(input: BodyState[]) {
+  return input.map((body) => ({
+    ...body,
+    position: { ...body.position },
+    velocity: { ...body.velocity },
+  }))
 }
 
 function getInitialLanguage(): Language {
@@ -59,6 +82,8 @@ export default function App() {
   const [trailSampleBatch, setTrailSampleBatch] = useState<TrailSampleBatch>({ sequence: 0, samples: [] })
   const [trackedBodyId, setTrackedBodyId] = useState<string | null>(null)
   const [language, setLanguage] = useState<Language>(getInitialLanguage)
+  const [collisionPrediction, setCollisionPrediction] = useState<CollisionPrediction | null>(null)
+  const [collisionReplayReady, setCollisionReplayReady] = useState(false)
 
   const bodiesRef = useRef(bodies)
   const runningRef = useRef(isRunning)
@@ -68,6 +93,11 @@ export default function App() {
   const nextTrailSampleAtRef = useRef(0)
   const trailSampleQueueRef = useRef<TrailSample[]>([])
   const trailBatchSequenceRef = useRef(0)
+  const collisionPredictionRef = useRef<CollisionPrediction | null>(null)
+  const collisionReplayRef = useRef<CollisionReplaySnapshot | null>(null)
+  const collisionLastSeenAtRef = useRef(0)
+  const nextCollisionCheckAtRef = useRef(0)
+  const collisionWatchMuteUntilRef = useRef(0)
   const t = translations[language]
 
   useEffect(() => { bodiesRef.current = bodies }, [bodies])
@@ -105,6 +135,16 @@ export default function App() {
     setTrailSampleBatch({ sequence: trailBatchSequenceRef.current, samples: [] })
   }, [])
 
+  const clearCollisionWarning = useCallback(() => {
+    collisionPredictionRef.current = null
+    collisionReplayRef.current = null
+    collisionLastSeenAtRef.current = 0
+    nextCollisionCheckAtRef.current = 0
+    collisionWatchMuteUntilRef.current = 0
+    setCollisionPrediction(null)
+    setCollisionReplayReady(false)
+  }, [])
+
   const loadPreset = useCallback((nextPreset: PresetId, mode: SpaceMode = spaceMode) => {
     setPreset(nextPreset)
     setBodyCount(getPresetBodyCount(nextPreset))
@@ -118,8 +158,9 @@ export default function App() {
     setTime(0)
     setIsRunning(false)
     resetTrailSampling(0)
+    clearCollisionWarning()
     setTrailVersion((v) => v + 1)
-  }, [resetTrailSampling, spaceMode])
+  }, [clearCollisionWarning, resetTrailSampling, spaceMode])
 
   const changeSpaceMode = useCallback((mode: SpaceMode) => {
     if (mode === spaceMode) return
@@ -140,8 +181,52 @@ export default function App() {
       bodiesRef.current = updated
       return updated
     })
+    clearCollisionWarning()
     resetTrailSampling(simulationTimeRef.current)
     setTrailVersion((v) => v + 1)
+  }, [clearCollisionWarning, resetTrailSampling])
+
+  const watchCollision = useCallback(() => {
+    const prediction = collisionPredictionRef.current
+    if (!prediction) return
+
+    const replay = collisionReplayRef.current?.pairKey === prediction.pairKey
+      ? collisionReplayRef.current
+      : null
+
+    let watchBodies = bodiesRef.current
+    if (replay) {
+      watchBodies = cloneBodies(replay.bodies)
+      bodiesRef.current = watchBodies
+      setBodies(watchBodies)
+      setTime(replay.time)
+      resetTrailSampling(replay.time)
+      setTrailVersion((value) => value + 1)
+    }
+
+    const candidates = watchBodies.filter((body) =>
+      body.id === prediction.bodyAId ||
+      body.id === prediction.bodyBId ||
+      isBodyDescendedFrom(body.id, prediction.bodyAId) ||
+      isBodyDescendedFrom(body.id, prediction.bodyBId),
+    )
+    const target = candidates.reduce<BodyState | null>(
+      (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
+      null,
+    )
+    if (target) setTrackedBodyId(target.id)
+
+    speedRef.current = 0.1
+    runningRef.current = true
+    setSpeed(0.1)
+    setIsRunning(true)
+
+    collisionWatchMuteUntilRef.current = performance.now() + COLLISION_WATCH_MUTE_MS
+    collisionPredictionRef.current = null
+    collisionReplayRef.current = null
+    collisionLastSeenAtRef.current = 0
+    setCollisionPrediction(null)
+    setCollisionReplayReady(false)
   }, [resetTrailSampling])
 
   useEffect(() => {
@@ -155,6 +240,45 @@ export default function App() {
       const realDelta = Math.min((now - previous) / 1000, 0.05)
       previous = now
       if (!runningRef.current) return
+
+      if (now >= nextCollisionCheckAtRef.current && now >= collisionWatchMuteUntilRef.current) {
+        nextCollisionCheckAtRef.current = now + COLLISION_CHECK_INTERVAL_MS
+        const horizon = Math.min(6, Math.max(0.8, speedRef.current * 1.2))
+        const upcoming = predictUpcomingCollision(bodiesRef.current, horizon)
+
+        if (upcoming) {
+          const previousPrediction = collisionPredictionRef.current
+          if (previousPrediction?.pairKey !== upcoming.pairKey) {
+            collisionReplayRef.current = null
+            setCollisionReplayReady(false)
+          }
+
+          collisionPredictionRef.current = upcoming
+          collisionLastSeenAtRef.current = now
+          setCollisionPrediction(upcoming)
+
+          if (
+            upcoming.timeToImpact <= COLLISION_REPLAY_LEAD_TIME &&
+            collisionReplayRef.current?.pairKey !== upcoming.pairKey
+          ) {
+            collisionReplayRef.current = {
+              pairKey: upcoming.pairKey,
+              bodies: cloneBodies(bodiesRef.current),
+              time: simulationTimeRef.current,
+            }
+            setCollisionReplayReady(true)
+          }
+        } else if (
+          collisionPredictionRef.current &&
+          now - collisionLastSeenAtRef.current > COLLISION_ALERT_HOLD_MS
+        ) {
+          collisionPredictionRef.current = null
+          collisionReplayRef.current = null
+          collisionLastSeenAtRef.current = 0
+          setCollisionPrediction(null)
+          setCollisionReplayReady(false)
+        }
+      }
 
       accumulator += realDelta * speedRef.current
       publishAccumulator += realDelta
@@ -240,6 +364,14 @@ export default function App() {
           <span aria-hidden="true">·</span>
           <span>{t.elapsedTime} {time.toFixed(2)}</span>
         </div>
+        {collisionPrediction && (
+          <CollisionAlert
+            prediction={collisionPrediction}
+            language={language}
+            replayReady={collisionReplayReady}
+            onWatch={watchCollision}
+          />
+        )}
       </section>
       <ControlPanel
         bodies={bodies}
