@@ -129,7 +129,7 @@
     z-index: 3;
     top: 0;
     left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translate(-50%, calc(-100% + 1px));
     display: grid;
     place-items: center;
     width: 76px;
