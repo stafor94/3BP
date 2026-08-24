@@ -19,6 +19,8 @@ const MAX_STEPS_PER_FRAME = 4000
 const TRAIL_SAMPLE_INTERVAL = 0.01
 const COLLISION_CHECK_INTERVAL_MS = 60
 const COLLISION_ALERT_HOLD_MS = 4200
+const COLLISION_MISS_GRACE_MS = 180
+const COLLISION_CONFIRMATION_COUNT = 2
 const COLLISION_REPLAY_LEAD_TIME = 1.2
 const COLLISION_WATCH_MUTE_MS = 12000
 const LANGUAGE_STORAGE_KEY = '3bp-language'
@@ -35,6 +37,11 @@ type CollisionReplaySnapshot = {
   pairKey: string
   bodies: BodyState[]
   time: number
+}
+
+type CollisionConfirmation = {
+  pairKey: string
+  count: number
 }
 
 function cloneBodies(input: BodyState[]) {
@@ -94,6 +101,7 @@ export default function App() {
   const trailSampleQueueRef = useRef<TrailSample[]>([])
   const trailBatchSequenceRef = useRef(0)
   const collisionPredictionRef = useRef<CollisionPrediction | null>(null)
+  const collisionConfirmationRef = useRef<CollisionConfirmation | null>(null)
   const collisionReplayRef = useRef<CollisionReplaySnapshot | null>(null)
   const collisionLastSeenAtRef = useRef(0)
   const nextCollisionCheckAtRef = useRef(0)
@@ -137,6 +145,7 @@ export default function App() {
 
   const clearCollisionWarning = useCallback(() => {
     collisionPredictionRef.current = null
+    collisionConfirmationRef.current = null
     collisionReplayRef.current = null
     collisionLastSeenAtRef.current = 0
     nextCollisionCheckAtRef.current = 0
@@ -192,13 +201,11 @@ export default function App() {
 
     const exactA = bodiesRef.current.find((body) => body.id === prediction.bodyAId)
     const exactB = bodiesRef.current.find((body) => body.id === prediction.bodyBId)
-    const predictionStale = performance.now() - collisionLastSeenAtRef.current > COLLISION_CHECK_INTERVAL_MS * 2
     const collisionAlreadyHappened =
       !exactA ||
       !exactB ||
       (exactA.collisionCooldown ?? 0) > 0 ||
-      (exactB.collisionCooldown ?? 0) > 0 ||
-      predictionStale
+      (exactB.collisionCooldown ?? 0) > 0
     const replay = collisionAlreadyHappened && collisionReplayRef.current?.pairKey === prediction.pairKey
       ? collisionReplayRef.current
       : null
@@ -232,6 +239,7 @@ export default function App() {
 
     collisionWatchMuteUntilRef.current = performance.now() + COLLISION_WATCH_MUTE_MS
     collisionPredictionRef.current = null
+    collisionConfirmationRef.current = null
     collisionReplayRef.current = null
     collisionLastSeenAtRef.current = 0
     setCollisionPrediction(null)
@@ -256,36 +264,55 @@ export default function App() {
         const upcoming = predictUpcomingCollision(bodiesRef.current, horizon)
 
         if (upcoming) {
-          const previousPrediction = collisionPredictionRef.current
-          if (previousPrediction?.pairKey !== upcoming.pairKey) {
-            collisionReplayRef.current = null
-            setCollisionReplayReady(false)
+          const previousConfirmation = collisionConfirmationRef.current
+          const confirmationCount = previousConfirmation?.pairKey === upcoming.pairKey
+            ? previousConfirmation.count + 1
+            : 1
+          collisionConfirmationRef.current = {
+            pairKey: upcoming.pairKey,
+            count: confirmationCount,
           }
 
-          collisionPredictionRef.current = upcoming
-          collisionLastSeenAtRef.current = now
-          setCollisionPrediction(upcoming)
-
-          if (
-            upcoming.timeToImpact <= COLLISION_REPLAY_LEAD_TIME &&
-            collisionReplayRef.current?.pairKey !== upcoming.pairKey
-          ) {
-            collisionReplayRef.current = {
-              pairKey: upcoming.pairKey,
-              bodies: cloneBodies(bodiesRef.current),
-              time: simulationTimeRef.current,
+          if (confirmationCount >= COLLISION_CONFIRMATION_COUNT || upcoming.timeToImpact <= 0.2) {
+            const previousPrediction = collisionPredictionRef.current
+            if (previousPrediction?.pairKey !== upcoming.pairKey) {
+              collisionReplayRef.current = null
+              setCollisionReplayReady(false)
             }
-            setCollisionReplayReady(true)
+
+            collisionPredictionRef.current = upcoming
+            collisionLastSeenAtRef.current = now
+            setCollisionPrediction(upcoming)
+
+            if (
+              upcoming.timeToImpact <= COLLISION_REPLAY_LEAD_TIME &&
+              collisionReplayRef.current?.pairKey !== upcoming.pairKey
+            ) {
+              collisionReplayRef.current = {
+                pairKey: upcoming.pairKey,
+                bodies: cloneBodies(bodiesRef.current),
+                time: simulationTimeRef.current,
+              }
+              setCollisionReplayReady(true)
+            }
           }
-        } else if (
-          collisionPredictionRef.current &&
-          now - collisionLastSeenAtRef.current > COLLISION_ALERT_HOLD_MS
-        ) {
-          collisionPredictionRef.current = null
-          collisionReplayRef.current = null
-          collisionLastSeenAtRef.current = 0
-          setCollisionPrediction(null)
-          setCollisionReplayReady(false)
+        } else {
+          collisionConfirmationRef.current = null
+          const activePrediction = collisionPredictionRef.current
+          if (activePrediction) {
+            const exactAExists = bodiesRef.current.some((body) => body.id === activePrediction.bodyAId)
+            const exactBExists = bodiesRef.current.some((body) => body.id === activePrediction.bodyBId)
+            const pairStillExists = exactAExists && exactBExists
+            const holdMs = pairStillExists ? COLLISION_MISS_GRACE_MS : COLLISION_ALERT_HOLD_MS
+
+            if (now - collisionLastSeenAtRef.current > holdMs) {
+              collisionPredictionRef.current = null
+              collisionReplayRef.current = null
+              collisionLastSeenAtRef.current = 0
+              setCollisionPrediction(null)
+              setCollisionReplayReady(false)
+            }
+          }
         }
       }
 
