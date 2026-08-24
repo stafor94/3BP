@@ -6,7 +6,8 @@ import type { BodyState } from '../types'
 const MAX_STAR_LIGHTS = 6
 
 let installed = false
-let lightingBodies: BodyState[] = []
+let bodyBySeed = new Map<string, BodyState>()
+let lightingStars: BodyState[] = []
 
 function getBodySeed(id: string) {
   let hash = 2166136261
@@ -137,57 +138,52 @@ const litBodyFragmentShader = `
   }
 `
 
-function updateSceneLighting(scene: THREE.Scene) {
-  const bodyBySeed = new Map<string, BodyState>()
-  lightingBodies.forEach((body) => bodyBySeed.set(seedKey(getBodySeed(body.id)), body))
+function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, object: THREE.Object3D) {
+  const seed = material.uniforms.uSeed?.value
+  if (typeof seed !== 'number') return
 
-  const stars = lightingBodies
-    .filter((body) => getEffectiveBodyType(body) === 'star')
-    .slice(0, MAX_STAR_LIGHTS)
+  const body = bodyBySeed.get(seedKey(seed))
+  if (!body) return
 
-  scene.children.forEach((object, objectIndex) => {
-    if (!(object instanceof THREE.Mesh)) return
-    if (!(object.material instanceof THREE.ShaderMaterial)) return
+  const bodyType = getEffectiveBodyType(body)
+  const selfLuminous = bodyType === 'star' || bodyType === 'effect'
+  material.uniforms.uSelfLuminous.value = selfLuminous ? 1 : 0
+  material.uniforms.uLightCount.value = lightingStars.length
 
-    const material = object.material
-    const seed = material.uniforms.uSeed?.value
-    if (typeof seed !== 'number' || material.uniforms.uSelfLuminous === undefined) return
+  const lightPositions = material.uniforms.uLightPositions.value as THREE.Vector3[]
+  const lightColors = material.uniforms.uLightColors.value as THREE.Color[]
+  const lightStrengths = material.uniforms.uLightStrengths.value as number[]
 
-    const body = bodyBySeed.get(seedKey(seed))
-    if (!body) return
-
-    const bodyType = getEffectiveBodyType(body)
-    const selfLuminous = bodyType === 'star' || bodyType === 'effect'
-    material.uniforms.uSelfLuminous.value = selfLuminous ? 1 : 0
-    material.uniforms.uLightCount.value = stars.length
-
-    const lightPositions = material.uniforms.uLightPositions.value as THREE.Vector3[]
-    const lightColors = material.uniforms.uLightColors.value as THREE.Color[]
-    const lightStrengths = material.uniforms.uLightStrengths.value as number[]
-
-    for (let index = 0; index < MAX_STAR_LIGHTS; index += 1) {
-      const star = stars[index]
-      if (!star) {
-        lightPositions[index].set(0, 0, 0)
-        lightColors[index].setRGB(0, 0, 0)
-        lightStrengths[index] = 0
-        continue
-      }
-
-      lightPositions[index].set(star.position.x, star.position.y, star.position.z)
-      lightColors[index].set(getNearestStellarColor(star.color).hex)
-      lightStrengths[index] = Math.min(4.2, 1 + Math.log2(1 + Math.max(star.mass, 0)) * 0.72)
+  for (let index = 0; index < MAX_STAR_LIGHTS; index += 1) {
+    const star = lightingStars[index]
+    if (!star) {
+      lightPositions[index].set(0, 0, 0)
+      lightColors[index].setRGB(0, 0, 0)
+      lightStrengths[index] = 0
+      continue
     }
 
+    lightPositions[index].set(star.position.x, star.position.y, star.position.z)
+    lightColors[index].set(getNearestStellarColor(star.color).hex)
+    lightStrengths[index] = Math.min(4.2, 1 + Math.log2(1 + Math.max(star.mass, 0)) * 0.72)
+  }
+
+  const objectIndex = scene.children.indexOf(object)
+  if (objectIndex >= 2) {
     const glowInner = scene.children[objectIndex - 1]
     const glowOuter = scene.children[objectIndex - 2]
     if (glowInner instanceof THREE.Sprite) glowInner.visible = selfLuminous
     if (glowOuter instanceof THREE.Sprite) glowOuter.visible = selfLuminous
-  })
+  }
 }
 
 export function syncBodyLightingState(bodies: BodyState[]) {
-  lightingBodies = bodies
+  const nextBodyBySeed = new Map<string, BodyState>()
+  bodies.forEach((body) => nextBodyBySeed.set(seedKey(getBodySeed(body.id)), body))
+  bodyBySeed = nextBodyBySeed
+  lightingStars = bodies
+    .filter((body) => getEffectiveBodyType(body) === 'star')
+    .slice(0, MAX_STAR_LIGHTS)
 }
 
 export function installBodyLighting() {
@@ -196,6 +192,7 @@ export function installBodyLighting() {
 
   const shaderPrototype = THREE.ShaderMaterial.prototype as any
   const originalSetValues = shaderPrototype.setValues
+
   shaderPrototype.setValues = function setLightingAwareShaderValues(values: Record<string, any>) {
     if (!isBodyShader(values)) return originalSetValues.call(this, values)
 
@@ -217,13 +214,17 @@ export function installBodyLighting() {
         },
       },
     }
-    return originalSetValues.call(this, nextValues)
-  }
 
-  const rendererPrototype = THREE.WebGLRenderer.prototype as any
-  const originalRender = rendererPrototype.render
-  rendererPrototype.render = function renderWithBodyLighting(scene: THREE.Scene, camera: THREE.Camera) {
-    updateSceneLighting(scene)
-    return originalRender.call(this, scene, camera)
+    const result = originalSetValues.call(this, nextValues)
+    this.onBeforeRender = (
+      _renderer: THREE.WebGLRenderer,
+      scene: THREE.Scene,
+      _camera: THREE.Camera,
+      _geometry: THREE.BufferGeometry,
+      object: THREE.Object3D,
+    ) => {
+      updateBodyLighting(this as THREE.ShaderMaterial, scene, object)
+    }
+    return result
   }
 }
