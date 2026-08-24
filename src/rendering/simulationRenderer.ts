@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { FRAGMENT_TRAIL_TIME, getFragmentOpacity } from '../fragmentLifecycle'
 import { getNearestStellarColor } from '../starColors'
 import type { BodyState, TrailSampleBatch } from '../types'
 import { createFragmentGeometry } from './fragmentGeometry'
@@ -114,6 +115,7 @@ const bodyFragmentShader = `
   uniform float uSeed;
   uniform float uDetailStrength;
   uniform float uRimStrength;
+  uniform float uOpacity;
 
   varying vec3 vObjectNormal;
   varying vec3 vWorldNormal;
@@ -181,7 +183,7 @@ const bodyFragmentShader = `
     float intensity = min(emission * surfaceDetail + rim, 1.42);
     vec3 color = uIdentityColor * intensity;
 
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(color, uOpacity);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
@@ -296,6 +298,7 @@ function createBodyMaterial(id: string, color: string) {
       uSeed: { value: getBodySeed(id) },
       uDetailStrength: { value: RENDER_TUNING.body.detailMin },
       uRimStrength: { value: RENDER_TUNING.body.rimMax },
+      uOpacity: { value: 1 },
     },
     vertexShader: bodyVertexShader,
     fragmentShader: bodyFragmentShader,
@@ -553,8 +556,18 @@ function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTim
   const renderRadius = Math.max(body.radius, RENDER_TUNING.body.minRenderRadius)
   const stellarColor = getNearestStellarColor(body.color).hex
   const isFragment = body.bodyType === 'fragment'
+  const isCollisionSpark = body.bodyType === 'effect' && body.name === 'Collision spark'
+  const debrisOpacity = isFragment || isCollisionSpark ? getFragmentOpacity(body.age ?? 0) : 1
   visual.mesh.position.set(body.position.x, body.position.y, body.position.z)
   visual.mesh.scale.setScalar(renderRadius)
+
+  const shouldBlend = debrisOpacity < 0.999
+  if (visual.bodyMaterial.transparent !== shouldBlend) {
+    visual.bodyMaterial.transparent = shouldBlend
+    visual.bodyMaterial.needsUpdate = true
+  }
+  visual.bodyMaterial.depthWrite = !shouldBlend
+  visual.bodyMaterial.uniforms.uOpacity.value = debrisOpacity
 
   if (isFragment) {
     const seed = getBodySeed(body.id)
@@ -613,10 +626,10 @@ function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTim
   )
   visual.glowInnerMaterial.opacity = innerGlowOpacity * (
     isFragment ? RENDER_TUNING.fragment.innerGlowOpacityScale : 1
-  )
+  ) * debrisOpacity
   visual.glowOuterMaterial.opacity = outerGlowOpacity * (
     isFragment ? RENDER_TUNING.fragment.outerGlowOpacityScale : 1
-  )
+  ) * debrisOpacity
 
   ;(visual.trailMaterial.uniforms.uColor.value as THREE.Color).set(stellarColor)
   ;(visual.trailRibbon.material.uniforms.uColor.value as THREE.Color).set(stellarColor)
@@ -1024,9 +1037,15 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       visual.glowOuter.visible = true
       updateBodyAppearance(visual, body, simulationTimeNow)
 
-      if (!trailEnabledNow) {
-        visual.trailPoints.visible = false
-        visual.trailRibbon.mesh.visible = false
+      const fragmentTrailExpired = body.bodyType === 'fragment' && (body.age ?? 0) >= FRAGMENT_TRAIL_TIME
+      const trailVisibleForBody = trailEnabledNow && body.bodyType !== 'effect' && !fragmentTrailExpired
+
+      if (!trailVisibleForBody) {
+        if (fragmentTrailExpired && visual.points.length > 0) clearTrail(visual)
+        else {
+          visual.trailPoints.visible = false
+          visual.trailRibbon.mesh.visible = false
+        }
         return
       }
 
@@ -1035,7 +1054,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
         visual,
         simulationTimeNow,
         trailDurationNow,
-        trailEnabledNow,
+        trailVisibleForBody,
         visual.mesh.position,
       )
     })
