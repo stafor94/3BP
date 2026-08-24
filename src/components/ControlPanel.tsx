@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { translations, type Language } from '../i18n'
 import { PRESETS_BY_BODY_COUNT } from '../presets'
+import { formatStellarColorOption, getNearestStellarColor, STELLAR_COLOR_OPTIONS } from '../starColors'
 import type { BodyCount, BodyState, PresetId } from '../types'
 import { APP_VERSION } from '../version'
 import '../mobile-controls.css'
@@ -175,10 +176,14 @@ export function ControlPanel({
         <div className="body-list">
           {bodies.map((body) => {
             const isTracked = trackedBodyId === body.id
+            const stellarColor = getNearestStellarColor(body.color)
             return (
               <details className="body-card" key={body.id} open={bodies.length <= 3}>
                 <summary>
-                  <span className="body-dot" style={{ background: body.color }} />
+                  <span
+                    className="body-dot"
+                    style={{ background: stellarColor.hex, color: stellarColor.hex }}
+                  />
                   <strong>{body.name}</strong>
                   <span>{body.mass.toFixed(2)} M</span>
                 </summary>
@@ -204,10 +209,27 @@ export function ControlPanel({
                     {t.name}
                     <input value={body.name} onChange={(e) => onBodyChange(body.id, { ...body, name: e.target.value })} />
                   </label>
-                  <label>
-                    {t.color}
-                    <input type="color" value={body.color} onChange={(e) => onBodyChange(body.id, { ...body, color: e.target.value })} />
-                  </label>
+                  <div className="stellar-color-field">
+                    <span>{t.color}</span>
+                    <div className="stellar-color-picker" role="group" aria-label={t.color}>
+                      {STELLAR_COLOR_OPTIONS.map((option) => {
+                        const optionLabel = formatStellarColorOption(option, language)
+                        const active = stellarColor.spectralClass === option.spectralClass
+                        return (
+                          <button
+                            key={option.spectralClass}
+                            type="button"
+                            className={active ? 'active' : ''}
+                            style={{ backgroundColor: option.hex }}
+                            title={optionLabel}
+                            aria-label={optionLabel}
+                            aria-pressed={active}
+                            onClick={() => onBodyChange(body.id, { ...body, color: option.hex })}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
                   <label>
                     {t.mass}
                     <NumberField value={body.mass} step={0.05} onChange={(mass) => onBodyChange(body.id, { ...body, mass: Math.max(0.001, mass) })} />
