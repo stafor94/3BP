@@ -46,6 +46,7 @@ type StarLayer = {
 }
 
 const MAX_TRAIL_POINTS = 6000
+const SINGLE_BODY_TRAIL_SIZE = 6.5
 
 const trailVertexShader = `
   attribute float aAlpha;
@@ -335,6 +336,7 @@ export function SimulationView({
         return
       }
 
+      const singleBodyMode = latestBodies.current.length === 1
       const positionAttribute = visual.trailGeometry.getAttribute('position') as THREE.BufferAttribute
       const alphaAttribute = visual.trailGeometry.getAttribute('aAlpha') as THREE.BufferAttribute
       const sizeAttribute = visual.trailGeometry.getAttribute('aSize') as THREE.BufferAttribute
@@ -348,9 +350,15 @@ export function SimulationView({
 
         const ageRatio = THREE.MathUtils.clamp((currentTime - point.capturedAt) / duration, 0, 1)
         const freshness = 1 - ageRatio
-        const fade = Math.pow(freshness, 1.8)
-        visual.trailAlphas[index] = fade * 0.82
-        visual.trailSizes[index] = 4.5 + 17.5 * Math.pow(freshness, 1.7)
+        if (singleBodyMode) {
+          const endFade = 1 - THREE.MathUtils.smoothstep(ageRatio, 0.72, 1)
+          visual.trailAlphas[index] = endFade * 0.68
+          visual.trailSizes[index] = SINGLE_BODY_TRAIL_SIZE
+        } else {
+          const fade = Math.pow(freshness, 1.8)
+          visual.trailAlphas[index] = fade * 0.82
+          visual.trailSizes[index] = 4.5 + 17.5 * Math.pow(freshness, 1.7)
+        }
       }
 
       positionAttribute.needsUpdate = true
@@ -358,6 +366,12 @@ export function SimulationView({
       sizeAttribute.needsUpdate = true
       visual.trailGeometry.setDrawRange(0, count)
       visual.trailPoints.visible = latestTrailEnabled.current
+
+      if (singleBodyMode) {
+        visual.trailGlow.visible = false
+        visual.trailCore.visible = false
+        return
+      }
 
       const coreCutoff = currentTime - Math.min(duration * 0.36, 2.6)
       const recentPoints = visual.points.filter((point) => point.capturedAt >= coreCutoff)
