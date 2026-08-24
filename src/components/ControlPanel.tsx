@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { translations, type Language } from '../i18n'
 import { PRESETS_BY_BODY_COUNT } from '../presets'
 import { formatStellarColorOption, getNearestStellarColor, STELLAR_COLOR_OPTIONS } from '../starColors'
@@ -36,13 +36,50 @@ const BODY_COUNTS: BodyCount[] = [1, 2, 3, 4, 5, 6]
 const SPACE_MODES: SpaceMode[] = ['2d', '3d']
 const vectorKeys = ['x', 'y', 'z'] as const
 
+function formatNumberValue(value: number) {
+  return Number.isFinite(value) ? String(Number(value.toFixed(6))) : '0'
+}
+
 function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange: (n: number) => void; step?: number }) {
+  const [draft, setDraft] = useState(() => formatNumberValue(value))
+  const [isEditing, setIsEditing] = useState(false)
+
+  useEffect(() => {
+    if (!isEditing) setDraft(formatNumberValue(value))
+  }, [value, isEditing])
+
+  const commit = () => {
+    setIsEditing(false)
+    const trimmed = draft.trim()
+    if (trimmed === '') {
+      setDraft(formatNumberValue(value))
+      return
+    }
+
+    const next = Number(trimmed)
+    if (!Number.isFinite(next)) {
+      setDraft(formatNumberValue(value))
+      return
+    }
+
+    onChange(next)
+  }
+
   return (
     <input
       type="number"
-      value={Number.isFinite(value) ? Number(value.toFixed(6)) : 0}
+      value={draft}
       step={step}
-      onChange={(event) => onChange(Number(event.target.value))}
+      onFocus={() => setIsEditing(true)}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur()
+        if (event.key === 'Escape') {
+          setDraft(formatNumberValue(value))
+          event.currentTarget.blur()
+        }
+      }}
     />
   )
 }
