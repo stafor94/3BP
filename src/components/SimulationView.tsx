@@ -279,7 +279,7 @@ export function SimulationView({
         opacity: 0.09,
         depthTest: false,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        blending: THREE.NormalBlending,
         toneMapped: false,
       })
       trailGlowMaterial.resolution.set(Math.max(host.clientWidth, 1), Math.max(host.clientHeight, 1))
@@ -295,7 +295,7 @@ export function SimulationView({
         opacity: 0.34,
         depthTest: false,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        blending: THREE.NormalBlending,
         toneMapped: false,
       })
       trailCoreMaterial.resolution.set(Math.max(host.clientWidth, 1), Math.max(host.clientHeight, 1))
