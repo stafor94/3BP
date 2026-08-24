@@ -4,13 +4,15 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { Line2 } from 'three/addons/lines/Line2.js'
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
-import type { BodyState } from '../types'
+import type { BodyState, TrailSampleBatch } from '../types'
 
 type Props = {
   bodies: BodyState[]
+  simulationTime: number
   trailVersion: number
   trailEnabled: boolean
   trailDuration: number
+  trailSampleBatch: TrailSampleBatch
   trackedBodyId: string | null
 }
 
@@ -43,8 +45,7 @@ type StarLayer = {
   follow: number
 }
 
-const MAX_TRAIL_POINTS = 3600
-const TRAIL_CAPTURE_INTERVAL = 16
+const MAX_TRAIL_POINTS = 6000
 
 const trailVertexShader = `
   attribute float aAlpha;
@@ -82,18 +83,30 @@ function isBodyDescendedFrom(bodyId: string, trackedBodyId: string) {
   return trackedBodyId.split('+').every((part) => bodyParts.has(part))
 }
 
-export function SimulationView({ bodies, trailVersion, trailEnabled, trailDuration, trackedBodyId }: Props) {
+export function SimulationView({
+  bodies,
+  simulationTime,
+  trailVersion,
+  trailEnabled,
+  trailDuration,
+  trailSampleBatch,
+  trackedBodyId,
+}: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const latestBodies = useRef(bodies)
+  const latestSimulationTime = useRef(simulationTime)
   const latestTrailVersion = useRef(trailVersion)
   const latestTrailEnabled = useRef(trailEnabled)
   const latestTrailDuration = useRef(trailDuration)
+  const latestTrailSampleBatch = useRef(trailSampleBatch)
   const latestTrackedBodyId = useRef(trackedBodyId)
 
   latestBodies.current = bodies
+  latestSimulationTime.current = simulationTime
   latestTrailVersion.current = trailVersion
   latestTrailEnabled.current = trailEnabled
   latestTrailDuration.current = trailDuration
+  latestTrailSampleBatch.current = trailSampleBatch
   latestTrackedBodyId.current = trackedBodyId
 
   useEffect(() => {
@@ -182,6 +195,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
     const visuals = new Map<string, VisualBody>()
     let observedTrailVersion = latestTrailVersion.current
     let observedTrailEnabled = latestTrailEnabled.current
+    let observedTrailSampleSequence = latestTrailSampleBatch.current.sequence
     let observedTrackedBodyId = latestTrackedBodyId.current
     let wasTrackingBody = false
 
@@ -207,7 +221,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       visuals.delete(id)
     }
 
-    const ensureVisual = (body: BodyState) => {
+    const ensureVisual = (body: Pick<BodyState, 'id' | 'color'>) => {
       if (visuals.has(body.id)) return visuals.get(body.id)!
 
       const geometry = new THREE.SphereGeometry(1, 32, 24)
@@ -311,7 +325,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       return created
     }
 
-    const updateTrailVisual = (visual: VisualBody, now: number, durationMs: number) => {
+    const updateTrailVisual = (visual: VisualBody, currentTime: number, duration: number) => {
       const count = visual.points.length
       if (count === 0) {
         visual.trailGeometry.setDrawRange(0, 0)
@@ -332,7 +346,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
         visual.trailPositions[offset + 1] = point.position.y
         visual.trailPositions[offset + 2] = point.position.z
 
-        const ageRatio = THREE.MathUtils.clamp((now - point.capturedAt) / durationMs, 0, 1)
+        const ageRatio = THREE.MathUtils.clamp((currentTime - point.capturedAt) / duration, 0, 1)
         const freshness = 1 - ageRatio
         const fade = Math.pow(freshness, 1.8)
         visual.trailAlphas[index] = fade * 0.82
@@ -345,7 +359,7 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       visual.trailGeometry.setDrawRange(0, count)
       visual.trailPoints.visible = latestTrailEnabled.current
 
-      const coreCutoff = now - Math.min(durationMs * 0.36, 2600)
+      const coreCutoff = currentTime - Math.min(duration * 0.36, 2.6)
       const recentPoints = visual.points.filter((point) => point.capturedAt >= coreCutoff)
       const curvePoints: THREE.Vector3[] = []
       recentPoints.forEach((point) => {
@@ -439,14 +453,14 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
     resize()
 
     let frame = 0
-    let lastTrailCapture = 0
-    const animate = (now: number) => {
+    const animate = () => {
       frame = requestAnimationFrame(animate)
       const current = latestBodies.current
       const currentIds = new Set(current.map((body) => body.id))
       const trailEnabledNow = latestTrailEnabled.current
-      const trailDurationMs = Math.max(1, latestTrailDuration.current) * 1000
-      const cutoff = now - trailDurationMs
+      const simulationTimeNow = latestSimulationTime.current
+      const trailDurationNow = Math.max(1, latestTrailDuration.current)
+      const cutoff = simulationTimeNow - trailDurationNow
       const trackedBody = getTrackedBody(current)
       const trackingSelectionChanged = observedTrackedBodyId !== latestTrackedBodyId.current
 
@@ -465,13 +479,28 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       if (observedTrailVersion !== latestTrailVersion.current) {
         Array.from(visuals.keys()).forEach(removeVisual)
         observedTrailVersion = latestTrailVersion.current
-        lastTrailCapture = now
+        observedTrailSampleSequence = latestTrailSampleBatch.current.sequence
       }
 
       if (observedTrailEnabled !== trailEnabledNow) {
         visuals.forEach(clearTrail)
         observedTrailEnabled = trailEnabledNow
-        lastTrailCapture = now - TRAIL_CAPTURE_INTERVAL
+        observedTrailSampleSequence = latestTrailSampleBatch.current.sequence
+      }
+
+      const sampleBatch = latestTrailSampleBatch.current
+      if (observedTrailSampleSequence !== sampleBatch.sequence) {
+        if (trailEnabledNow) {
+          sampleBatch.samples.forEach((sample) => {
+            const visual = visuals.get(sample.bodyId) ?? ensureVisual({ id: sample.bodyId, color: sample.color })
+            visual.points.push({
+              position: new THREE.Vector3(sample.position.x, sample.position.y, sample.position.z),
+              capturedAt: sample.simulatedAt,
+            })
+            if (visual.points.length > MAX_TRAIL_POINTS) visual.points.shift()
+          })
+        }
+        observedTrailSampleSequence = sampleBatch.sequence
       }
 
       Array.from(visuals.entries()).forEach(([id, visual]) => {
@@ -487,11 +516,9 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
         while (visual.points.length > 0 && visual.points[0].capturedAt < cutoff) {
           visual.points.shift()
         }
-        updateTrailVisual(visual, now, trailDurationMs)
+        updateTrailVisual(visual, simulationTimeNow, trailDurationNow)
         if (visual.points.length === 0) removeVisual(id)
       })
-
-      const shouldCaptureTrail = trailEnabledNow && now - lastTrailCapture >= TRAIL_CAPTURE_INTERVAL
 
       current.forEach((body) => {
         const visual = ensureVisual(body)
@@ -520,16 +547,9 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
         while (visual.points.length > 0 && visual.points[0].capturedAt < cutoff) {
           visual.points.shift()
         }
-
-        if (shouldCaptureTrail) {
-          visual.points.push({ position: position.clone(), capturedAt: now })
-          if (visual.points.length > MAX_TRAIL_POINTS) visual.points.shift()
-        }
-
-        updateTrailVisual(visual, now, trailDurationMs)
+        updateTrailVisual(visual, simulationTimeNow, trailDurationNow)
       })
 
-      if (shouldCaptureTrail) lastTrailCapture = now
       controls.update()
       renderer.render(scene, camera)
     }
