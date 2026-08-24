@@ -261,7 +261,7 @@ export function SimulationView({
         transparent: true,
         depthTest: false,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
+        blending: THREE.NormalBlending,
         toneMapped: false,
       })
       const trailPoints = new THREE.Points(trailGeometry, trailMaterial)
