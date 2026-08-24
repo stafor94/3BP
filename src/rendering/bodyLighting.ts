@@ -123,14 +123,14 @@ const litBodyFragmentShader = `
           float attenuation = 1.0 / (1.0 + distanceSquared * 0.16);
           vec3 irradiance = uLightColors[i] * uLightStrengths[i] * attenuation;
           vec3 halfDirection = normalize(lightDirection + viewDirection);
-          float specular = pow(max(dot(normalWorld, halfDirection), 0.0), 28.0) * diffuse * 0.16;
+          float specular = pow(max(dot(normalWorld, halfDirection), 0.0), 28.0) * diffuse * 0.10;
 
           litColor += albedo * irradiance * diffuse;
           litColor += irradiance * specular;
         }
       }
 
-      litColor += albedo * rim * 0.32;
+      litColor += albedo * rim * 0.20;
       color = min(litColor, vec3(1.35));
     }
 
@@ -189,9 +189,13 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
 
     if (glowInner instanceof THREE.Sprite) {
       glowInner.visible = selfLuminous
-      if (bodyType === 'effect') {
-        glowInner.scale.setScalar(visualRadius * 7.5)
-        if (glowInner.material instanceof THREE.SpriteMaterial) {
+      if (glowInner.material instanceof THREE.SpriteMaterial) {
+        // The render list can already contain this sprite before mesh onBeforeRender runs.
+        // Zeroing opacity is therefore the reliable same-frame guard for planets/moons/fragments.
+        if (!selfLuminous) {
+          glowInner.material.opacity = 0
+        } else if (bodyType === 'effect') {
+          glowInner.scale.setScalar(visualRadius * 7.5)
           glowInner.material.opacity = 0.9 * (1 - effectProgress * 0.65)
         }
       }
@@ -199,9 +203,11 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
 
     if (glowOuter instanceof THREE.Sprite) {
       glowOuter.visible = selfLuminous
-      if (bodyType === 'effect') {
-        glowOuter.scale.setScalar(visualRadius * 16)
-        if (glowOuter.material instanceof THREE.SpriteMaterial) {
+      if (glowOuter.material instanceof THREE.SpriteMaterial) {
+        if (!selfLuminous) {
+          glowOuter.material.opacity = 0
+        } else if (bodyType === 'effect') {
+          glowOuter.scale.setScalar(visualRadius * 16)
           glowOuter.material.opacity = 0.58 * (1 - effectProgress * 0.8)
         }
       }
