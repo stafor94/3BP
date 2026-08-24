@@ -59,16 +59,16 @@ const RENDER_TUNING = {
     sphereWidthSegments: 36,
     sphereHeightSegments: 24,
     minRenderRadius: 0.025,
-    innerGlowScale: 3.6,
-    outerGlowScale: 7.4,
-    innerGlowOpacityMin: 0.26,
-    innerGlowOpacityMax: 0.42,
-    outerGlowOpacityMin: 0.08,
-    outerGlowOpacityMax: 0.18,
+    innerGlowScale: 5.4,
+    outerGlowScale: 12.0,
+    innerGlowOpacityMin: 0.55,
+    innerGlowOpacityMax: 0.78,
+    outerGlowOpacityMin: 0.20,
+    outerGlowOpacityMax: 0.34,
     detailMin: 0.1,
     detailMax: 0.46,
-    rimMin: 0.055,
-    rimMax: 0.105,
+    rimMin: 0.08,
+    rimMax: 0.14,
   },
   trail: {
     maxPoints: 6000,
@@ -153,11 +153,11 @@ const bodyFragmentShader = `
   }
 
   float drawBodyEmission(vec3 worldNormal, vec3 viewDirection) {
-    // Self-luminous stars do not use directional diffuse lighting. The only broad
-    // shading cue is limb darkening, keeping the full visible hemisphere emissive.
+    // Self-luminous stars stay bright across the visible hemisphere. Stronger
+    // center emission and a gentler limb falloff make the body itself read as luminous.
     float limb = max(dot(worldNormal, viewDirection), 0.0);
-    float limbDarkening = 0.76 + 0.24 * pow(limb, 0.55);
-    float centerEmission = 1.04 + 0.14 * pow(limb, 0.72);
+    float limbDarkening = 0.82 + 0.18 * pow(limb, 0.55);
+    float centerEmission = 1.10 + 0.24 * pow(limb, 0.72);
     return limbDarkening * centerEmission;
   }
 
@@ -175,7 +175,7 @@ const bodyFragmentShader = `
 
     // Every brightness term scales the selected stellar color, so highlights retain
     // the O/B/A/F/G/K/M hue instead of drifting toward generic white.
-    float intensity = min(emission * surfaceDetail + rim, 1.22);
+    float intensity = min(emission * surfaceDetail + rim, 1.42);
     vec3 color = uIdentityColor * intensity;
 
     gl_FragColor = vec4(color, 1.0);
@@ -255,10 +255,10 @@ function createBodyGlowTexture() {
 
   const gradient = context.createRadialGradient(center, center, 0, center, center, center)
   gradient.addColorStop(0.0, 'rgba(255,255,255,1.00)')
-  gradient.addColorStop(0.08, 'rgba(255,255,255,0.88)')
-  gradient.addColorStop(0.2, 'rgba(255,255,255,0.42)')
-  gradient.addColorStop(0.42, 'rgba(255,255,255,0.13)')
-  gradient.addColorStop(0.7, 'rgba(255,255,255,0.03)')
+  gradient.addColorStop(0.08, 'rgba(255,255,255,1.00)')
+  gradient.addColorStop(0.2, 'rgba(255,255,255,0.72)')
+  gradient.addColorStop(0.42, 'rgba(255,255,255,0.32)')
+  gradient.addColorStop(0.7, 'rgba(255,255,255,0.10)')
   gradient.addColorStop(1.0, 'rgba(255,255,255,0.00)')
   context.fillStyle = gradient
   context.fillRect(0, 0, size, size)
@@ -276,7 +276,7 @@ function createGlowMaterial(texture: THREE.Texture, color: string, opacity: numb
     color,
     transparent: true,
     opacity,
-    depthTest: true,
+    depthTest: false,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     toneMapped: false,
