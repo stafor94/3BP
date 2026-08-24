@@ -8,16 +8,16 @@ export type StellarColorOption = {
   nameEn: string
 }
 
-// Display-oriented approximations of visible stellar colors. Real stellar colors are
-// comparatively pale because hot blackbody spectra emit across a broad wavelength range.
+// Display-oriented approximations of visible stellar colors. The palette deliberately
+// keeps realistic spectral ordering while increasing perceptual separation for the simulator UI.
 export const STELLAR_COLOR_OPTIONS: readonly StellarColorOption[] = [
-  { spectralClass: 'O', hex: '#9bbcff', temperatureK: 35000, nameKo: '청색', nameEn: 'Blue' },
-  { spectralClass: 'B', hex: '#aecbff', temperatureK: 18000, nameKo: '청백색', nameEn: 'Blue-white' },
-  { spectralClass: 'A', hex: '#d5e2ff', temperatureK: 9000, nameKo: '백색', nameEn: 'White' },
-  { spectralClass: 'F', hex: '#fff9f2', temperatureK: 7000, nameKo: '황백색', nameEn: 'Yellow-white' },
-  { spectralClass: 'G', hex: '#fff1dc', temperatureK: 5800, nameKo: '황색', nameEn: 'Yellow' },
-  { spectralClass: 'K', hex: '#ffd0a0', temperatureK: 4500, nameKo: '주황색', nameEn: 'Orange' },
-  { spectralClass: 'M', hex: '#ffad73', temperatureK: 3200, nameKo: '적색', nameEn: 'Red' },
+  { spectralClass: 'O', hex: '#7ea7ff', temperatureK: 35000, nameKo: '청색', nameEn: 'Blue' },
+  { spectralClass: 'B', hex: '#a9c6ff', temperatureK: 18000, nameKo: '청백색', nameEn: 'Blue-white' },
+  { spectralClass: 'A', hex: '#f5f7ff', temperatureK: 9000, nameKo: '백색', nameEn: 'White' },
+  { spectralClass: 'F', hex: '#fff4e8', temperatureK: 7000, nameKo: '황백색', nameEn: 'Yellow-white' },
+  { spectralClass: 'G', hex: '#ffd36b', temperatureK: 5800, nameKo: '황색(태양형)', nameEn: 'Yellow (Sun-like)' },
+  { spectralClass: 'K', hex: '#ffaf5f', temperatureK: 4500, nameKo: '주황색', nameEn: 'Orange' },
+  { spectralClass: 'M', hex: '#ff6b5e', temperatureK: 3200, nameKo: '적색', nameEn: 'Red' },
 ] as const
 
 export const STELLAR_COLOR_BY_CLASS = Object.fromEntries(
