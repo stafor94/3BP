@@ -769,6 +769,10 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     trailPoints.renderOrder = 21
 
     const trailRibbon = createTrailRibbon(stellarColor)
+    ;(trailRibbon.material.uniforms.uResolution.value as THREE.Vector2).set(
+      Math.max(host.clientWidth, 1),
+      Math.max(host.clientHeight, 1),
+    )
 
     scene.add(trailRibbon.mesh, trailPoints, glowOuter, glowInner, mesh)
 
