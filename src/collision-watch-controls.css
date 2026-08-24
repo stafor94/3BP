@@ -1,32 +1,25 @@
-.primary-controls {
-  display: flex;
-  align-items: stretch;
-  flex-wrap: nowrap;
-  gap: 7px;
+.control-panel .primary-controls.primary-controls {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  align-items: stretch !important;
+  gap: 7px !important;
+  width: 100%;
 }
 
-.primary-controls > .start-button,
-.primary-controls > .secondary-button {
+.control-panel .primary-controls.primary-controls > .start-button,
+.control-panel .primary-controls.primary-controls > .secondary-button,
+.control-panel .primary-controls.primary-controls > .collision-watch-toggle {
+  width: 100%;
   min-width: 0;
-}
-
-.primary-controls > .start-button {
-  flex: 1 1 0;
-}
-
-.primary-controls > .secondary-button {
-  flex: .92 1 0;
 }
 
 .collision-watch-toggle {
   display: inline-flex;
-  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-width: 96px;
   min-height: 39px;
-  padding: 0 9px;
+  padding: 0 7px;
   border: 1px solid #242c3d;
   border-radius: 9px;
   color: #93a2b8;
@@ -47,6 +40,7 @@
 }
 
 .collision-watch-toggle input {
+  flex: 0 0 15px;
   width: 15px;
   min-width: 15px;
   height: 15px;
@@ -57,123 +51,94 @@
 }
 
 @media (max-width: 760px) {
-  .control-panel.collapsed .collapsed-primary-controls {
+  /* The base mobile stylesheet hides panel-content while collapsed. Use a
+     deliberately more specific selector so the same three controls remain
+     visible in the compact header regardless of stylesheet bundle order. */
+  .control-panel.control-panel.collapsed .panel-title-block {
     display: none !important;
   }
 
-  .control-panel.collapsed .panel-header-actions {
+  .control-panel.control-panel.collapsed .panel-header-actions,
+  .control-panel.control-panel.collapsed .collapsed-primary-controls {
     display: none !important;
   }
 
-  .control-panel.collapsed .panel-content {
-    position: absolute;
+  .control-panel.control-panel.collapsed .panel-content {
+    position: absolute !important;
     z-index: 4;
-    top: 26px;
+    top: 27px;
+    left: 16px;
     right: 16px;
     display: block !important;
-    width: auto;
-    margin: 0;
-    padding: 0;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  .control-panel.collapsed .panel-content > :not(.primary-controls) {
+  .control-panel.control-panel.collapsed .panel-content > :not(.primary-controls) {
     display: none !important;
   }
 
-  .control-panel.collapsed .panel-content > .primary-controls {
-    display: flex !important;
-    align-items: center;
-    flex-wrap: nowrap;
-    gap: 5px;
-    width: auto;
+  .control-panel.control-panel.collapsed .panel-content > .primary-controls.primary-controls {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+    width: 100% !important;
     margin: 0 !important;
   }
 
-  .control-panel.collapsed .primary-controls > .start-button,
-  .control-panel.collapsed .primary-controls > .secondary-button {
-    flex: 0 0 auto;
+  .control-panel.control-panel.collapsed .primary-controls > .start-button,
+  .control-panel.control-panel.collapsed .primary-controls > .secondary-button,
+  .control-panel.control-panel.collapsed .primary-controls > .collision-watch-toggle {
+    min-width: 0 !important;
     min-height: 38px;
     height: 38px;
-    padding: 0 10px;
+    padding: 0 6px;
     border-radius: 10px;
-    font-size: 11px;
-    line-height: 1;
     white-space: nowrap;
   }
 
-  .control-panel.collapsed .primary-controls > .start-button {
-    min-width: 64px;
+  .control-panel.control-panel.collapsed .primary-controls > .start-button,
+  .control-panel.control-panel.collapsed .primary-controls > .secondary-button {
+    font-size: 11px;
   }
 
-  .control-panel.collapsed .primary-controls > .secondary-button {
-    min-width: 58px;
-  }
-
-  .control-panel.collapsed .collision-watch-toggle {
-    min-width: 86px;
-    min-height: 38px;
-    height: 38px;
-    padding: 0 7px;
+  .control-panel.control-panel.collapsed .collision-watch-toggle {
     gap: 4px;
-    border-radius: 10px;
     font-size: 9px;
   }
 }
 
 @media (max-width: 390px) {
-  .primary-controls {
-    gap: 5px;
+  .control-panel .primary-controls.primary-controls {
+    gap: 5px !important;
+  }
+
+  .control-panel .primary-controls.primary-controls > .start-button,
+  .control-panel .primary-controls.primary-controls > .secondary-button {
+    padding-inline: 5px;
+    font-size: 11px;
   }
 
   .collision-watch-toggle {
-    min-width: 82px;
-    padding-inline: 6px;
     gap: 4px;
+    padding-inline: 4px;
     font-size: 9px;
   }
 
   .collision-watch-toggle input {
+    flex-basis: 14px;
     width: 14px;
     min-width: 14px;
     height: 14px;
   }
 
-  .control-panel.collapsed .panel-content {
-    right: 12px;
-  }
-
-  .control-panel.collapsed .panel-content > .primary-controls {
-    gap: 4px;
-  }
-
-  .control-panel.collapsed .primary-controls > .start-button {
-    min-width: 58px;
-    padding-inline: 8px;
-  }
-
-  .control-panel.collapsed .primary-controls > .secondary-button {
-    min-width: 52px;
-    padding-inline: 7px;
-  }
-
-  .control-panel.collapsed .collision-watch-toggle {
-    min-width: 78px;
-    padding-inline: 5px;
-  }
-}
-
-@media (max-width: 350px) {
-  .control-panel.collapsed .panel-title-block {
-    display: none;
-  }
-
-  .control-panel.collapsed .panel-content {
+  .control-panel.control-panel.collapsed .panel-content {
     left: 12px;
     right: 12px;
   }
 
-  .control-panel.collapsed .panel-content > .primary-controls {
-    justify-content: center;
-    width: 100%;
+  .control-panel.control-panel.collapsed .panel-content > .primary-controls.primary-controls {
+    gap: 4px !important;
   }
 }
