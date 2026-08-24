@@ -2,8 +2,7 @@ import type { BodyState, Vec3 } from '../types'
 
 const G = 1
 const SOFTENING_SQUARED = 1e-6
-const PREDICTION_STEPS = 48
-const REFINEMENT_STEPS = 12
+const PREDICTION_DT = 0.003
 
 export type CollisionPrediction = {
   pairKey: string
@@ -22,128 +21,163 @@ const scale = (v: Vec3, value: number): Vec3 => ({ x: v.x * value, y: v.y * valu
 const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z
 const magnitudeSquared = (v: Vec3) => dot(v, v)
 const magnitude = (v: Vec3) => Math.sqrt(magnitudeSquared(v))
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+function cloneBody(body: BodyState): BodyState {
+  return {
+    ...body,
+    position: { ...body.position },
+    velocity: { ...body.velocity },
+  }
+}
 
 function isPredictionBody(body: BodyState) {
   return body.bodyType !== 'effect' && body.bodyType !== 'fragment' && body.mass > 0 && body.radius > 0
 }
 
-function accelerations(bodies: BodyState[]) {
+function accelerations(bodies: BodyState[]): Vec3[] {
   return bodies.map((body, index) => {
-    if (!isPredictionBody(body)) return { x: 0, y: 0, z: 0 }
-
     let acceleration: Vec3 = { x: 0, y: 0, z: 0 }
+
     bodies.forEach((other, otherIndex) => {
-      if (index === otherIndex || other.bodyType === 'effect' || other.mass <= 0) return
+      if (index === otherIndex || other.mass <= 0) return
       const delta = sub(other.position, body.position)
       const distanceSquared = magnitudeSquared(delta) + SOFTENING_SQUARED
       const invDistanceCubed = 1 / Math.pow(distanceSquared, 1.5)
       acceleration = add(acceleration, scale(delta, G * other.mass * invDistanceCubed))
     })
+
     return acceleration
   })
 }
 
-function relativePositionAt(relativePosition: Vec3, relativeVelocity: Vec3, relativeAcceleration: Vec3, time: number) {
-  return add(
-    add(relativePosition, scale(relativeVelocity, time)),
-    scale(relativeAcceleration, 0.5 * time * time),
-  )
-}
-
-function bodyPositionAt(body: BodyState, acceleration: Vec3, time: number) {
-  return add(
-    add(body.position, scale(body.velocity, time)),
-    scale(acceleration, 0.5 * time * time),
-  )
-}
-
-function predictPair(
-  a: BodyState,
-  b: BodyState,
-  accelerationA: Vec3,
-  accelerationB: Vec3,
-  horizon: number,
-): CollisionPrediction | null {
-  const relativePosition = sub(b.position, a.position)
-  const relativeVelocity = sub(b.velocity, a.velocity)
-  const relativeAcceleration = sub(accelerationB, accelerationA)
-  const contactDistance = a.radius + b.radius
+function contactFraction(relativeStart: Vec3, relativeEnd: Vec3, contactDistance: number): number | null {
   const contactDistanceSquared = contactDistance * contactDistance
-  const currentDistanceSquared = magnitudeSquared(relativePosition)
+  const startDistanceSquared = magnitudeSquared(relativeStart)
 
-  if (currentDistanceSquared <= contactDistanceSquared) return null
+  if (startDistanceSquared <= contactDistanceSquared) return null
 
-  const radialClosing = dot(relativePosition, relativeVelocity)
-  const radialAcceleration = dot(relativePosition, relativeAcceleration)
-  if (radialClosing >= 0 && radialAcceleration >= 0) return null
+  const travel = sub(relativeEnd, relativeStart)
+  const a = magnitudeSquared(travel)
+  if (a <= 1e-18) return null
 
-  let previousTime = 0
-  let previousGap = currentDistanceSquared - contactDistanceSquared
-  let impactStart = -1
-  let impactEnd = -1
+  const b = 2 * dot(relativeStart, travel)
+  const c = startDistanceSquared - contactDistanceSquared
+  const discriminant = b * b - 4 * a * c
+  if (discriminant < 0) return null
 
-  for (let step = 1; step <= PREDICTION_STEPS; step += 1) {
-    const time = (horizon * step) / PREDICTION_STEPS
-    const relative = relativePositionAt(relativePosition, relativeVelocity, relativeAcceleration, time)
-    const gap = magnitudeSquared(relative) - contactDistanceSquared
+  const root = Math.sqrt(discriminant)
+  const first = (-b - root) / (2 * a)
+  const second = (-b + root) / (2 * a)
 
-    if (gap <= 0 && previousGap > 0) {
-      impactStart = previousTime
-      impactEnd = time
-      break
+  if (first >= 0 && first <= 1) return first
+  if (second >= 0 && second <= 1) return second
+  return null
+}
+
+function interpolate(a: Vec3, b: Vec3, t: number): Vec3 {
+  return add(a, scale(sub(b, a), t))
+}
+
+function findCollisionDuringStep(
+  current: BodyState[],
+  next: BodyState[],
+  elapsed: number,
+  dt: number,
+): CollisionPrediction | null {
+  let earliest: CollisionPrediction | null = null
+  let earliestFraction = Infinity
+
+  for (let i = 0; i < current.length; i += 1) {
+    const a = current[i]
+    if (!isPredictionBody(a)) continue
+    if ((a.collisionCooldown ?? 0) > elapsed + dt) continue
+
+    for (let j = i + 1; j < current.length; j += 1) {
+      const b = current[j]
+      if (!isPredictionBody(b)) continue
+      if ((b.collisionCooldown ?? 0) > elapsed + dt) continue
+
+      const relativeStart = sub(b.position, a.position)
+      const relativeEnd = sub(next[j].position, next[i].position)
+      const fraction = contactFraction(relativeStart, relativeEnd, a.radius + b.radius)
+      if (fraction === null || fraction >= earliestFraction) continue
+
+      const positionA = interpolate(a.position, next[i].position, fraction)
+      const positionB = interpolate(b.position, next[j].position, fraction)
+      const velocityA = interpolate(a.velocity, next[i].velocity, fraction)
+      const velocityB = interpolate(b.velocity, next[j].velocity, fraction)
+      const totalMass = Math.max(a.mass + b.mass, 1e-9)
+      const point = scale(add(scale(positionA, a.mass), scale(positionB, b.mass)), 1 / totalMass)
+      const relativeVelocity = sub(velocityB, velocityA)
+      const separation = sub(positionB, positionA)
+      const separationLength = Math.max(magnitude(separation), 1e-9)
+      const normal = scale(separation, 1 / separationLength)
+      const radialSpeed = -dot(relativeVelocity, normal)
+
+      // A geometric crossing while the bodies are already moving apart is not a useful future collision warning.
+      if (radialSpeed < -1e-5) continue
+
+      earliestFraction = fraction
+      earliest = {
+        pairKey: [a.id, b.id].sort().join('::'),
+        bodyAId: a.id,
+        bodyBId: b.id,
+        bodyAName: a.name,
+        bodyBName: b.name,
+        timeToImpact: elapsed + dt * fraction,
+        point,
+        closingSpeed: magnitude(relativeVelocity),
+      }
     }
-
-    previousTime = time
-    previousGap = gap
   }
 
-  if (impactStart < 0 || impactEnd < 0) return null
+  return earliest
+}
 
-  for (let iteration = 0; iteration < REFINEMENT_STEPS; iteration += 1) {
-    const middle = (impactStart + impactEnd) * 0.5
-    const relative = relativePositionAt(relativePosition, relativeVelocity, relativeAcceleration, middle)
-    if (magnitudeSquared(relative) <= contactDistanceSquared) impactEnd = middle
-    else impactStart = middle
-  }
+function integrateStep(bodies: BodyState[], dt: number): BodyState[] {
+  const a0 = accelerations(bodies)
+  const nextPositions = bodies.map((body, index) =>
+    add(
+      add(body.position, scale(body.velocity, dt)),
+      scale(a0[index], 0.5 * dt * dt),
+    ),
+  )
 
-  const timeToImpact = impactEnd
-  const positionA = bodyPositionAt(a, accelerationA, timeToImpact)
-  const positionB = bodyPositionAt(b, accelerationB, timeToImpact)
-  const totalMass = Math.max(a.mass + b.mass, 1e-9)
-  const point = scale(add(scale(positionA, a.mass), scale(positionB, b.mass)), 1 / totalMass)
-  const relativeAtImpact = add(relativeVelocity, scale(relativeAcceleration, timeToImpact))
+  const provisional = bodies.map((body, index) => ({
+    ...cloneBody(body),
+    position: nextPositions[index],
+  }))
+  const a1 = accelerations(provisional)
 
-  return {
-    pairKey: [a.id, b.id].sort().join('::'),
-    bodyAId: a.id,
-    bodyBId: b.id,
-    bodyAName: a.name,
-    bodyBName: b.name,
-    timeToImpact,
-    point,
-    closingSpeed: magnitude(relativeAtImpact),
-  }
+  return provisional.map((body, index) => ({
+    ...body,
+    velocity: add(bodies[index].velocity, scale(add(a0[index], a1[index]), 0.5 * dt)),
+    collisionCooldown: body.collisionCooldown === undefined
+      ? undefined
+      : Math.max(0, body.collisionCooldown - dt),
+  }))
 }
 
 export function predictUpcomingCollision(bodies: BodyState[], horizon: number): CollisionPrediction | null {
   if (horizon <= 0) return null
 
-  const acceleration = accelerations(bodies)
-  let earliest: CollisionPrediction | null = null
+  // Collision debris is deliberately ignored here. Its mass is small, while including dozens of
+  // fragments would make a frequent look-ahead expensive on mobile. Major bodies still follow the
+  // same velocity-Verlet gravity integration used by the live simulation.
+  let simulated = bodies.filter(isPredictionBody).map(cloneBody)
+  if (simulated.length < 2) return null
 
-  for (let i = 0; i < bodies.length; i += 1) {
-    const a = bodies[i]
-    if (!isPredictionBody(a) || (a.collisionCooldown ?? 0) > 0) continue
+  let elapsed = 0
+  while (elapsed < horizon - 1e-12) {
+    const dt = Math.min(PREDICTION_DT, horizon - elapsed)
+    const next = integrateStep(simulated, dt)
+    const collision = findCollisionDuringStep(simulated, next, elapsed, dt)
+    if (collision) return collision
 
-    for (let j = i + 1; j < bodies.length; j += 1) {
-      const b = bodies[j]
-      if (!isPredictionBody(b) || (b.collisionCooldown ?? 0) > 0) continue
-
-      const prediction = predictPair(a, b, acceleration[i], acceleration[j], horizon)
-      if (!prediction) continue
-      if (!earliest || prediction.timeToImpact < earliest.timeToImpact) earliest = prediction
-    }
+    simulated = next
+    elapsed += dt
   }
 
-  return earliest
+  return null
 }
