@@ -11,7 +11,6 @@ type Props = {
   bodyCount: BodyCount
   isRunning: boolean
   speed: number
-  time: number
   preset: PresetId
   language: Language
   trailEnabled: boolean
@@ -48,7 +47,6 @@ export function ControlPanel({
   bodyCount,
   isRunning,
   speed,
-  time,
   preset,
   language,
   trailEnabled,
@@ -92,7 +90,6 @@ export function ControlPanel({
           </div>
         </div>
         <div className="panel-header-actions">
-          <span className="time-readout">t = {time.toFixed(2)}</span>
           <div className="collapsed-primary-controls" aria-hidden={!isCollapsed}>
             <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
               {isRunning ? t.pause : t.start}
