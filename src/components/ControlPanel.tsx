@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { translations, type Language } from '../i18n'
 import { PRESETS_BY_BODY_COUNT } from '../presets'
 import { formatStellarColorOption, getNearestStellarColor, STELLAR_COLOR_OPTIONS } from '../starColors'
@@ -44,6 +44,18 @@ const vectorKeys = ['x', 'y', 'z'] as const
 
 function formatNumberValue(value: number) {
   return Number.isFinite(value) ? String(Number(value.toFixed(6))) : '0'
+}
+
+function clonePanelBody(body: BodyState): BodyState {
+  return {
+    ...body,
+    position: { ...body.position },
+    velocity: { ...body.velocity },
+  }
+}
+
+function isInitialPanelBody(body: BodyState) {
+  return body.bodyType !== 'fragment' && body.bodyType !== 'effect' && !body.id.includes('+')
 }
 
 function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange: (n: number) => void; step?: number }) {
@@ -118,7 +130,49 @@ export function ControlPanel({
 }: Props) {
   const t = translations[language]
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [panelBodies, setPanelBodies] = useState<BodyState[]>(() =>
+    bodies.filter(isInitialPanelBody).map(clonePanelBody),
+  )
+  const previousRunningRef = useRef(isRunning)
+  const setupKeyRef = useRef(`${preset}:${bodyCount}:${spaceMode}`)
+  const hasStartedRef = useRef(false)
+  const resetRequestedRef = useRef(false)
   const availablePresets = PRESETS_BY_BODY_COUNT[bodyCount]
+
+  useEffect(() => {
+    const setupKey = `${preset}:${bodyCount}:${spaceMode}`
+    const setupChanged = setupKeyRef.current !== setupKey
+    const startedNow = !previousRunningRef.current && isRunning
+    const initialBodies = bodies.filter(isInitialPanelBody)
+    const isCleanInitialSet = initialBodies.length === bodyCount && initialBodies.length === bodies.length
+
+    if (setupChanged) {
+      setupKeyRef.current = setupKey
+      hasStartedRef.current = false
+    }
+
+    if (resetRequestedRef.current && !isRunning && isCleanInitialSet) {
+      resetRequestedRef.current = false
+      hasStartedRef.current = false
+    }
+
+    if (isCleanInitialSet && (setupChanged || startedNow || !hasStartedRef.current)) {
+      setPanelBodies(initialBodies.map(clonePanelBody))
+    }
+
+    if (startedNow) hasStartedRef.current = true
+    previousRunningRef.current = isRunning
+  }, [bodies, bodyCount, isRunning, preset, spaceMode])
+
+  const handleReset = () => {
+    resetRequestedRef.current = true
+    onReset()
+  }
+
+  const handleBodyChange = (id: string, next: BodyState) => {
+    setPanelBodies((current) => current.map((body) => (body.id === id ? clonePanelBody(next) : body)))
+    onBodyChange(id, next)
+  }
 
   return (
     <aside className={`control-panel${isCollapsed ? ' collapsed' : ''}`}>
@@ -148,7 +202,7 @@ export function ControlPanel({
             <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
               {isRunning ? t.pause : t.start}
             </button>
-            <button className="secondary-button" onClick={onReset}>{t.reset}</button>
+            <button className="secondary-button" onClick={handleReset}>{t.reset}</button>
           </div>
         </div>
       </div>
@@ -158,7 +212,7 @@ export function ControlPanel({
           <button className="start-button" onClick={() => onRunningChange(!isRunning)}>
             {isRunning ? t.pause : t.start}
           </button>
-          <button className="secondary-button" onClick={onReset}>{t.reset}</button>
+          <button className="secondary-button" onClick={handleReset}>{t.reset}</button>
           <label className={`collision-watch-toggle${collisionWatchEnabled ? ' active' : ''}`}>
             <input
               type="checkbox"
@@ -274,13 +328,15 @@ export function ControlPanel({
         </section>
 
         <div className="body-list">
-          {bodies.map((body) => {
+          {panelBodies.map((body) => {
             const isTracked = trackedBodyId === body.id
             const stellarColor = getNearestStellarColor(body.color)
+            const bodyType = body.bodyType ?? 'planet'
             return (
-              <details className="body-card" key={body.id} open={bodies.length <= 3}>
+              <details className="body-card" key={body.id} open={panelBodies.length <= 3}>
                 <summary>
                   <span className="body-dot" style={{ background: stellarColor.hex, color: stellarColor.hex }} />
+                  <span className="body-summary-type">{t[bodyType]}</span>
                   <strong>{body.name}</strong>
                   <span>{body.mass.toFixed(2)} M</span>
                 </summary>
@@ -304,7 +360,7 @@ export function ControlPanel({
                 <BodyTypeSelector
                   body={body}
                   language={language}
-                  onChange={(next) => onBodyChange(body.id, next)}
+                  onChange={(next) => handleBodyChange(body.id, next)}
                 />
 
                 <div className="body-fields">
@@ -327,7 +383,7 @@ export function ControlPanel({
                             title={optionLabel}
                             aria-label={optionLabel}
                             aria-pressed={active}
-                            onClick={() => onBodyChange(body.id, { ...body, color: option.hex })}
+                            onClick={() => handleBodyChange(body.id, { ...body, color: option.hex })}
                           />
                         )
                       })}
@@ -335,11 +391,11 @@ export function ControlPanel({
                   </div>
                   <label>
                     {t.mass}
-                    <NumberField value={body.mass} step={0.05} onChange={(mass) => onBodyChange(body.id, { ...body, mass: Math.max(0.001, mass) })} />
+                    <NumberField value={body.mass} step={0.05} onChange={(mass) => handleBodyChange(body.id, { ...body, mass: Math.max(0.001, mass) })} />
                   </label>
                   <label>
                     {t.radius}
-                    <NumberField value={body.radius} step={0.005} onChange={(radius) => onBodyChange(body.id, { ...body, radius: Math.max(0.005, radius) })} />
+                    <NumberField value={body.radius} step={0.005} onChange={(radius) => handleBodyChange(body.id, { ...body, radius: Math.max(0.005, radius) })} />
                   </label>
                 </div>
 
@@ -350,7 +406,7 @@ export function ControlPanel({
                       {key.toUpperCase()}
                       <NumberField
                         value={body.position[key]}
-                        onChange={(value) => onBodyChange(body.id, { ...body, position: { ...body.position, [key]: value } })}
+                        onChange={(value) => handleBodyChange(body.id, { ...body, position: { ...body.position, [key]: value } })}
                       />
                     </label>
                   ))}
@@ -363,7 +419,7 @@ export function ControlPanel({
                       V{key.toUpperCase()}
                       <NumberField
                         value={body.velocity[key]}
-                        onChange={(value) => onBodyChange(body.id, { ...body, velocity: { ...body.velocity, [key]: value } })}
+                        onChange={(value) => handleBodyChange(body.id, { ...body, velocity: { ...body.velocity, [key]: value } })}
                       />
                     </label>
                   ))}
