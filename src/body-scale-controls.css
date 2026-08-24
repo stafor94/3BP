@@ -1,0 +1,51 @@
+.body-scale-section {
+  padding: 13px;
+  border: 1px solid #1d2534;
+  border-radius: 12px;
+  background: #090e17;
+}
+
+.body-scale-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.body-scale-heading-row output {
+  color: #dbe5f5;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.body-scale-slider {
+  width: 100%;
+  height: 20px;
+  margin: 10px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: #4d7df3;
+}
+
+.body-scale-range {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  color: #66758c;
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.body-scale-range small {
+  min-width: 0;
+  color: #74839a;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+}
