@@ -27,7 +27,7 @@ type Props = {
 function formatValue(value: number) {
   if (!Number.isFinite(value)) return '0'
   const digits = Math.abs(value) >= 10 ? 2 : Math.abs(value) >= 1 ? 3 : 4
-  return value.toFixed(digits).replace(/\.0+$|(?<=\.[0-9]*?)0+$/g, '')
+  return value.toFixed(digits).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1')
 }
 
 export function CollisionWatchInfo({ details, language }: Props) {
