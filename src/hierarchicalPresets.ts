@@ -89,18 +89,22 @@ function centerSystem(input: BodyState[]): BodyState[] {
   }))
 }
 
+function weightedCenter(localBodies: LocalBody[], key: 'position' | 'velocity'): VecTuple {
+  const totalMass = localBodies.reduce((sum, item) => sum + item.mass, 0)
+  return [
+    localBodies.reduce((sum, item) => sum + item[key][0] * item.mass, 0) / totalMass,
+    localBodies.reduce((sum, item) => sum + item[key][1] * item.mass, 0) / totalMass,
+    localBodies.reduce((sum, item) => sum + item[key][2] * item.mass, 0) / totalMass,
+  ]
+}
+
 function placeSubsystem(
   barycenterPosition: VecTuple,
   barycenterVelocity: VecTuple,
   localBodies: LocalBody[],
 ): BodyState[] {
-  const totalMass = localBodies.reduce((sum, item) => sum + item.mass, 0)
-  const localCenterPosition: VecTuple = [0, 1, 2].map((axis) =>
-    localBodies.reduce((sum, item) => sum + item.position[axis] * item.mass, 0) / totalMass,
-  ) as VecTuple
-  const localCenterVelocity: VecTuple = [0, 1, 2].map((axis) =>
-    localBodies.reduce((sum, item) => sum + item.velocity[axis] * item.mass, 0) / totalMass,
-  ) as VecTuple
+  const localCenterPosition = weightedCenter(localBodies, 'position')
+  const localCenterVelocity = weightedCenter(localBodies, 'velocity')
 
   return localBodies.map((item) => {
     const centeredPosition: VecTuple = [
@@ -138,7 +142,7 @@ function createAtlasSubsystem(twoMoons: boolean): BodyState[] {
   )
 
   const moonOneMass = 0.002
-  const moonOneRadius = 0.14
+  const moonOneRadius = 0.18
   const moonOneAngle = 0.6
   const moonOneSpeed = Math.sqrt((planetMass + moonOneMass) / moonOneRadius)
   const localBodies: LocalBody[] = [
@@ -164,7 +168,7 @@ function createAtlasSubsystem(twoMoons: boolean): BodyState[] {
 
   if (twoMoons) {
     const moonTwoMass = 0.001
-    const moonTwoRadius = 0.28
+    const moonTwoRadius = 0.34
     const moonTwoAngle = 3
     const moonTwoSpeed = Math.sqrt((planetMass + moonTwoMass) / moonTwoRadius)
     localBodies.push({
@@ -210,7 +214,7 @@ function createBorealSubsystem(): BodyState[] {
   )
 
   const moonMass = 0.001
-  const moonRadius = 0.19
+  const moonRadius = 0.22
   const moonAngle = 2
   const moonSpeed = Math.sqrt((planetMass + moonMass) / moonRadius)
 
