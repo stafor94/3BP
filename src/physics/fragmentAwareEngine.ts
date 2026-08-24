@@ -1,14 +1,10 @@
+import { getEffectiveBodyType } from '../bodyTypes'
 import { FRAGMENT_LIFETIME } from '../fragmentLifecycle'
-import type { BodyState, Vec3 } from '../types'
+import type { BodyState } from '../types'
 import { stepBodies as stepPhysicsBodies } from './engine'
 
 const COLLISION_SPARK_NAME = 'Collision spark'
-const PLASMA_ID_TOKEN = '+plasma'
-const STELLAR_PLASMA_LIFETIME = 1.35
-const COLLISION_SPARK_LIFETIME = 0.9
-const PLASMA_EXPANSION_RATE = 0.003
-const PLASMA_MAX_RADIUS = 0.018
-const PLASMA_DRAG_PER_SECOND = 0.18
+const COLLISION_FLASH_NAME = 'Collision flash'
 
 // Large solid fragments behave as long-lived asteroids. Keep the cap deliberately
 // small so N-body cost remains predictable even after many collisions.
@@ -16,14 +12,23 @@ const ASTEROID_MIN_RADIUS = 0.012
 const ASTEROID_MIN_MASS = 0.0003
 const MAX_PERSISTENT_ASTEROIDS = 10
 
-const scaleVec = (value: Vec3, scale: number): Vec3 => ({
-  x: value.x * scale,
-  y: value.y * scale,
-  z: value.z * scale,
-})
+function isBodyDescendedFrom(bodyId: string, ancestorId: string) {
+  const bodyParts = new Set(bodyId.split('+'))
+  return ancestorId.split('+').every((part) => bodyParts.has(part))
+}
 
-function isPlasmaEffect(body: BodyState) {
-  return body.bodyType === 'effect' && body.id.includes(PLASMA_ID_TOKEN)
+function isStellarCollisionEjecta(body: BodyState, inputStars: BodyState[]) {
+  if (body.bodyType === 'effect' && body.name === COLLISION_FLASH_NAME) return false
+
+  const isEjectaLike =
+    body.bodyType === 'fragment' ||
+    (
+      body.bodyType === 'effect' &&
+      (body.id.includes('+plasma') || body.name === COLLISION_SPARK_NAME)
+    )
+
+  if (!isEjectaLike) return false
+  return inputStars.some((star) => isBodyDescendedFrom(body.id, star.id))
 }
 
 function isAsteroidCandidate(body: BodyState) {
@@ -49,26 +54,21 @@ function selectPersistentAsteroidIds(bodies: BodyState[]) {
 }
 
 export function stepBodies(input: BodyState[], dt: number): BodyState[] {
+  const inputStars = input.filter((body) => getEffectiveBodyType(body) === 'star')
   const stepped = stepPhysicsBodies(input, dt)
-  const persistentAsteroidIds = selectPersistentAsteroidIds(stepped)
 
-  return stepped
+  // The core engine already subtracts stellar ejecta mass/volume and accounts for
+  // its momentum before returning the collision result. Do not render that ejecta
+  // as BodyState spheres: even an effect sphere reads as a large solid chunk.
+  // Until stellar gas has a dedicated particle renderer, discard all moving
+  // star-derived ejecta visuals here. The central collision flash remains visible.
+  // The fragment branch is also a safety net so future collision paths can never
+  // leave asteroid-like debris behind when a star participated in the collision.
+  const visibleBodies = stepped.filter((body) => !isStellarCollisionEjecta(body, inputStars))
+  const persistentAsteroidIds = selectPersistentAsteroidIds(visibleBodies)
+
+  return visibleBodies
     .map((body) => {
-      if (isPlasmaEffect(body)) {
-        const age = body.age ?? 0
-        const expansionBoost = 1 + Math.min(age, STELLAR_PLASMA_LIFETIME) * 0.12
-        const drag = Math.exp(-PLASMA_DRAG_PER_SECOND * dt)
-        return {
-          ...body,
-          radius: Math.min(
-            PLASMA_MAX_RADIUS,
-            body.radius + PLASMA_EXPANSION_RATE * expansionBoost * dt,
-          ),
-          velocity: scaleVec(body.velocity, drag),
-          lifetime: STELLAR_PLASMA_LIFETIME,
-        }
-      }
-
       if (body.bodyType === 'fragment') {
         if (persistentAsteroidIds.has(body.id)) {
           return {
@@ -88,7 +88,7 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
       if (body.bodyType === 'effect' && body.name === COLLISION_SPARK_NAME) {
         return {
           ...body,
-          lifetime: COLLISION_SPARK_LIFETIME,
+          lifetime: 0.9,
         }
       }
 
