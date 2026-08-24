@@ -1,4 +1,4 @@
-import type { BodyState, Vec3 } from '../types'
+import type { BodyState, BodyType, Vec3 } from '../types'
 import { getCollisionContactDistance } from './collisionContact'
 
 const G = 1
@@ -11,6 +11,8 @@ export type CollisionPrediction = {
   bodyBId: string
   bodyAName: string
   bodyBName: string
+  bodyAType: BodyType
+  bodyBType: BodyType
   timeToImpact: number
   point: Vec3
   closingSpeed: number
@@ -33,6 +35,10 @@ function cloneBody(body: BodyState): BodyState {
 
 function isPredictionBody(body: BodyState) {
   return body.bodyType !== 'effect' && body.bodyType !== 'fragment' && body.mass > 0 && body.radius > 0
+}
+
+function getPredictionBodyType(body: BodyState): BodyType {
+  return body.bodyType ?? 'planet'
 }
 
 function accelerations(bodies: BodyState[]): Vec3[] {
@@ -122,6 +128,8 @@ function findCollisionDuringStep(
         bodyBId: b.id,
         bodyAName: a.name,
         bodyBName: b.name,
+        bodyAType: getPredictionBodyType(a),
+        bodyBType: getPredictionBodyType(b),
         timeToImpact: elapsed + dt * fraction,
         point,
         closingSpeed: magnitude(relativeVelocity),
