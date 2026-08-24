@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { installBodyLighting, syncBodyLightingState } from '../rendering/bodyLighting'
 import { createSimulationRenderer, type SimulationRenderState } from '../rendering/simulationRenderer'
 import type { BodyState, TrailSampleBatch } from '../types'
 
@@ -41,10 +42,13 @@ export function SimulationView({
     trailSampleBatch,
     trackedBodyId,
   }
+  syncBodyLightingState(bodies)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
+    installBodyLighting()
+    syncBodyLightingState(renderStateRef.current.bodies)
     return createSimulationRenderer(host, () => renderStateRef.current)
   }, [])
 
