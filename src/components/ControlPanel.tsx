@@ -4,6 +4,7 @@ import { PRESETS_BY_BODY_COUNT } from '../presets'
 import { formatStellarColorOption, getNearestStellarColor, STELLAR_COLOR_OPTIONS } from '../starColors'
 import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
 import { APP_VERSION } from '../version'
+import { BodyTypeSelector } from './BodyTypeSelector'
 import '../mobile-controls.css'
 import '../version.css'
 
@@ -221,6 +222,12 @@ export function ControlPanel({
                     <span aria-hidden="true" />
                   </label>
                 </div>
+
+                <BodyTypeSelector
+                  body={body}
+                  language={language}
+                  onChange={(next) => onBodyChange(body.id, next)}
+                />
 
                 <div className="body-fields">
                   <label>
