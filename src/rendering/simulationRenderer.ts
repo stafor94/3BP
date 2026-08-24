@@ -80,6 +80,7 @@ const RENDER_TUNING = {
     outerGlowOpacityScale: 0.05,
     detailStrength: 0.9,
     rimStrength: 0.035,
+    brightnessScale: 0.74,
   },
   trail: {
     maxPoints: 6000,
@@ -578,6 +579,7 @@ function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTim
 
   const identityColor = visual.bodyMaterial.uniforms.uIdentityColor.value as THREE.Color
   identityColor.set(stellarColor)
+  if (isFragment) identityColor.multiplyScalar(RENDER_TUNING.fragment.brightnessScale)
 
   const radiusFactor = THREE.MathUtils.clamp((renderRadius - 0.045) / 0.42, 0, 1)
   visual.bodyMaterial.uniforms.uDetailStrength.value = isFragment
@@ -749,12 +751,23 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     body: Pick<BodyState, 'id' | 'color'> & Partial<Pick<BodyState, 'bodyType'>>,
   ) => {
     const existing = visuals.get(body.id)
-    if (existing) return existing
+    if (existing) {
+      if (body.bodyType === 'fragment' && !existing.customBodyGeometry) {
+        const fragmentGeometry = createFragmentGeometry(body.id)
+        existing.mesh.geometry = fragmentGeometry
+        existing.customBodyGeometry = fragmentGeometry
+      } else if (body.bodyType !== undefined && body.bodyType !== 'fragment' && existing.customBodyGeometry) {
+        const fragmentGeometry = existing.customBodyGeometry
+        existing.mesh.geometry = sharedBodyGeometry
+        existing.customBodyGeometry = undefined
+        fragmentGeometry.dispose()
+      }
+      return existing
+    }
 
     const stellarColor = getNearestStellarColor(body.color).hex
     const bodyMaterial = createBodyMaterial(body.id, stellarColor)
-    const isFragment = body.bodyType === 'fragment' || body.id.includes('+frag')
-    const customBodyGeometry = isFragment ? createFragmentGeometry(body.id) : undefined
+    const customBodyGeometry = body.bodyType === 'fragment' ? createFragmentGeometry(body.id) : undefined
     const mesh = new THREE.Mesh(customBodyGeometry ?? sharedBodyGeometry, bodyMaterial)
     mesh.visible = false
 
