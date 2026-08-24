@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { applyPresetBodyTypes } from './bodyTypes'
 import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
 import { getOrbital2dPresetOverride } from './orbital2dPresets'
@@ -48,7 +49,7 @@ export default function App() {
   const [preset, setPreset] = useState<PresetId>('figure8')
   const [bodyCount, setBodyCount] = useState<BodyCount>(3)
   const [spaceMode, setSpaceMode] = useState<SpaceMode>(getInitialSpaceMode)
-  const [bodies, setBodies] = useState<BodyState[]>(() => getPreset('figure8'))
+  const [bodies, setBodies] = useState<BodyState[]>(() => applyPresetBodyTypes('figure8', getPreset('figure8')))
   const [isRunning, setIsRunning] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [time, setTime] = useState(0)
@@ -107,9 +108,10 @@ export default function App() {
   const loadPreset = useCallback((nextPreset: PresetId, mode: SpaceMode = spaceMode) => {
     setPreset(nextPreset)
     setBodyCount(getPresetBodyCount(nextPreset))
-    const next = mode === '3d'
+    const raw = mode === '3d'
       ? getOrbital3dPresetOverride(nextPreset) ?? getPreset(nextPreset)
       : getOrbital2dPresetOverride(nextPreset) ?? getPreset(nextPreset)
+    const next = applyPresetBodyTypes(nextPreset, raw)
     bodiesRef.current = next
     setBodies(next)
     setTrackedBodyId(next.length === 1 ? next[0].id : null)
