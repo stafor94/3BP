@@ -1,7 +1,14 @@
 .control-panel .body-fields {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) 44px minmax(0, 0.9fr) minmax(0, 0.9fr);
-  gap: 7px;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.75fr) minmax(0, 0.6fr) minmax(0, 0.7fr);
+  gap: 5px;
+}
+
+.control-panel .body-fields input[readonly] {
+  cursor: default;
+  color: #aeb9c9;
+  background: #0a0f18;
+  text-overflow: ellipsis;
 }
 
 .control-panel .body-fields input[type="color"] {
