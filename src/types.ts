@@ -1,5 +1,7 @@
 export type Vec3 = { x: number; y: number; z: number }
 
+export type BodyType = 'star' | 'planet' | 'moon' | 'fragment' | 'effect'
+
 export type BodyState = {
   id: string
   name: string
@@ -8,6 +10,10 @@ export type BodyState = {
   radius: number
   position: Vec3
   velocity: Vec3
+  bodyType?: BodyType
+  age?: number
+  lifetime?: number
+  collisionCooldown?: number
 }
 
 export type TrailSample = {
