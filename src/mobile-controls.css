@@ -102,7 +102,7 @@
     height: 82px !important;
     min-height: 82px !important;
     padding: 17px 16px 9px !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   .control-panel.collapsed .panel-content {
@@ -128,9 +128,27 @@
     background: transparent;
   }
 
+  .control-panel.collapsed .panel-toggle {
+    top: 0;
+    width: 76px;
+    min-width: 76px;
+    height: 24px;
+    min-height: 24px;
+    border: 1px solid #202a3b;
+    border-bottom-color: rgba(32, 42, 59, 0.7);
+    background: rgba(7, 10, 17, 0.96);
+    transform: translate(-50%, -50%);
+    backdrop-filter: blur(16px);
+  }
+
   .control-panel .panel-toggle:hover {
     border: 0;
     background: rgba(255, 255, 255, 0.035);
+  }
+
+  .control-panel.collapsed .panel-toggle:hover {
+    border: 1px solid #2c3950;
+    background: rgba(12, 17, 27, 0.98);
   }
 
   .control-panel .panel-toggle svg {

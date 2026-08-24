@@ -1,15 +1,46 @@
 @media (min-width: 761px) and (max-width: 1366px) {
-  .control-panel {
+  .app-shell {
     position: relative;
-    min-width: 0;
+    display: block;
+  }
+
+  .viewport-shell {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+  }
+
+  .control-panel {
+    position: absolute;
+    z-index: 10;
+    top: 0;
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    min-width: 360px;
+    height: 100dvh;
+    overflow: visible;
     transform: translateX(0);
     transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
     will-change: transform;
   }
 
+  .control-panel .panel-header {
+    flex: 0 0 auto;
+  }
+
+  .control-panel .panel-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #273044 transparent;
+  }
+
   .control-panel.collapsed {
     transform: translateX(100%);
-    overflow: visible;
   }
 
   .control-panel .panel-toggle {
@@ -31,7 +62,7 @@
     color: #93a3ba;
     background: rgba(7, 10, 17, 0.98);
     box-shadow: -3px 0 10px rgba(0, 0, 0, 0.12);
-    transform: translateY(-50%);
+    transform: translate(-100%, -50%);
     transition:
       transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
       border-color 0.15s ease,
