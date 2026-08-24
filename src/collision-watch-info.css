@@ -117,13 +117,15 @@
 }
 
 .collision-watch-body-main {
-  display: grid;
+  display: flex;
+  align-items: center;
   min-width: 0;
-  gap: 0;
+  gap: 5px;
   line-height: 1;
 }
 
 .collision-watch-body-main strong {
+  min-width: 0;
   overflow: hidden;
   color: #f4f7fd;
   font-size: 11px;
@@ -134,12 +136,18 @@
 }
 
 .collision-watch-body-type {
-  color: #8194b3;
-  font-size: 7px;
-  font-weight: 850;
-  letter-spacing: .06em;
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  border: 1px solid rgba(132, 164, 218, 0.34);
+  border-radius: 4px;
+  color: #d7e5fb;
+  background: rgba(82, 111, 164, 0.24);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .03em;
   line-height: 1;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .collision-watch-body-stats {
@@ -207,12 +215,21 @@
     padding: 3px 4px;
   }
 
+  .collision-watch-body-main {
+    gap: 4px;
+  }
+
   .collision-watch-body-stats {
     gap: 4px;
   }
 
   .collision-watch-body-main strong {
     font-size: 10px;
+  }
+
+  .collision-watch-body-type {
+    padding: 2px 3px;
+    font-size: 7px;
   }
 }
 
@@ -245,11 +262,19 @@
     height: 7px;
   }
 
+  .collision-watch-body-main {
+    gap: 3px;
+  }
+
   .collision-watch-body-main strong {
     font-size: 9px;
   }
 
-  .collision-watch-body-type,
+  .collision-watch-body-type {
+    padding: 1.5px 3px;
+    font-size: 6.5px;
+  }
+
   .collision-watch-body-stats dt {
     font-size: 6px;
   }
