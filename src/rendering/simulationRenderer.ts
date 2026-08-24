@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { Line2 } from 'three/addons/lines/Line2.js'
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
+import { getNearestStellarColor } from '../starColors'
 import type { BodyState, TrailSampleBatch } from '../types'
 
 export type SimulationRenderState = {
@@ -56,13 +57,13 @@ const RENDER_TUNING = {
     sphereWidthSegments: 36,
     sphereHeightSegments: 24,
     minRenderRadius: 0.025,
-    glowScale: 3.25,
-    glowOpacityMin: 0.055,
-    glowOpacityMax: 0.12,
-    detailMin: 0.18,
-    detailMax: 0.92,
-    rimMin: 0.11,
-    rimMax: 0.2,
+    glowScale: 4.6,
+    glowOpacityMin: 0.18,
+    glowOpacityMax: 0.28,
+    detailMin: 0.12,
+    detailMax: 0.6,
+    rimMin: 0.07,
+    rimMax: 0.12,
   },
   trail: {
     maxPoints: 6000,
@@ -145,42 +146,43 @@ const bodyFragmentShader = `
     float crater = smoothstep(0.87, 0.98, craterNoise);
 
     float variation =
-      (broad - 0.5) * 0.15 +
-      (fine - 0.5) * 0.07 +
-      (bands - 0.5) * 0.035 -
-      crater * 0.05;
+      (broad - 0.5) * 0.12 +
+      (fine - 0.5) * 0.055 +
+      (bands - 0.5) * 0.025 -
+      crater * 0.035;
 
-    return clamp(1.0 + variation * uDetailStrength, 0.84, 1.08);
+    return clamp(1.0 + variation * uDetailStrength, 0.9, 1.06);
   }
 
-  float drawBodyShading(vec3 worldNormal) {
+  float drawBodyShading(vec3 worldNormal, vec3 viewDirection) {
+    // Stars are self-luminous. Use limb darkening as the dominant cue and keep
+    // the fixed upper-left light only as a very subtle directional modulation.
+    float limb = max(dot(worldNormal, viewDirection), 0.0);
+    float limbDarkening = 0.72 + 0.28 * pow(limb, 0.55);
     vec3 lightDirection = normalize(vec3(-0.55, 0.68, 0.46));
-    float diffuse = max(dot(worldNormal, lightDirection), 0.0);
-    return 0.43 + 0.57 * pow(diffuse, 0.72);
+    float directional = dot(worldNormal, lightDirection) * 0.5 + 0.5;
+    return limbDarkening * (0.94 + 0.06 * directional);
   }
 
   float drawBodyRim(vec3 worldNormal, vec3 viewDirection) {
     float fresnel = 1.0 - max(dot(worldNormal, viewDirection), 0.0);
-    return pow(fresnel, 3.0) * uRimStrength;
+    return pow(fresnel, 2.6) * uRimStrength;
   }
 
   void main() {
     vec3 normalWorld = normalize(vWorldNormal);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
-    vec3 lightDirection = normalize(vec3(-0.55, 0.68, 0.46));
     vec3 baseColor = drawBodyBase();
     float surfaceDetail = drawBodySurfaceDetail(normalize(vObjectNormal));
-    float shading = drawBodyShading(normalWorld);
+    float shading = drawBodyShading(normalWorld, viewDirection);
     float rim = drawBodyRim(normalWorld, viewDirection);
+    float centerEmission = pow(max(dot(normalWorld, viewDirection), 0.0), 0.65) * 0.13;
 
-    vec3 reflected = reflect(-lightDirection, normalWorld);
-    float sameHueSpecular = pow(max(dot(reflected, viewDirection), 0.0), 24.0) * 0.055;
+    vec3 color = baseColor * shading * surfaceDetail * (1.0 + centerEmission);
+    color += baseColor * rim;
 
-    vec3 color = baseColor * shading * surfaceDetail;
-    color += baseColor * (rim + sameHueSpecular);
-
-    // Keep highlights inside the body's identity-color envelope instead of whitening them.
-    color = min(color, baseColor * 1.08);
+    // Preserve the selected stellar hue instead of whitening highlights.
+    color = min(color, baseColor * 1.16);
 
     gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
@@ -234,9 +236,10 @@ function getBodySeed(id: string) {
 }
 
 function createBodyMaterial(id: string, color: string) {
+  const stellarColor = getNearestStellarColor(color).hex
   return new THREE.ShaderMaterial({
     uniforms: {
-      uIdentityColor: { value: new THREE.Color(color) },
+      uIdentityColor: { value: new THREE.Color(stellarColor) },
       uSeed: { value: getBodySeed(id) },
       uDetailStrength: { value: RENDER_TUNING.body.detailMin },
       uRimStrength: { value: RENDER_TUNING.body.rimMax },
@@ -249,15 +252,18 @@ function createBodyMaterial(id: string, color: string) {
 
 function createBodyGlowTexture() {
   const canvas = document.createElement('canvas')
-  canvas.width = 96
-  canvas.height = 96
+  canvas.width = 128
+  canvas.height = 128
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Unable to create body glow texture')
 
-  const gradient = context.createRadialGradient(48, 48, 0, 48, 48, 48)
-  gradient.addColorStop(0, 'rgba(255,255,255,0.58)')
-  gradient.addColorStop(0.24, 'rgba(255,255,255,0.24)')
-  gradient.addColorStop(0.56, 'rgba(255,255,255,0.075)')
+  const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64)
+  gradient.addColorStop(0, 'rgba(255,255,255,0.92)')
+  gradient.addColorStop(0.12, 'rgba(255,255,255,0.58)')
+  gradient.addColorStop(0.28, 'rgba(255,255,255,0.26)')
+  gradient.addColorStop(0.5, 'rgba(255,255,255,0.10)')
+  gradient.addColorStop(0.72, 'rgba(255,255,255,0.035)')
+  gradient.addColorStop(0.9, 'rgba(255,255,255,0.01)')
   gradient.addColorStop(1, 'rgba(255,255,255,0)')
   context.fillStyle = gradient
   context.fillRect(0, 0, canvas.width, canvas.height)
@@ -378,13 +384,14 @@ function collectBandPoints(
 
 function updateBodyAppearance(visual: VisualBody, body: BodyState) {
   const renderRadius = Math.max(body.radius, RENDER_TUNING.body.minRenderRadius)
+  const stellarColor = getNearestStellarColor(body.color).hex
   visual.mesh.position.set(body.position.x, body.position.y, body.position.z)
   visual.mesh.scale.setScalar(renderRadius)
   visual.glow.position.copy(visual.mesh.position)
   visual.glow.scale.setScalar(renderRadius * RENDER_TUNING.body.glowScale)
 
   const identityColor = visual.bodyMaterial.uniforms.uIdentityColor.value as THREE.Color
-  identityColor.set(body.color)
+  identityColor.set(stellarColor)
 
   const radiusFactor = THREE.MathUtils.clamp((renderRadius - 0.045) / 0.42, 0, 1)
   visual.bodyMaterial.uniforms.uDetailStrength.value = THREE.MathUtils.lerp(
@@ -398,7 +405,7 @@ function updateBodyAppearance(visual: VisualBody, body: BodyState) {
     radiusFactor,
   )
 
-  visual.glowMaterial.color.set(body.color)
+  visual.glowMaterial.color.set(stellarColor)
   const luminance = identityColor.r * 0.2126 + identityColor.g * 0.7152 + identityColor.b * 0.0722
   visual.glowMaterial.opacity = THREE.MathUtils.lerp(
     RENDER_TUNING.body.glowOpacityMin,
@@ -406,9 +413,9 @@ function updateBodyAppearance(visual: VisualBody, body: BodyState) {
     THREE.MathUtils.clamp(luminance, 0, 1),
   )
 
-  ;(visual.trailMaterial.uniforms.uColor.value as THREE.Color).set(body.color)
-  visual.trailBands.forEach((layer) => layer.material.color.set(body.color))
-  visual.trailHead.material.color.set(body.color)
+  ;(visual.trailMaterial.uniforms.uColor.value as THREE.Color).set(stellarColor)
+  visual.trailBands.forEach((layer) => layer.material.color.set(stellarColor))
+  visual.trailHead.material.color.set(stellarColor)
 }
 
 export function createSimulationRenderer(host: HTMLDivElement, getState: () => SimulationRenderState) {
@@ -540,13 +547,14 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     const existing = visuals.get(body.id)
     if (existing) return existing
 
-    const bodyMaterial = createBodyMaterial(body.id, body.color)
+    const stellarColor = getNearestStellarColor(body.color).hex
+    const bodyMaterial = createBodyMaterial(body.id, stellarColor)
     const mesh = new THREE.Mesh(sharedBodyGeometry, bodyMaterial)
     mesh.visible = false
 
     const glowMaterial = new THREE.SpriteMaterial({
       map: sharedGlowTexture,
-      color: body.color,
+      color: stellarColor,
       transparent: true,
       opacity: RENDER_TUNING.body.glowOpacityMin,
       depthTest: true,
@@ -578,7 +586,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
 
     const trailMaterial = new THREE.ShaderMaterial({
       uniforms: {
-        uColor: { value: new THREE.Color(body.color) },
+        uColor: { value: new THREE.Color(stellarColor) },
       },
       vertexShader: trailVertexShader,
       fragmentShader: trailFragmentShader,
@@ -594,12 +602,12 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     trailPoints.renderOrder = 20
 
     const trailBands = RENDER_TUNING.trail.bands.map((band, index) => {
-      const layer = createTrailLineLayer(body.color, band.width, band.opacity)
+      const layer = createTrailLineLayer(stellarColor, band.width, band.opacity)
       layer.line.renderOrder = 21 + index
       return layer
     })
     const trailHead = createTrailLineLayer(
-      body.color,
+      stellarColor,
       RENDER_TUNING.trail.headWidth,
       RENDER_TUNING.trail.headOpacity,
     )
