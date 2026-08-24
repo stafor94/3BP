@@ -4,10 +4,11 @@ import { SimulationView } from './components/SimulationView'
 import { translations, type Language } from './i18n'
 import { stepBodies } from './physics/engine'
 import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
-import type { BodyCount, BodyState, PresetId } from './types'
+import type { BodyCount, BodyState, PresetId, TrailSample, TrailSampleBatch } from './types'
 
 const PHYSICS_DT = 0.0015
 const MAX_STEPS_PER_FRAME = 4000
+const TRAIL_SAMPLE_INTERVAL = 0.01
 const LANGUAGE_STORAGE_KEY = '3bp-language'
 const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
 const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
@@ -41,12 +42,18 @@ export default function App() {
   const [trailVersion, setTrailVersion] = useState(0)
   const [trailEnabled, setTrailEnabled] = useState(getInitialTrailEnabled)
   const [trailDuration, setTrailDuration] = useState(getInitialTrailDuration)
+  const [trailSampleBatch, setTrailSampleBatch] = useState<TrailSampleBatch>({ sequence: 0, samples: [] })
   const [trackedBodyId, setTrackedBodyId] = useState<string | null>(null)
   const [language, setLanguage] = useState<Language>(getInitialLanguage)
 
   const bodiesRef = useRef(bodies)
   const runningRef = useRef(isRunning)
   const speedRef = useRef(speed)
+  const trailEnabledRef = useRef(trailEnabled)
+  const simulationTimeRef = useRef(0)
+  const nextTrailSampleAtRef = useRef(0)
+  const trailSampleQueueRef = useRef<TrailSample[]>([])
+  const trailBatchSequenceRef = useRef(0)
   const t = translations[language]
 
   useEffect(() => { bodiesRef.current = bodies }, [bodies])
@@ -57,6 +64,9 @@ export default function App() {
     document.documentElement.lang = language === 'ko' ? 'ko' : 'en'
   }, [language])
   useEffect(() => {
+    trailEnabledRef.current = trailEnabled
+    trailSampleQueueRef.current = []
+    nextTrailSampleAtRef.current = simulationTimeRef.current
     localStorage.setItem(TRAIL_ENABLED_STORAGE_KEY, String(trailEnabled))
   }, [trailEnabled])
   useEffect(() => {
@@ -70,6 +80,14 @@ export default function App() {
     })
   }, [bodies])
 
+  const resetTrailSampling = useCallback((startTime: number) => {
+    simulationTimeRef.current = startTime
+    nextTrailSampleAtRef.current = startTime
+    trailSampleQueueRef.current = []
+    trailBatchSequenceRef.current += 1
+    setTrailSampleBatch({ sequence: trailBatchSequenceRef.current, samples: [] })
+  }, [])
+
   const loadPreset = useCallback((nextPreset: PresetId) => {
     setPreset(nextPreset)
     setBodyCount(getPresetBodyCount(nextPreset))
@@ -79,8 +97,9 @@ export default function App() {
     setTrackedBodyId(null)
     setTime(0)
     setIsRunning(false)
+    resetTrailSampling(0)
     setTrailVersion((v) => v + 1)
-  }, [])
+  }, [resetTrailSampling])
 
   const changeBodyCount = useCallback((count: BodyCount) => {
     loadPreset(DEFAULT_PRESET_BY_BODY_COUNT[count])
@@ -95,8 +114,9 @@ export default function App() {
       bodiesRef.current = updated
       return updated
     })
+    resetTrailSampling(simulationTimeRef.current)
     setTrailVersion((v) => v + 1)
-  }, [])
+  }, [resetTrailSampling])
 
   useEffect(() => {
     let animationFrame = 0
@@ -115,22 +135,48 @@ export default function App() {
       let steps = 0
       let advanced = 0
       let nextBodies = bodiesRef.current
+      let simulationTime = simulationTimeRef.current
 
       while (accumulator >= PHYSICS_DT && steps < MAX_STEPS_PER_FRAME) {
         nextBodies = stepBodies(nextBodies, PHYSICS_DT)
         accumulator -= PHYSICS_DT
         advanced += PHYSICS_DT
+        simulationTime += PHYSICS_DT
         steps += 1
+
+        if (trailEnabledRef.current && simulationTime + 1e-12 >= nextTrailSampleAtRef.current) {
+          const sampleTime = nextTrailSampleAtRef.current
+          nextBodies.forEach((body) => {
+            trailSampleQueueRef.current.push({
+              bodyId: body.id,
+              color: body.color,
+              position: { ...body.position },
+              simulatedAt: sampleTime,
+            })
+          })
+          do {
+            nextTrailSampleAtRef.current += TRAIL_SAMPLE_INTERVAL
+          } while (nextTrailSampleAtRef.current <= simulationTime)
+        }
       }
 
       if (steps === MAX_STEPS_PER_FRAME) accumulator = 0
       if (advanced > 0) {
+        simulationTimeRef.current = simulationTime
         bodiesRef.current = nextBodies
-        setTime((value) => value + advanced)
+        setTime(simulationTime)
       }
 
       if (publishAccumulator >= 1 / 30 && advanced > 0) {
         setBodies(nextBodies)
+        if (trailSampleQueueRef.current.length > 0) {
+          trailBatchSequenceRef.current += 1
+          setTrailSampleBatch({
+            sequence: trailBatchSequenceRef.current,
+            samples: trailSampleQueueRef.current,
+          })
+          trailSampleQueueRef.current = []
+        }
         publishAccumulator = 0
       }
     }
@@ -155,9 +201,11 @@ export default function App() {
       <section className="viewport-shell">
         <SimulationView
           bodies={bodies}
+          simulationTime={time}
           trailVersion={trailVersion}
           trailEnabled={trailEnabled}
           trailDuration={trailDuration}
+          trailSampleBatch={trailSampleBatch}
           trackedBodyId={trackedBodyId}
         />
         <div className="viewport-badge">
