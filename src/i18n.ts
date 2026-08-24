@@ -70,6 +70,11 @@ export const translations = {
     trailDuration: '유지 시간',
     on: '켜짐',
     off: '꺼짐',
+    collisionWarning: '충돌 예상',
+    collisionIn: '예상 충돌까지',
+    collisionImminent: '충돌 임박',
+    collisionReplayReady: '충돌 직전 장면 저장됨',
+    watchCollision: '0.1×로 충돌 관전',
     controlsHint: '드래그: 시점 회전 · 스크롤/핀치: 확대·축소 · G = 1 정규화 단위',
   },
   en: {
@@ -141,6 +146,11 @@ export const translations = {
     trailDuration: 'Duration',
     on: 'On',
     off: 'Off',
+    collisionWarning: 'Collision predicted',
+    collisionIn: 'Estimated impact in',
+    collisionImminent: 'Impact imminent',
+    collisionReplayReady: 'Pre-impact replay saved',
+    watchCollision: 'Watch collision at 0.1×',
     controlsHint: 'Drag to orbit · Scroll/pinch to zoom · G = 1 normalized units',
   },
 } as const
