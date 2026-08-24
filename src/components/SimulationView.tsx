@@ -127,11 +127,16 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
       maxRadius: number,
       size: number,
       opacity: number,
-      color: string,
+      minBrightness: number,
+      maxBrightness: number,
       follow: number,
     ): StarLayer => {
       const geometry = new THREE.BufferGeometry()
       const positions = new Float32Array(count * 3)
+      const colors = new Float32Array(count * 3)
+      const white = new THREE.Color('#f8fbff')
+      const paleBlue = new THREE.Color('#b9d5ff')
+      const starColor = new THREE.Color()
 
       for (let i = 0; i < positions.length; i += 3) {
         const radius = minRadius + Math.random() * (maxRadius - minRadius)
@@ -140,13 +145,21 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
         positions[i] = radius * Math.sin(phi) * Math.cos(theta)
         positions[i + 1] = radius * Math.sin(phi) * Math.sin(theta)
         positions[i + 2] = radius * Math.cos(phi)
+
+        const colorMix = Math.random()
+        const brightness = minBrightness + Math.random() * (maxBrightness - minBrightness)
+        starColor.copy(white).lerp(paleBlue, colorMix).multiplyScalar(brightness)
+        colors[i] = starColor.r
+        colors[i + 1] = starColor.g
+        colors[i + 2] = starColor.b
       }
 
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
       const material = new THREE.PointsMaterial({
-        color,
         size,
         sizeAttenuation: false,
+        vertexColors: true,
         transparent: true,
         opacity,
         depthWrite: false,
@@ -161,8 +174,9 @@ export function SimulationView({ bodies, trailVersion, trailEnabled, trailDurati
     }
 
     const starLayers = [
-      createStarLayer(900, 24, 110, 1.05, 0.46, '#8196b8', 0.18),
-      createStarLayer(180, 10, 34, 1.45, 0.34, '#b4c2d8', 0.07),
+      createStarLayer(260, 62, 180, 0.55, 0.72, 0.34, 0.62, 0.05),
+      createStarLayer(130, 38, 108, 0.78, 0.76, 0.44, 0.74, 0.08),
+      createStarLayer(60, 22, 64, 1.0, 0.8, 0.52, 0.84, 0.12),
     ]
 
     const visuals = new Map<string, VisualBody>()
