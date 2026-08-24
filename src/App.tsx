@@ -94,7 +94,7 @@ export default function App() {
     const next = getPreset(nextPreset)
     bodiesRef.current = next
     setBodies(next)
-    setTrackedBodyId(null)
+    setTrackedBodyId(next.length === 1 ? next[0].id : null)
     setTime(0)
     setIsRunning(false)
     resetTrailSampling(0)
