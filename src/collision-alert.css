@@ -8,7 +8,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 11px;
-  width: min(560px, calc(100% - 36px));
+  width: min(600px, calc(100% - 36px));
   padding: 11px 12px;
   border: 1px solid rgba(255, 154, 92, 0.48);
   border-radius: 13px;
@@ -35,7 +35,7 @@
 .collision-alert-copy {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 
 .collision-alert-copy strong {
@@ -46,12 +46,46 @@
 }
 
 .collision-alert-pair {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
   overflow: hidden;
   color: #f4f7fb;
   font-size: 13px;
   font-weight: 800;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.collision-alert-body {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+}
+
+.collision-alert-body > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.collision-alert-type {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 177, 128, 0.34);
+  border-radius: 999px;
+  background: rgba(255, 135, 74, 0.12);
+  color: #ffc4a3;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+
+.collision-alert-separator {
+  flex: 0 0 auto;
+  color: #b98770;
+  font-size: 12px;
 }
 
 .collision-alert-copy small {
@@ -83,6 +117,16 @@
     grid-template-columns: auto minmax(0, 1fr);
     gap: 9px;
     padding: 10px 11px;
+  }
+
+  .collision-alert-pair {
+    gap: 5px;
+    font-size: 12px;
+  }
+
+  .collision-alert-type {
+    padding: 1px 4px;
+    font-size: 8px;
   }
 
   .collision-watch-button {
