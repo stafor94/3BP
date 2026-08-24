@@ -44,7 +44,6 @@ type StarLayer = {
 }
 
 const MAX_TRAIL_POINTS = 6000
-const TRAIL_REFERENCE_SPACING = 0.018
 
 const trailVertexShader = `
   attribute float aAlpha;
@@ -309,9 +308,11 @@ export function SimulationView({
       return created
     }
 
+    const projectedTrailPoint = new THREE.Vector3()
+
     const updateTrailVisual = (visual: VisualBody, currentTime: number, duration: number) => {
-      const count = visual.points.length
-      if (count === 0) {
+      const sourceCount = visual.points.length
+      if (sourceCount === 0) {
         visual.trailGeometry.setDrawRange(0, 0)
         visual.trailPoints.visible = false
         visual.trailCore.visible = false
@@ -323,32 +324,52 @@ export function SimulationView({
       const sizeAttribute = visual.trailGeometry.getAttribute('aSize') as THREE.BufferAttribute
       const coreWindow = Math.min(duration * 0.36, 2.6)
       const coreCutoff = currentTime - coreWindow
+      const pixelRatio = renderer.getPixelRatio()
+      const viewportWidth = Math.max(host.clientWidth * pixelRatio, 1)
+      const viewportHeight = Math.max(host.clientHeight * pixelRatio, 1)
+      let renderCount = 0
+      let lastScreenX = 0
+      let lastScreenY = 0
+      let hasLastScreenPoint = false
 
-      for (let index = 0; index < count; index += 1) {
+      for (let index = 0; index < sourceCount; index += 1) {
         const point = visual.points[index]
-        const offset = index * 3
-        visual.trailPositions[offset] = point.position.x
-        visual.trailPositions[offset + 1] = point.position.y
-        visual.trailPositions[offset + 2] = point.position.z
+        if (point.capturedAt >= coreCutoff) continue
 
         const ageRatio = THREE.MathUtils.clamp((currentTime - point.capturedAt) / duration, 0, 1)
         const freshness = 1 - ageRatio
         const fade = Math.pow(freshness, 1.8)
-        const previousPoint = index > 0 ? visual.points[index - 1] : visual.points[index + 1]
-        const spacing = previousPoint ? point.position.distanceTo(previousPoint.position) : 0
-        const spacingRatio = THREE.MathUtils.clamp(spacing / TRAIL_REFERENCE_SPACING, 0, 1)
-        const baseAlpha = fade * 0.82
-        const densityAdjustedAlpha = 1 - Math.pow(1 - baseAlpha, spacingRatio)
+        const size = 4.5 + 17.5 * Math.pow(freshness, 1.7)
 
-        visual.trailAlphas[index] = point.capturedAt >= coreCutoff ? 0 : densityAdjustedAlpha
-        visual.trailSizes[index] = 4.5 + 17.5 * Math.pow(freshness, 1.7)
+        projectedTrailPoint.copy(point.position).project(camera)
+        const screenX = (projectedTrailPoint.x * 0.5 + 0.5) * viewportWidth
+        const screenY = (-projectedTrailPoint.y * 0.5 + 0.5) * viewportHeight
+        const minScreenSpacing = Math.max(1.25, size * 0.28)
+        const nextPoint = visual.points[index + 1]
+        const isTailBoundary = !nextPoint || nextPoint.capturedAt >= coreCutoff
+
+        if (hasLastScreenPoint && !isTailBoundary) {
+          const screenDistance = Math.hypot(screenX - lastScreenX, screenY - lastScreenY)
+          if (screenDistance < minScreenSpacing) continue
+        }
+
+        const offset = renderCount * 3
+        visual.trailPositions[offset] = point.position.x
+        visual.trailPositions[offset + 1] = point.position.y
+        visual.trailPositions[offset + 2] = point.position.z
+        visual.trailAlphas[renderCount] = fade * 0.66
+        visual.trailSizes[renderCount] = size
+        renderCount += 1
+        lastScreenX = screenX
+        lastScreenY = screenY
+        hasLastScreenPoint = true
       }
 
       positionAttribute.needsUpdate = true
       alphaAttribute.needsUpdate = true
       sizeAttribute.needsUpdate = true
-      visual.trailGeometry.setDrawRange(0, count)
-      visual.trailPoints.visible = latestTrailEnabled.current
+      visual.trailGeometry.setDrawRange(0, renderCount)
+      visual.trailPoints.visible = latestTrailEnabled.current && renderCount > 0
 
       const recentPoints = visual.points.filter((point) => point.capturedAt >= coreCutoff)
       const curvePoints: THREE.Vector3[] = []
