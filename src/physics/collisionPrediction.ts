@@ -21,7 +21,6 @@ const scale = (v: Vec3, value: number): Vec3 => ({ x: v.x * value, y: v.y * valu
 const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z
 const magnitudeSquared = (v: Vec3) => dot(v, v)
 const magnitude = (v: Vec3) => Math.sqrt(magnitudeSquared(v))
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
 function cloneBody(body: BodyState): BodyState {
   return {
@@ -90,13 +89,11 @@ function findCollisionDuringStep(
 
   for (let i = 0; i < current.length; i += 1) {
     const a = current[i]
-    if (!isPredictionBody(a)) continue
-    if ((a.collisionCooldown ?? 0) > elapsed + dt) continue
+    if (!isPredictionBody(a) || (a.collisionCooldown ?? 0) > 0) continue
 
     for (let j = i + 1; j < current.length; j += 1) {
       const b = current[j]
-      if (!isPredictionBody(b)) continue
-      if ((b.collisionCooldown ?? 0) > elapsed + dt) continue
+      if (!isPredictionBody(b) || (b.collisionCooldown ?? 0) > 0) continue
 
       const relativeStart = sub(b.position, a.position)
       const relativeEnd = sub(next[j].position, next[i].position)
@@ -113,10 +110,10 @@ function findCollisionDuringStep(
       const separation = sub(positionB, positionA)
       const separationLength = Math.max(magnitude(separation), 1e-9)
       const normal = scale(separation, 1 / separationLength)
-      const radialSpeed = -dot(relativeVelocity, normal)
+      const radialClosingSpeed = -dot(relativeVelocity, normal)
 
-      // A geometric crossing while the bodies are already moving apart is not a useful future collision warning.
-      if (radialSpeed < -1e-5) continue
+      // Reject an exit crossing: the surfaces may cross the contact radius while already separating.
+      if (radialClosingSpeed <= 1e-5) continue
 
       earliestFraction = fraction
       earliest = {
