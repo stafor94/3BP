@@ -4,9 +4,11 @@ import { stepBodies as stepPhysicsBodies } from './engine'
 
 const COLLISION_SPARK_NAME = 'Collision spark'
 const PLASMA_ID_TOKEN = '+plasma'
-const PLASMA_EXPANSION_RATE = 0.022
-const PLASMA_MAX_RADIUS = 0.14
-const PLASMA_DRAG_PER_SECOND = 0.14
+const STELLAR_PLASMA_LIFETIME = 1.35
+const COLLISION_SPARK_LIFETIME = 0.9
+const PLASMA_EXPANSION_RATE = 0.009
+const PLASMA_MAX_RADIUS = 0.06
+const PLASMA_DRAG_PER_SECOND = 0.28
 
 const addVec = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z })
 const subVec = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z })
@@ -113,10 +115,10 @@ function convertToStellarPlasma(body: BodyState, inputStars: BodyState[]): BodyS
     name: COLLISION_SPARK_NAME,
     color: plasmaColor,
     mass: 0,
-    radius: Math.max(0.018, Math.min(0.055, body.radius * 0.55)),
+    radius: Math.max(0.012, Math.min(0.032, body.radius * 0.35)),
     bodyType: 'effect',
     age: 0,
-    lifetime: FRAGMENT_LIFETIME,
+    lifetime: STELLAR_PLASMA_LIFETIME,
     collisionCooldown: undefined,
   }
 }
@@ -150,7 +152,7 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
     .map((body) => {
       if (isPlasmaEffect(body)) {
         const age = body.age ?? 0
-        const expansionBoost = 1 + Math.min(age, 2) * 0.3
+        const expansionBoost = 1 + Math.min(age, STELLAR_PLASMA_LIFETIME) * 0.18
         const drag = Math.exp(-PLASMA_DRAG_PER_SECOND * dt)
         return {
           ...body,
@@ -159,7 +161,7 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
             body.radius + PLASMA_EXPANSION_RATE * expansionBoost * dt,
           ),
           velocity: scaleVec(body.velocity, drag),
-          lifetime: FRAGMENT_LIFETIME,
+          lifetime: STELLAR_PLASMA_LIFETIME,
         }
       }
 
@@ -174,7 +176,7 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
       if (body.bodyType === 'effect' && body.name === COLLISION_SPARK_NAME) {
         return {
           ...body,
-          lifetime: FRAGMENT_LIFETIME,
+          lifetime: COLLISION_SPARK_LIFETIME,
         }
       }
 
