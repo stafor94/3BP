@@ -4,6 +4,7 @@ import App from './App'
 import './styles.css'
 import './camera-controls.css'
 import './time-speed-controls.css'
+import './tablet-panel-controls.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
