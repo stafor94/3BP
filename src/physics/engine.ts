@@ -9,10 +9,11 @@ const MAX_FRAGMENTS_PER_COLLISION = 8
 const MIN_PERSISTENT_FRAGMENT_RADIUS = 0.01
 const MIN_PERSISTENT_FRAGMENT_MASS = 0.00025
 const EFFECT_LIFETIME = 2
+const STELLAR_PLASMA_LIFETIME = 1.35
 const COLLISION_FLASH_RADIUS = 0.055
 const HIT_RUN_COOLDOWN = 0.075
 const FRAGMENT_COOLDOWN = 0.12
-const TRANSIENT_COLLISION_NAMES = new Set(['Debris', 'Collision spark', 'Collision flash'])
+const TRANSIENT_COLLISION_NAMES = new Set(['Debris', 'Collision spark', 'Collision flash', 'Stellar plasma'])
 
 let collisionSerial = 0
 
@@ -164,6 +165,13 @@ function classifyCollision(a: BodyState, b: BodyState, geometry: CollisionGeomet
   const { speedRatio, headOn, grazing } = geometry
 
   if (typeA === 'fragment' || typeB === 'fragment') {
+    if (typeA === 'star' || typeB === 'star') {
+      return {
+        mode: 'absorb',
+        ejectaFraction: clamp(smallerMassFraction * (0.14 + speedRatio * 0.06 + headOn * 0.02), 0, 0.06),
+      }
+    }
+
     if (typeA !== 'fragment' || typeB !== 'fragment') {
       if (grazing > 0.9 && speedRatio > 1.05 && speedRatio < 2.8) {
         return {
@@ -350,6 +358,7 @@ function makeEjecta(
   if (requestedMass <= 1e-9 || requestedVolume <= 1e-12 || availableSlots <= 0) return []
 
   const serial = collisionSerial
+  const stellarEjecta = inferBodyType(a) === 'star' || inferBodyType(b) === 'star'
   const ejectaFraction = requestedMass / Math.max(a.mass + b.mass, 1e-9)
   const count = Math.min(
     MAX_FRAGMENTS_PER_COLLISION,
@@ -392,6 +401,21 @@ function makeEjecta(
     const position = add(centerPosition, scale(direction, spawnDistance + radius * 2.5))
     const tiny = radius < MIN_PERSISTENT_FRAGMENT_RADIUS || mass < MIN_PERSISTENT_FRAGMENT_MASS
     const source = index % 2 === 0 ? a : b
+
+    if (stellarEjecta) {
+      return {
+        id: `${a.id}+${b.id}+plasma${serial}-${index}`,
+        name: 'Stellar plasma',
+        color: source.color,
+        mass,
+        radius: Math.max(0.006, Math.min(0.014, radius * 0.18)),
+        position,
+        velocity,
+        bodyType: 'effect',
+        age: 0,
+        lifetime: STELLAR_PLASMA_LIFETIME,
+      }
+    }
 
     return {
       id: `${a.id}+${b.id}+${tiny ? 'fx' : 'frag'}${serial}-${index}`,
