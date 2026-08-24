@@ -27,7 +27,7 @@ export type SimulationSnapshot = {
   time: number
 }
 
-export type BodyCount = 1 | 2 | 3
+export type BodyCount = 1 | 2 | 3 | 4 | 5 | 6
 
 export type PresetId =
   | 'singleStill'
@@ -46,3 +46,15 @@ export type PresetId =
   | 'trojan'
   | 'planetary'
   | 'random'
+  | 'quadCrown'
+  | 'quadNested'
+  | 'quadCrossed'
+  | 'quadDance'
+  | 'pentaCrown'
+  | 'pentaNested'
+  | 'pentaCrossed'
+  | 'pentaDance'
+  | 'hexaCrown'
+  | 'hexaNested'
+  | 'hexaCrossed'
+  | 'hexaDance'
