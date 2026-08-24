@@ -10,7 +10,7 @@ const MIN_PERSISTENT_FRAGMENT_RADIUS = 0.01
 const MIN_PERSISTENT_FRAGMENT_MASS = 0.00025
 const EFFECT_LIFETIME = 2
 const COLLISION_FLASH_RADIUS = 0.055
-const HIT_RUN_COOLDOWN = 0.055
+const HIT_RUN_COOLDOWN = 0.075
 const FRAGMENT_COOLDOWN = 0.12
 const TRANSIENT_COLLISION_NAMES = new Set(['Debris', 'Collision spark', 'Collision flash'])
 
@@ -26,21 +26,36 @@ type CollisionDecision = {
 
 type CollisionGeometry = {
   normal: Vec3
+  tangent: Vec3
   distance: number
+  relativeVelocity: Vec3
   relativeSpeed: number
   escapeSpeed: number
   speedRatio: number
+  headOn: number
   grazing: number
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z
+const cross = (a: Vec3, b: Vec3): Vec3 => ({
+  x: a.y * b.z - a.z * b.y,
+  y: a.z * b.x - a.x * b.z,
+  z: a.x * b.y - a.y * b.x,
+})
 
 const cloneBody = (body: BodyState): BodyState => ({
   ...body,
   position: { ...body.position },
   velocity: { ...body.velocity },
 })
+
+function normalize(value: Vec3, fallback: Vec3): Vec3 {
+  const length = magnitude(value)
+  if (length > 1e-10) return scale(value, 1 / length)
+  const fallbackLength = magnitude(fallback)
+  return fallbackLength > 1e-10 ? scale(fallback, 1 / fallbackLength) : { x: 1, y: 0, z: 0 }
+}
 
 function inferBodyType(body: BodyState): PhysicalBodyType {
   if (body.bodyType && body.bodyType !== 'effect') return body.bodyType
@@ -103,19 +118,41 @@ function seededUnit(seed: string, index: number, is2d: boolean): Vec3 {
 function getCollisionGeometry(a: BodyState, b: BodyState): CollisionGeometry {
   const delta = sub(b.position, a.position)
   const distance = magnitude(delta)
-  const fallback = seededUnit(`${a.id}:${b.id}`, collisionSerial, Math.abs(a.position.z) + Math.abs(b.position.z) < 1e-8)
+  const is2d =
+    Math.abs(a.position.z) + Math.abs(b.position.z) + Math.abs(a.velocity.z) + Math.abs(b.velocity.z) < 1e-8
+  const fallback = seededUnit(`${a.id}:${b.id}`, collisionSerial, is2d)
   const normal = distance > 1e-9 ? scale(delta, 1 / distance) : fallback
   const relativeVelocity = sub(b.velocity, a.velocity)
   const relativeSpeed = magnitude(relativeVelocity)
+  const normalVelocity = scale(normal, dot(relativeVelocity, normal))
+  const tangentialVelocity = sub(relativeVelocity, normalVelocity)
+  const referenceAxis: Vec3 = is2d
+    ? { x: 0, y: 0, z: 1 }
+    : Math.abs(normal.z) < 0.85
+      ? { x: 0, y: 0, z: 1 }
+      : { x: 0, y: 1, z: 0 }
+  const tangent = normalize(tangentialVelocity, cross(referenceAxis, normal))
   const contactDistance = getCollisionContactDistance(a, b)
   const escapeSpeed = Math.sqrt(
     Math.max(0, (2 * G * (a.mass + b.mass)) / Math.max(contactDistance, 1e-6)),
   )
   const speedRatio = relativeSpeed / Math.max(escapeSpeed, 1e-6)
-  const headOn = relativeSpeed > 1e-9 ? clamp(Math.abs(dot(relativeVelocity, normal)) / relativeSpeed, 0, 1) : 1
+  const headOn = relativeSpeed > 1e-9
+    ? clamp(Math.abs(dot(relativeVelocity, normal)) / relativeSpeed, 0, 1)
+    : 1
   const grazing = Math.sqrt(Math.max(0, 1 - headOn * headOn))
 
-  return { normal, distance, relativeSpeed, escapeSpeed, speedRatio, grazing }
+  return {
+    normal,
+    tangent,
+    distance,
+    relativeVelocity,
+    relativeSpeed,
+    escapeSpeed,
+    speedRatio,
+    headOn,
+    grazing,
+  }
 }
 
 function classifyCollision(a: BodyState, b: BodyState, geometry: CollisionGeometry): CollisionDecision {
@@ -124,62 +161,99 @@ function classifyCollision(a: BodyState, b: BodyState, geometry: CollisionGeomet
   const totalMass = a.mass + b.mass
   const smallerMassFraction = Math.min(a.mass, b.mass) / Math.max(totalMass, 1e-9)
   const massRatio = Math.min(a.mass, b.mass) / Math.max(a.mass, b.mass, 1e-9)
-  const { speedRatio, grazing } = geometry
+  const { speedRatio, headOn, grazing } = geometry
 
   if (typeA === 'fragment' || typeB === 'fragment') {
     if (typeA !== 'fragment' || typeB !== 'fragment') {
+      if (grazing > 0.9 && speedRatio > 1.05 && speedRatio < 2.8) {
+        return {
+          mode: 'hitRun',
+          ejectaFraction: clamp(smallerMassFraction * (0.08 + speedRatio * 0.04), 0.002, 0.045),
+        }
+      }
       return {
         mode: 'absorb',
         ejectaFraction: clamp(smallerMassFraction * (0.12 + speedRatio * 0.05), 0, 0.08),
       }
     }
-    if (speedRatio > 1.45) return { mode: 'disrupt', ejectaFraction: clamp(0.22 + speedRatio * 0.08, 0.22, 0.48) }
-    return { mode: 'merge', ejectaFraction: clamp(0.015 + speedRatio * 0.015, 0.01, 0.05) }
+    if (grazing > 0.86 && speedRatio > 0.8 && speedRatio < 2.4) {
+      return { mode: 'hitRun', ejectaFraction: clamp(0.02 + speedRatio * 0.025, 0.02, 0.08) }
+    }
+    if (speedRatio > 1.4) {
+      return { mode: 'disrupt', ejectaFraction: clamp(0.2 + speedRatio * 0.09, 0.22, 0.5) }
+    }
+    return { mode: 'merge', ejectaFraction: clamp(0.012 + speedRatio * 0.018, 0.01, 0.055) }
   }
 
   const starCount = Number(typeA === 'star') + Number(typeB === 'star')
   if (starCount === 1) {
+    if (grazing > 0.92 && speedRatio > 0.95 && speedRatio < 2.65 && massRatio > 0.015) {
+      return {
+        mode: 'hitRun',
+        ejectaFraction: clamp(smallerMassFraction * (0.11 + speedRatio * 0.055), 0.003, 0.055),
+      }
+    }
     return {
       mode: 'absorb',
-      ejectaFraction: clamp(smallerMassFraction * (0.18 + speedRatio * 0.08), 0.002, 0.075),
+      ejectaFraction: clamp(smallerMassFraction * (0.18 + speedRatio * 0.08 + headOn * 0.04), 0.002, 0.075),
     }
   }
 
   if (starCount === 2) {
-    if (grazing > 0.78 && speedRatio > 0.8 && speedRatio < 2.5) {
-      return { mode: 'hitRun', ejectaFraction: clamp(0.015 + speedRatio * 0.02, 0.02, 0.07) }
+    if (grazing > 0.82 && speedRatio > 0.65 && speedRatio < 2.8) {
+      return { mode: 'hitRun', ejectaFraction: clamp(0.012 + speedRatio * 0.022, 0.018, 0.075) }
     }
-    if (speedRatio > 2.25) {
-      return { mode: 'disrupt', ejectaFraction: clamp(0.18 + (speedRatio - 2.25) * 0.12, 0.18, 0.42) }
+    const stellarDisruptionThreshold = 2.25 - headOn * 0.2
+    if (speedRatio > stellarDisruptionThreshold) {
+      return {
+        mode: 'disrupt',
+        ejectaFraction: clamp(0.18 + (speedRatio - stellarDisruptionThreshold) * 0.12, 0.18, 0.42),
+      }
     }
-    return { mode: 'merge', ejectaFraction: clamp(0.008 + speedRatio * 0.018, 0.008, 0.065) }
+    return { mode: 'merge', ejectaFraction: clamp(0.008 + speedRatio * 0.018 + headOn * 0.008, 0.008, 0.07) }
   }
 
   const hasPlanet = typeA === 'planet' || typeB === 'planet'
   const hasMoon = typeA === 'moon' || typeB === 'moon'
 
-  if (hasPlanet && hasMoon && typeA !== typeB && massRatio < 0.28 && speedRatio < 2.15) {
+  if (
+    hasPlanet &&
+    hasMoon &&
+    typeA !== typeB &&
+    massRatio < 0.28 &&
+    grazing < 0.72 &&
+    speedRatio < 2.05
+  ) {
     return {
       mode: 'absorb',
-      ejectaFraction: clamp(smallerMassFraction * (0.2 + speedRatio * 0.12), 0.005, 0.12),
+      ejectaFraction: clamp(smallerMassFraction * (0.18 + speedRatio * 0.11 + headOn * 0.04), 0.004, 0.12),
     }
   }
 
-  if (grazing > 0.72 && speedRatio > 0.78 && speedRatio < 2.45) {
-    return { mode: 'hitRun', ejectaFraction: clamp(0.025 + speedRatio * 0.025, 0.03, 0.1) }
+  if (grazing > 0.8 && speedRatio > 0.55 && speedRatio < 2.8) {
+    return {
+      mode: 'hitRun',
+      ejectaFraction: clamp(0.018 + speedRatio * 0.028 + (grazing - 0.8) * 0.08, 0.025, 0.12),
+    }
   }
 
-  const disruptionThreshold = typeA === 'moon' && typeB === 'moon' ? 1.28 : 1.65
+  const baseDisruptionThreshold = typeA === 'moon' && typeB === 'moon' ? 1.28 : 1.62
+  const impactCoupling = 1.12 - headOn * 0.24
+  const disruptionThreshold = baseDisruptionThreshold * impactCoupling
   if (speedRatio > disruptionThreshold) {
     return {
       mode: 'disrupt',
-      ejectaFraction: clamp(0.24 + (speedRatio - disruptionThreshold) * 0.16, 0.24, 0.58),
+      ejectaFraction: clamp(
+        0.22 + (speedRatio - disruptionThreshold) * 0.17 + headOn * 0.07,
+        0.22,
+        0.6,
+      ),
     }
   }
 
   return {
     mode: 'merge',
-    ejectaFraction: clamp(0.015 + speedRatio * 0.035, 0.015, 0.12),
+    ejectaFraction: clamp(0.012 + speedRatio * 0.03 + headOn * 0.025, 0.012, 0.13),
   }
 }
 
@@ -231,10 +305,44 @@ function makeCollisionFlash(a: BodyState, b: BodyState): BodyState {
   }
 }
 
+function getEjectaDirection(
+  seed: string,
+  index: number,
+  is2d: boolean,
+  geometry: CollisionGeometry,
+) {
+  const randomDirection = seededUnit(seed, index, is2d)
+
+  if (geometry.grazing > 0.68) {
+    const sign = index % 2 === 0 ? 1 : -1
+    const tangentWeight = clamp(0.58 + geometry.grazing * 0.28, 0.72, 0.86)
+    return normalize(
+      add(
+        scale(randomDirection, 1 - tangentWeight),
+        scale(geometry.tangent, sign * tangentWeight),
+      ),
+      randomDirection,
+    )
+  }
+
+  if (geometry.headOn > 0.72) {
+    const splash = sub(randomDirection, scale(geometry.normal, dot(randomDirection, geometry.normal)))
+    if (magnitude(splash) > 1e-8) {
+      return normalize(
+        add(scale(normalize(splash, randomDirection), 0.76), scale(randomDirection, 0.24)),
+        randomDirection,
+      )
+    }
+  }
+
+  return randomDirection
+}
+
 function makeEjecta(
   a: BodyState,
   b: BodyState,
   geometry: CollisionGeometry,
+  decision: CollisionDecision,
   requestedMass: number,
   requestedVolume: number,
   availableSlots: number,
@@ -258,16 +366,27 @@ function makeEjecta(
   const centerVelocity = centerOfMassVelocity(a, b)
   const is2d =
     Math.abs(a.position.z) + Math.abs(b.position.z) + Math.abs(a.velocity.z) + Math.abs(b.velocity.z) < 1e-8
-  const baseKick = Math.max(geometry.relativeSpeed * 0.5, geometry.escapeSpeed * 0.3, 0.08)
+  const kickRatio = decision.mode === 'disrupt'
+    ? 0.78
+    : decision.mode === 'hitRun'
+      ? 0.58
+      : decision.mode === 'absorb'
+        ? 0.42
+        : 0.5
+  const baseKick = Math.max(
+    geometry.relativeSpeed * kickRatio * (0.92 + geometry.headOn * 0.16),
+    geometry.escapeSpeed * (decision.mode === 'disrupt' ? 0.42 : 0.3),
+    0.08,
+  )
   const contactScale = Math.max(a.radius, b.radius)
-  const spawnDistance = contactScale * 1.55
+  const spawnDistance = contactScale * (decision.mode === 'hitRun' ? 1.7 : 1.55)
 
   return weights.map((weight, index) => {
     const share = weight / weightTotal
     const mass = requestedMass * share
     const volume = requestedVolume * share
     const radius = Math.cbrt(Math.max(volume, 1e-12))
-    const direction = seededUnit(seed, index, is2d)
+    const direction = getEjectaDirection(seed, index, is2d, geometry)
     const speedNoise = 0.78 + (hashString(`${seed}:speed:${index}`) / 4294967295) * 0.72
     const velocity = add(centerVelocity, scale(direction, baseKick * speedNoise))
     const position = add(centerPosition, scale(direction, spawnDistance + radius * 2.5))
@@ -305,6 +424,7 @@ function resolveMergedCollision(
     a,
     b,
     geometry,
+    decision,
     requestedEjectaMass,
     requestedEjectaVolume,
     availableSlots,
@@ -314,7 +434,10 @@ function resolveMergedCollision(
   const remnantMass = Math.max(totalMass - ejectedMass, totalMass * 0.05)
   const remnantVolume = Math.max(totalVolume - ejectedVolume, totalVolume * 0.02)
   const totalMomentum = add(momentum(a), momentum(b))
-  const ejectaMomentum = fragments.reduce((sum, fragment) => add(sum, momentum(fragment)), { x: 0, y: 0, z: 0 })
+  const ejectaMomentum = fragments.reduce(
+    (sum, fragment) => add(sum, momentum(fragment)),
+    { x: 0, y: 0, z: 0 },
+  )
   const remnantVelocity = scale(sub(totalMomentum, ejectaMomentum), 1 / remnantMass)
   const dominant = a.mass >= b.mass ? a : b
   const remnant: BodyState = {
@@ -346,6 +469,7 @@ function resolveHitAndRun(
     a,
     b,
     geometry,
+    decision,
     requestedEjectaMass,
     requestedEjectaVolume,
     availableSlots,
@@ -357,8 +481,8 @@ function resolveHitAndRun(
   const radiusA = a.radius * Math.cbrt(massA / a.mass)
   const radiusB = b.radius * Math.cbrt(massB / b.mass)
 
-  const relativeNormalSpeed = dot(sub(b.velocity, a.velocity), geometry.normal)
-  const restitution = 0.28
+  const relativeNormalSpeed = dot(geometry.relativeVelocity, geometry.normal)
+  const restitution = clamp(0.16 + geometry.grazing * 0.28, 0.18, 0.42)
   const impulseMagnitude = relativeNormalSpeed < 0
     ? (-(1 + restitution) * relativeNormalSpeed) / (1 / a.mass + 1 / b.mass)
     : 0
@@ -366,12 +490,19 @@ function resolveHitAndRun(
   let velocityB = add(b.velocity, scale(geometry.normal, impulseMagnitude / b.mass))
 
   const center = centerOfMassPosition(a, b)
-  const separation = (radiusA + radiusB) * getCollisionContactScale(a, b) + 1e-4
+  const separation = (
+    (radiusA + radiusB) *
+    getCollisionContactScale(a, b) *
+    (1 + geometry.grazing * 0.08)
+  ) + 1e-4
   const survivorMass = massA + massB
   const positionA = sub(center, scale(geometry.normal, separation * (massB / survivorMass)))
   const positionB = add(center, scale(geometry.normal, separation * (massA / survivorMass)))
 
-  const fragmentMomentum = fragments.reduce((sum, fragment) => add(sum, momentum(fragment)), { x: 0, y: 0, z: 0 })
+  const fragmentMomentum = fragments.reduce(
+    (sum, fragment) => add(sum, momentum(fragment)),
+    { x: 0, y: 0, z: 0 },
+  )
   const targetMomentum = sub(add(momentum(a), momentum(b)), fragmentMomentum)
   const survivorMomentum = add(scale(velocityA, massA), scale(velocityB, massB))
   const correction = scale(sub(targetMomentum, survivorMomentum), 1 / survivorMass)
