@@ -4,6 +4,8 @@ import { getNearestStellarColor } from '../starColors'
 import type { BodyState } from '../types'
 
 const MAX_STAR_LIGHTS = 6
+const FRAGMENT_VISUAL_MIN_RADIUS = 0.04
+const EFFECT_VISUAL_MIN_RADIUS = 0.07
 
 let installed = false
 let bodyBySeed = new Map<string, BodyState>()
@@ -110,7 +112,7 @@ const litBodyFragmentShader = `
       color = uIdentityColor * intensity;
     } else {
       vec3 albedo = uIdentityColor * surfaceDetail;
-      vec3 litColor = albedo * 0.055;
+      vec3 litColor = albedo * 0.09;
 
       for (int i = 0; i < ${MAX_STAR_LIGHTS}; i++) {
         if (i < uLightCount) {
@@ -150,6 +152,18 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
   material.uniforms.uSelfLuminous.value = selfLuminous ? 1 : 0
   material.uniforms.uLightCount.value = lightingStars.length
 
+  let visualRadius = body.radius
+  let effectProgress = 0
+  if (bodyType === 'fragment') {
+    visualRadius = Math.max(body.radius, FRAGMENT_VISUAL_MIN_RADIUS)
+    object.scale.setScalar(visualRadius)
+  } else if (bodyType === 'effect') {
+    effectProgress = THREE.MathUtils.clamp((body.age ?? 0) / Math.max(body.lifetime ?? 1, 1e-6), 0, 1)
+    const pulse = 1 + Math.sin(effectProgress * Math.PI) * 0.75
+    visualRadius = Math.max(body.radius, EFFECT_VISUAL_MIN_RADIUS) * pulse
+    object.scale.setScalar(visualRadius)
+  }
+
   const lightPositions = material.uniforms.uLightPositions.value as THREE.Vector3[]
   const lightColors = material.uniforms.uLightColors.value as THREE.Color[]
   const lightStrengths = material.uniforms.uLightStrengths.value as number[]
@@ -172,8 +186,26 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
   if (objectIndex >= 2) {
     const glowInner = scene.children[objectIndex - 1]
     const glowOuter = scene.children[objectIndex - 2]
-    if (glowInner instanceof THREE.Sprite) glowInner.visible = selfLuminous
-    if (glowOuter instanceof THREE.Sprite) glowOuter.visible = selfLuminous
+
+    if (glowInner instanceof THREE.Sprite) {
+      glowInner.visible = selfLuminous
+      if (bodyType === 'effect') {
+        glowInner.scale.setScalar(visualRadius * 7.5)
+        if (glowInner.material instanceof THREE.SpriteMaterial) {
+          glowInner.material.opacity = 0.9 * (1 - effectProgress * 0.65)
+        }
+      }
+    }
+
+    if (glowOuter instanceof THREE.Sprite) {
+      glowOuter.visible = selfLuminous
+      if (bodyType === 'effect') {
+        glowOuter.scale.setScalar(visualRadius * 16)
+        if (glowOuter.material instanceof THREE.SpriteMaterial) {
+          glowOuter.material.opacity = 0.58 * (1 - effectProgress * 0.8)
+        }
+      }
+    }
   }
 }
 
