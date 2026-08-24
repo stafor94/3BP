@@ -27,8 +27,9 @@ const COLLISION_ALERT_HOLD_MS = 4200
 const COLLISION_MISS_GRACE_MS = 180
 const COLLISION_CONFIRMATION_COUNT = 2
 const COLLISION_REPLAY_LEAD_TIME = 1.2
-const COLLISION_WATCH_MUTE_MS = 12000
-const COLLISION_WATCH_INFO_POST_IMPACT_MS = 3000
+const COLLISION_WATCH_MUTE_MS = 6000
+const COLLISION_WATCH_POST_IMPACT_LOCK_MS = 6000
+const COLLISION_WATCH_INFO_POST_IMPACT_MS = 6000
 const TRACKING_MIN_MASS_RATIO = 0.5
 const MIN_BODY_SCALE = 0.25
 const MAX_BODY_SCALE = 4
@@ -246,6 +247,8 @@ export default function App() {
     const timer = window.setTimeout(() => {
       if (collisionWatchInfoRef.current?.pairKey !== pairKey) return
       collisionWatchInfoRef.current = null
+      if (autoCollisionWatchPairRef.current === pairKey) autoCollisionWatchPairRef.current = null
+      nextCollisionCheckAtRef.current = 0
       setCollisionWatchInfo(null)
     }, remaining)
 
@@ -476,7 +479,19 @@ export default function App() {
       previous = now
       if (!runningRef.current) return
 
-      if (now >= nextCollisionCheckAtRef.current && now >= collisionWatchMuteUntilRef.current) {
+      const activeCollisionWatch = collisionWatchInfoRef.current
+      const collisionWatchLocked = Boolean(
+        activeCollisionWatch && (
+          activeCollisionWatch.impactObservedAt === null ||
+          now - activeCollisionWatch.impactObservedAt < COLLISION_WATCH_POST_IMPACT_LOCK_MS
+        ),
+      )
+
+      if (
+        !collisionWatchLocked &&
+        now >= nextCollisionCheckAtRef.current &&
+        now >= collisionWatchMuteUntilRef.current
+      ) {
         nextCollisionCheckAtRef.current = now + COLLISION_CHECK_INTERVAL_MS
         const minimumHorizon = collisionWatchEnabledRef.current ? COLLISION_REPLAY_LEAD_TIME : 0.8
         const horizon = Math.min(6, Math.max(minimumHorizon, speedRef.current * 1.2))
@@ -581,7 +596,13 @@ export default function App() {
           if (impactObserved) {
             const impactedWatch = { ...activeWatch, impactObservedAt: now }
             collisionWatchInfoRef.current = impactedWatch
+            collisionPredictionRef.current = null
+            collisionConfirmationRef.current = null
+            collisionReplayRef.current = null
+            collisionLastSeenAtRef.current = 0
             setCollisionWatchInfo(impactedWatch)
+            setCollisionPrediction(null)
+            setCollisionReplayReady(false)
           }
         }
 

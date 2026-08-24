@@ -16,8 +16,8 @@ function isBodyDescendedFrom(bodyId: string, ancestorId: string) {
   return ancestorId.split('+').every((part) => bodyParts.has(part))
 }
 
-function isStellarCollisionArtifact(body: BodyState, inputStars: BodyState[]) {
-  if (body.bodyType !== 'fragment' && body.bodyType !== 'effect') return false
+function isStellarSolidFragment(body: BodyState, inputStars: BodyState[]) {
+  if (body.bodyType !== 'fragment') return false
   return inputStars.some((star) => isBodyDescendedFrom(body.id, star.id))
 }
 
@@ -47,13 +47,10 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   const inputStars = input.filter((body) => getEffectiveBodyType(body) === 'star')
   const stepped = stepPhysicsBodies(input, dt)
 
-  // The core engine has already applied stellar ejecta mass, volume and momentum
-  // changes before this post-processing step. Every fragment/effect object whose
-  // collision ancestry includes an input star is only a visual collision artifact.
-  // Do not pass any of those objects to the normal spherical body renderer.
-  // This includes Collision flash: leaving it visible creates a large blue/grey
-  // sphere that is visually indistinguishable from a solid fragment.
-  const visibleBodies = stepped.filter((body) => !isStellarCollisionArtifact(body, inputStars))
+  // A stellar collision must never leave asteroid-like solid chunks. Keep the
+  // short-lived effect bodies, though: bodyLighting renders stellar plasma and
+  // collision flashes as glow-only sprites rather than spherical body meshes.
+  const visibleBodies = stepped.filter((body) => !isStellarSolidFragment(body, inputStars))
   const persistentAsteroidIds = selectPersistentAsteroidIds(visibleBodies)
 
   return visibleBodies
