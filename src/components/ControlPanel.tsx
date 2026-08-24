@@ -29,7 +29,7 @@ type Props = {
 }
 
 const SPEEDS = [0.1, 1, 5, 10]
-const BODY_COUNTS: BodyCount[] = [1, 2, 3]
+const BODY_COUNTS: BodyCount[] = [1, 2, 3, 4, 5, 6]
 const vectorKeys = ['x', 'y', 'z'] as const
 
 function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange: (n: number) => void; step?: number }) {
@@ -180,10 +180,7 @@ export function ControlPanel({
             return (
               <details className="body-card" key={body.id} open={bodies.length <= 3}>
                 <summary>
-                  <span
-                    className="body-dot"
-                    style={{ background: stellarColor.hex, color: stellarColor.hex }}
-                  />
+                  <span className="body-dot" style={{ background: stellarColor.hex, color: stellarColor.hex }} />
                   <strong>{body.name}</strong>
                   <span>{body.mass.toFixed(2)} M</span>
                 </summary>
