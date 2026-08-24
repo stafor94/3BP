@@ -1,49 +1,59 @@
 @media (min-width: 761px) and (max-width: 1366px) {
-  .app-shell {
-    transition: grid-template-columns 0.22s ease;
-  }
-
-  .app-shell:has(.control-panel.collapsed) {
-    grid-template-columns: minmax(0, 1fr) 0;
-  }
-
   .control-panel {
     position: relative;
     min-width: 0;
-    transition: padding 0.22s ease, border-color 0.22s ease, background-color 0.22s ease;
+    transform: translateX(0);
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+  }
+
+  .control-panel.collapsed {
+    transform: translateX(100%);
+    overflow: visible;
   }
 
   .control-panel .panel-toggle {
-    position: fixed;
+    position: absolute;
     z-index: 18;
     top: 50%;
-    right: calc(360px - 21px);
-    left: auto;
+    left: 0;
+    right: auto;
     display: grid;
     place-items: center;
-    width: 42px;
-    min-width: 42px;
-    height: 72px;
-    min-height: 72px;
+    width: 28px;
+    min-width: 28px;
+    height: 82px;
+    min-height: 82px;
     padding: 0;
-    border: 1px solid #283247;
-    border-radius: 14px;
-    color: #9eacc2;
-    background: rgba(9, 14, 23, 0.94);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-    backdrop-filter: blur(14px);
+    border: 1px solid rgba(62, 76, 101, 0.72);
+    border-right: 0;
+    border-radius: 11px 0 0 11px;
+    color: #93a3ba;
+    background: rgba(7, 10, 17, 0.98);
+    box-shadow: -3px 0 10px rgba(0, 0, 0, 0.12);
     transform: translateY(-50%);
-    transition: right 0.22s ease, border-color 0.15s ease, background-color 0.15s ease;
+    transition:
+      transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+      border-color 0.15s ease,
+      background-color 0.15s ease,
+      color 0.15s ease;
+    touch-action: manipulation;
   }
 
   .control-panel .panel-toggle:hover {
-    border-color: #4d5d78;
-    background: rgba(18, 25, 39, 0.98);
+    border-color: rgba(90, 108, 139, 0.78);
+    color: #c1ccdc;
+    background: rgba(12, 17, 27, 0.99);
+  }
+
+  .control-panel .panel-toggle:focus-visible {
+    outline: 2px solid rgba(92, 132, 226, 0.72);
+    outline-offset: -2px;
   }
 
   .control-panel .panel-toggle svg {
-    width: 22px;
-    height: 14px;
+    width: 20px;
+    height: 12px;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.8;
@@ -52,22 +62,17 @@
     transform: rotate(-90deg);
   }
 
-  .control-panel.collapsed {
-    width: 0;
-    min-width: 0;
-    height: 100dvh;
-    padding: 0;
-    border-left-color: transparent;
-    background: transparent;
-    overflow: visible;
-  }
-
-  .control-panel.collapsed .panel-header,
-  .control-panel.collapsed .panel-content {
-    display: none !important;
-  }
-
   .control-panel.collapsed .panel-toggle {
-    right: 8px;
+    transform: translate(
+      calc(-100% - env(safe-area-inset-right, 0px)),
+      -50%
+    );
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1366px) and (prefers-reduced-motion: reduce) {
+  .control-panel,
+  .control-panel .panel-toggle {
+    transition-duration: 0.01ms;
   }
 }
