@@ -33,16 +33,15 @@ export function createFragmentGeometry(id: string) {
     seededValue(`${id}:chip-y`) * 2 - 1,
     seededValue(`${id}:chip-z`) * 2 - 1,
   ).normalize()
-
+  const normal = new THREE.Vector3()
   const vertex = new THREE.Vector3()
+  const chipDepth = THREE.MathUtils.lerp(0.58, 0.8, seededValue(`${id}:chip-depth`))
+
   for (let index = 0; index < positions.count; index += 1) {
     vertex.fromBufferAttribute(positions, index)
-    const normal = vertex.clone().normalize()
+    normal.copy(vertex).normalize()
     const irregularity = 0.78 + vertexNoise(id, vertex.x, vertex.y, vertex.z) * 0.38
-    const chipProjection = normal.dot(chipDirection)
-    const chipScale = chipProjection > 0.48
-      ? THREE.MathUtils.lerp(0.58, 0.8, seededValue(`${id}:chip-depth`))
-      : 1
+    const chipScale = normal.dot(chipDirection) > 0.48 ? chipDepth : 1
 
     positions.setXYZ(
       index,
@@ -53,7 +52,12 @@ export function createFragmentGeometry(id: string) {
   }
 
   positions.needsUpdate = true
+  geometry.center()
   geometry.computeVertexNormals()
+  geometry.computeBoundingSphere()
+
+  const boundingRadius = geometry.boundingSphere?.radius ?? 1
+  if (boundingRadius > 1e-9) geometry.scale(1 / boundingRadius, 1 / boundingRadius, 1 / boundingRadius)
 
   geometry.rotateX(seededValue(`${id}:rotation-x`) * Math.PI * 2)
   geometry.rotateY(seededValue(`${id}:rotation-y`) * Math.PI * 2)
