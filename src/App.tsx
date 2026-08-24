@@ -154,7 +154,15 @@ export default function App() {
     setTrackedBodyId((current) => {
       if (!current) return null
       if (bodies.some((body) => body.id === current)) return current
-      return bodies.find((body) => isBodyDescendedFrom(body.id, current))?.id ?? null
+
+      const largestDescendant = bodies
+        .filter((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, current))
+        .reduce<BodyState | null>(
+          (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
+          null,
+        )
+
+      return largestDescendant?.id ?? null
     })
   }, [bodies])
 
