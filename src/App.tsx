@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
+import { getOrbital2dPresetOverride } from './orbital2dPresets'
 import { getOrbital3dPresetOverride } from './orbital3dPresets'
 import { translations, type Language } from './i18n'
 import { stepBodies } from './physics/engine'
 import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
-import type { BodyCount, BodyState, PresetId, TrailSample, TrailSampleBatch } from './types'
+import type { BodyCount, BodyState, PresetId, SpaceMode, TrailSample, TrailSampleBatch } from './types'
 
 const PHYSICS_DT = 0.0015
 const MAX_STEPS_PER_FRAME = 4000
@@ -13,6 +14,7 @@ const TRAIL_SAMPLE_INTERVAL = 0.01
 const LANGUAGE_STORAGE_KEY = '3bp-language'
 const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
 const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
+const SPACE_MODE_STORAGE_KEY = '3bp-space-mode'
 const SHOWCASE_DEFAULT_BY_BODY_COUNT: Partial<Record<BodyCount, PresetId>> = {
   4: 'quadNested',
   5: 'pentaNested',
@@ -33,6 +35,10 @@ function getInitialTrailDuration() {
   return Number.isFinite(saved) && saved >= 1 && saved <= 60 ? saved : 8
 }
 
+function getInitialSpaceMode(): SpaceMode {
+  return localStorage.getItem(SPACE_MODE_STORAGE_KEY) === '2d' ? '2d' : '3d'
+}
+
 function isBodyDescendedFrom(bodyId: string, trackedBodyId: string) {
   const bodyParts = new Set(bodyId.split('+'))
   return trackedBodyId.split('+').every((part) => bodyParts.has(part))
@@ -41,6 +47,7 @@ function isBodyDescendedFrom(bodyId: string, trackedBodyId: string) {
 export default function App() {
   const [preset, setPreset] = useState<PresetId>('figure8')
   const [bodyCount, setBodyCount] = useState<BodyCount>(3)
+  const [spaceMode, setSpaceMode] = useState<SpaceMode>(getInitialSpaceMode)
   const [bodies, setBodies] = useState<BodyState[]>(() => getPreset('figure8'))
   const [isRunning, setIsRunning] = useState(false)
   const [speed, setSpeed] = useState(1)
@@ -70,6 +77,9 @@ export default function App() {
     document.documentElement.lang = language === 'ko' ? 'ko' : 'en'
   }, [language])
   useEffect(() => {
+    localStorage.setItem(SPACE_MODE_STORAGE_KEY, spaceMode)
+  }, [spaceMode])
+  useEffect(() => {
     trailEnabledRef.current = trailEnabled
     trailSampleQueueRef.current = []
     nextTrailSampleAtRef.current = simulationTimeRef.current
@@ -94,10 +104,12 @@ export default function App() {
     setTrailSampleBatch({ sequence: trailBatchSequenceRef.current, samples: [] })
   }, [])
 
-  const loadPreset = useCallback((nextPreset: PresetId) => {
+  const loadPreset = useCallback((nextPreset: PresetId, mode: SpaceMode = spaceMode) => {
     setPreset(nextPreset)
     setBodyCount(getPresetBodyCount(nextPreset))
-    const next = getOrbital3dPresetOverride(nextPreset) ?? getPreset(nextPreset)
+    const next = mode === '3d'
+      ? getOrbital3dPresetOverride(nextPreset) ?? getPreset(nextPreset)
+      : getOrbital2dPresetOverride(nextPreset) ?? getPreset(nextPreset)
     bodiesRef.current = next
     setBodies(next)
     setTrackedBodyId(next.length === 1 ? next[0].id : null)
@@ -105,7 +117,13 @@ export default function App() {
     setIsRunning(false)
     resetTrailSampling(0)
     setTrailVersion((v) => v + 1)
-  }, [resetTrailSampling])
+  }, [resetTrailSampling, spaceMode])
+
+  const changeSpaceMode = useCallback((mode: SpaceMode) => {
+    if (mode === spaceMode) return
+    setSpaceMode(mode)
+    loadPreset(preset, mode)
+  }, [loadPreset, preset, spaceMode])
 
   const changeBodyCount = useCallback((count: BodyCount) => {
     loadPreset(SHOWCASE_DEFAULT_BY_BODY_COUNT[count] ?? DEFAULT_PRESET_BY_BODY_COUNT[count])
@@ -224,6 +242,7 @@ export default function App() {
       <ControlPanel
         bodies={bodies}
         bodyCount={bodyCount}
+        spaceMode={spaceMode}
         isRunning={isRunning}
         speed={speed}
         preset={preset}
@@ -236,6 +255,7 @@ export default function App() {
         onTrackedBodyChange={setTrackedBodyId}
         onRunningChange={setIsRunning}
         onSpeedChange={setSpeed}
+        onSpaceModeChange={changeSpaceMode}
         onBodyCountChange={changeBodyCount}
         onPresetChange={loadPreset}
         onReset={reset}
