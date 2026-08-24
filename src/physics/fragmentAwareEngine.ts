@@ -4,7 +4,6 @@ import type { BodyState } from '../types'
 import { stepBodies as stepPhysicsBodies } from './engine'
 
 const COLLISION_SPARK_NAME = 'Collision spark'
-const COLLISION_FLASH_NAME = 'Collision flash'
 
 // Large solid fragments behave as long-lived asteroids. Keep the cap deliberately
 // small so N-body cost remains predictable even after many collisions.
@@ -17,17 +16,8 @@ function isBodyDescendedFrom(bodyId: string, ancestorId: string) {
   return ancestorId.split('+').every((part) => bodyParts.has(part))
 }
 
-function isStellarCollisionEjecta(body: BodyState, inputStars: BodyState[]) {
-  if (body.bodyType === 'effect' && body.name === COLLISION_FLASH_NAME) return false
-
-  const isEjectaLike =
-    body.bodyType === 'fragment' ||
-    (
-      body.bodyType === 'effect' &&
-      (body.id.includes('+plasma') || body.name === COLLISION_SPARK_NAME)
-    )
-
-  if (!isEjectaLike) return false
+function isStellarCollisionArtifact(body: BodyState, inputStars: BodyState[]) {
+  if (body.bodyType !== 'fragment' && body.bodyType !== 'effect') return false
   return inputStars.some((star) => isBodyDescendedFrom(body.id, star.id))
 }
 
@@ -57,14 +47,13 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   const inputStars = input.filter((body) => getEffectiveBodyType(body) === 'star')
   const stepped = stepPhysicsBodies(input, dt)
 
-  // The core engine already subtracts stellar ejecta mass/volume and accounts for
-  // its momentum before returning the collision result. Do not render that ejecta
-  // as BodyState spheres: even an effect sphere reads as a large solid chunk.
-  // Until stellar gas has a dedicated particle renderer, discard all moving
-  // star-derived ejecta visuals here. The central collision flash remains visible.
-  // The fragment branch is also a safety net so future collision paths can never
-  // leave asteroid-like debris behind when a star participated in the collision.
-  const visibleBodies = stepped.filter((body) => !isStellarCollisionEjecta(body, inputStars))
+  // The core engine has already applied stellar ejecta mass, volume and momentum
+  // changes before this post-processing step. Every fragment/effect object whose
+  // collision ancestry includes an input star is only a visual collision artifact.
+  // Do not pass any of those objects to the normal spherical body renderer.
+  // This includes Collision flash: leaving it visible creates a large blue/grey
+  // sphere that is visually indistinguishable from a solid fragment.
+  const visibleBodies = stepped.filter((body) => !isStellarCollisionArtifact(body, inputStars))
   const persistentAsteroidIds = selectPersistentAsteroidIds(visibleBodies)
 
   return visibleBodies
