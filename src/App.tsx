@@ -210,7 +210,9 @@ export default function App() {
         />
         <div className="viewport-badge">
           <span className={isRunning ? 'status-dot running' : 'status-dot'} />
-          {isRunning ? `${speed}× ${t.running}` : t.paused}
+          <span>{isRunning ? `${speed}× ${t.running}` : t.paused}</span>
+          <span aria-hidden="true">·</span>
+          <span>{t.elapsedTime} {time.toFixed(2)}</span>
         </div>
       </section>
       <ControlPanel
@@ -218,7 +220,6 @@ export default function App() {
         bodyCount={bodyCount}
         isRunning={isRunning}
         speed={speed}
-        time={time}
         preset={preset}
         language={language}
         trailEnabled={trailEnabled}
