@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { getNearestStellarColor } from '../starColors'
 import type { BodyState, TrailSampleBatch } from '../types'
+import { createFragmentGeometry } from './fragmentGeometry'
 
 export type SimulationRenderState = {
   bodies: BodyState[]
@@ -32,6 +33,7 @@ type TrailRibbon = {
 type VisualBody = {
   mesh: THREE.Mesh
   bodyMaterial: THREE.ShaderMaterial
+  customBodyGeometry?: THREE.BufferGeometry
   glowInner: THREE.Sprite
   glowInnerMaterial: THREE.SpriteMaterial
   glowOuter: THREE.Sprite
@@ -70,6 +72,14 @@ const RENDER_TUNING = {
     detailMax: 0.46,
     rimMin: 0.08,
     rimMax: 0.14,
+  },
+  fragment: {
+    innerGlowScale: 2.2,
+    outerGlowScale: 3.6,
+    innerGlowOpacityScale: 0.16,
+    outerGlowOpacityScale: 0.05,
+    detailStrength: 0.9,
+    rimStrength: 0.035,
   },
   trail: {
     maxPoints: 6000,
@@ -538,45 +548,72 @@ function updateTrailRibbon(
   ribbon.mesh.visible = true
 }
 
-function updateBodyAppearance(visual: VisualBody, body: BodyState) {
+function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTime: number) {
   const renderRadius = Math.max(body.radius, RENDER_TUNING.body.minRenderRadius)
   const stellarColor = getNearestStellarColor(body.color).hex
+  const isFragment = body.bodyType === 'fragment'
   visual.mesh.position.set(body.position.x, body.position.y, body.position.z)
   visual.mesh.scale.setScalar(renderRadius)
 
+  if (isFragment) {
+    const seed = getBodySeed(body.id)
+    const spin = 0.35 + (seed % 1) * 0.9
+    visual.mesh.rotation.set(
+      seed * 0.013 + simulationTime * spin,
+      seed * 0.019 + simulationTime * spin * 0.73,
+      seed * 0.023 + simulationTime * spin * 1.17,
+    )
+  } else {
+    visual.mesh.rotation.set(0, 0, 0)
+  }
+
   visual.glowInner.position.copy(visual.mesh.position)
   visual.glowOuter.position.copy(visual.mesh.position)
-  visual.glowInner.scale.setScalar(renderRadius * RENDER_TUNING.body.innerGlowScale)
-  visual.glowOuter.scale.setScalar(renderRadius * RENDER_TUNING.body.outerGlowScale)
+  visual.glowInner.scale.setScalar(
+    renderRadius * (isFragment ? RENDER_TUNING.fragment.innerGlowScale : RENDER_TUNING.body.innerGlowScale),
+  )
+  visual.glowOuter.scale.setScalar(
+    renderRadius * (isFragment ? RENDER_TUNING.fragment.outerGlowScale : RENDER_TUNING.body.outerGlowScale),
+  )
 
   const identityColor = visual.bodyMaterial.uniforms.uIdentityColor.value as THREE.Color
   identityColor.set(stellarColor)
 
   const radiusFactor = THREE.MathUtils.clamp((renderRadius - 0.045) / 0.42, 0, 1)
-  visual.bodyMaterial.uniforms.uDetailStrength.value = THREE.MathUtils.lerp(
-    RENDER_TUNING.body.detailMin,
-    RENDER_TUNING.body.detailMax,
-    radiusFactor,
-  )
-  visual.bodyMaterial.uniforms.uRimStrength.value = THREE.MathUtils.lerp(
-    RENDER_TUNING.body.rimMax,
-    RENDER_TUNING.body.rimMin,
-    radiusFactor,
-  )
+  visual.bodyMaterial.uniforms.uDetailStrength.value = isFragment
+    ? RENDER_TUNING.fragment.detailStrength
+    : THREE.MathUtils.lerp(
+      RENDER_TUNING.body.detailMin,
+      RENDER_TUNING.body.detailMax,
+      radiusFactor,
+    )
+  visual.bodyMaterial.uniforms.uRimStrength.value = isFragment
+    ? RENDER_TUNING.fragment.rimStrength
+    : THREE.MathUtils.lerp(
+      RENDER_TUNING.body.rimMax,
+      RENDER_TUNING.body.rimMin,
+      radiusFactor,
+    )
 
   visual.glowInnerMaterial.color.set(stellarColor)
   visual.glowOuterMaterial.color.set(stellarColor)
   const luminance = identityColor.r * 0.2126 + identityColor.g * 0.7152 + identityColor.b * 0.0722
   const glowProminence = THREE.MathUtils.clamp(luminance * 0.7 + radiusFactor * 0.3, 0, 1)
-  visual.glowInnerMaterial.opacity = THREE.MathUtils.lerp(
+  const innerGlowOpacity = THREE.MathUtils.lerp(
     RENDER_TUNING.body.innerGlowOpacityMin,
     RENDER_TUNING.body.innerGlowOpacityMax,
     glowProminence,
   )
-  visual.glowOuterMaterial.opacity = THREE.MathUtils.lerp(
+  const outerGlowOpacity = THREE.MathUtils.lerp(
     RENDER_TUNING.body.outerGlowOpacityMin,
     RENDER_TUNING.body.outerGlowOpacityMax,
     glowProminence,
+  )
+  visual.glowInnerMaterial.opacity = innerGlowOpacity * (
+    isFragment ? RENDER_TUNING.fragment.innerGlowOpacityScale : 1
+  )
+  visual.glowOuterMaterial.opacity = outerGlowOpacity * (
+    isFragment ? RENDER_TUNING.fragment.outerGlowOpacityScale : 1
   )
 
   ;(visual.trailMaterial.uniforms.uColor.value as THREE.Color).set(stellarColor)
@@ -697,6 +734,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       visual.trailRibbon.mesh,
     )
 
+    visual.customBodyGeometry?.dispose()
     visual.bodyMaterial.dispose()
     visual.glowInnerMaterial.dispose()
     visual.glowOuterMaterial.dispose()
@@ -707,13 +745,17 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     visuals.delete(id)
   }
 
-  const ensureVisual = (body: Pick<BodyState, 'id' | 'color'>) => {
+  const ensureVisual = (
+    body: Pick<BodyState, 'id' | 'color'> & Partial<Pick<BodyState, 'bodyType'>>,
+  ) => {
     const existing = visuals.get(body.id)
     if (existing) return existing
 
     const stellarColor = getNearestStellarColor(body.color).hex
     const bodyMaterial = createBodyMaterial(body.id, stellarColor)
-    const mesh = new THREE.Mesh(sharedBodyGeometry, bodyMaterial)
+    const isFragment = body.bodyType === 'fragment' || body.id.includes('+frag')
+    const customBodyGeometry = isFragment ? createFragmentGeometry(body.id) : undefined
+    const mesh = new THREE.Mesh(customBodyGeometry ?? sharedBodyGeometry, bodyMaterial)
     mesh.visible = false
 
     const glowInnerMaterial = createGlowMaterial(
@@ -779,6 +821,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     const created: VisualBody = {
       mesh,
       bodyMaterial,
+      customBodyGeometry,
       glowInner,
       glowInnerMaterial,
       glowOuter,
@@ -966,7 +1009,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       visual.mesh.visible = true
       visual.glowInner.visible = true
       visual.glowOuter.visible = true
-      updateBodyAppearance(visual, body)
+      updateBodyAppearance(visual, body, simulationTimeNow)
 
       if (!trailEnabledNow) {
         visual.trailPoints.visible = false
