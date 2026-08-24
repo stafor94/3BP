@@ -29,6 +29,7 @@ const LANGUAGE_STORAGE_KEY = '3bp-language'
 const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
 const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
 const SPACE_MODE_STORAGE_KEY = '3bp-space-mode'
+const COLLISION_WATCH_ENABLED_STORAGE_KEY = '3bp-collision-watch-enabled'
 const SHOWCASE_DEFAULT_BY_BODY_COUNT: Partial<Record<BodyCount, PresetId>> = {
   4: 'quadNested',
   5: 'pentaNested',
@@ -90,6 +91,10 @@ function getInitialSpaceMode(): SpaceMode {
   return localStorage.getItem(SPACE_MODE_STORAGE_KEY) === '2d' ? '2d' : '3d'
 }
 
+function getInitialCollisionWatchEnabled() {
+  return localStorage.getItem(COLLISION_WATCH_ENABLED_STORAGE_KEY) === 'true'
+}
+
 function isBodyDescendedFrom(bodyId: string, trackedBodyId: string) {
   const bodyParts = new Set(bodyId.split('+'))
   return trackedBodyId.split('+').every((part) => bodyParts.has(part))
@@ -112,6 +117,7 @@ export default function App() {
   const [language, setLanguage] = useState<Language>(getInitialLanguage)
   const [collisionPrediction, setCollisionPrediction] = useState<CollisionPrediction | null>(null)
   const [collisionReplayReady, setCollisionReplayReady] = useState(false)
+  const [collisionWatchEnabled, setCollisionWatchEnabled] = useState(getInitialCollisionWatchEnabled)
 
   const bodiesRef = useRef(bodies)
   const runningRef = useRef(isRunning)
@@ -119,6 +125,8 @@ export default function App() {
   const bodyScaleRef = useRef(1)
   const bodyScaleBaselineRef = useRef(createBodyScaleBaseline(bodies))
   const trailEnabledRef = useRef(trailEnabled)
+  const collisionWatchEnabledRef = useRef(collisionWatchEnabled)
+  const autoCollisionWatchPairRef = useRef<string | null>(null)
   const simulationTimeRef = useRef(0)
   const nextTrailSampleAtRef = useRef(0)
   const trailSampleQueueRef = useRef<TrailSample[]>([])
@@ -134,6 +142,11 @@ export default function App() {
   useEffect(() => { bodiesRef.current = bodies }, [bodies])
   useEffect(() => { runningRef.current = isRunning }, [isRunning])
   useEffect(() => { speedRef.current = speed }, [speed])
+  useEffect(() => {
+    collisionWatchEnabledRef.current = collisionWatchEnabled
+    localStorage.setItem(COLLISION_WATCH_ENABLED_STORAGE_KEY, String(collisionWatchEnabled))
+    if (!collisionWatchEnabled) autoCollisionWatchPairRef.current = null
+  }, [collisionWatchEnabled])
   useEffect(() => {
     localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
     document.documentElement.lang = language === 'ko' ? 'ko' : 'en'
@@ -181,6 +194,7 @@ export default function App() {
     collisionLastSeenAtRef.current = 0
     nextCollisionCheckAtRef.current = 0
     collisionWatchMuteUntilRef.current = 0
+    autoCollisionWatchPairRef.current = null
     setCollisionPrediction(null)
     setCollisionReplayReady(false)
   }, [])
@@ -318,6 +332,7 @@ export default function App() {
     collisionConfirmationRef.current = null
     collisionReplayRef.current = null
     collisionLastSeenAtRef.current = 0
+    autoCollisionWatchPairRef.current = null
     setCollisionPrediction(null)
     setCollisionReplayReady(false)
   }, [resetTrailSampling])
@@ -336,7 +351,8 @@ export default function App() {
 
       if (now >= nextCollisionCheckAtRef.current && now >= collisionWatchMuteUntilRef.current) {
         nextCollisionCheckAtRef.current = now + COLLISION_CHECK_INTERVAL_MS
-        const horizon = Math.min(6, Math.max(0.8, speedRef.current * 1.2))
+        const minimumHorizon = collisionWatchEnabledRef.current ? COLLISION_REPLAY_LEAD_TIME : 0.8
+        const horizon = Math.min(6, Math.max(minimumHorizon, speedRef.current * 1.2))
         const upcoming = predictUpcomingCollision(bodiesRef.current, horizon)
 
         if (upcoming) {
@@ -359,6 +375,23 @@ export default function App() {
             collisionPredictionRef.current = upcoming
             collisionLastSeenAtRef.current = now
             setCollisionPrediction(upcoming)
+
+            if (
+              collisionWatchEnabledRef.current &&
+              upcoming.timeToImpact <= COLLISION_REPLAY_LEAD_TIME &&
+              autoCollisionWatchPairRef.current !== upcoming.pairKey
+            ) {
+              const bodyA = bodiesRef.current.find((body) => body.id === upcoming.bodyAId)
+              const bodyB = bodiesRef.current.find((body) => body.id === upcoming.bodyBId)
+              const target = bodyA && bodyB
+                ? (bodyA.mass >= bodyB.mass ? bodyA : bodyB)
+                : bodyA ?? bodyB
+
+              if (target) setTrackedBodyId(target.id)
+              speedRef.current = 0.1
+              setSpeed(0.1)
+              autoCollisionWatchPairRef.current = upcoming.pairKey
+            }
 
             if (
               upcoming.timeToImpact <= COLLISION_REPLAY_LEAD_TIME &&
@@ -385,6 +418,7 @@ export default function App() {
               collisionPredictionRef.current = null
               collisionReplayRef.current = null
               collisionLastSeenAtRef.current = 0
+              autoCollisionWatchPairRef.current = null
               setCollisionPrediction(null)
               setCollisionReplayReady(false)
             }
@@ -497,9 +531,11 @@ export default function App() {
         trailEnabled={trailEnabled}
         trailDuration={trailDuration}
         trackedBodyId={trackedBodyId}
+        collisionWatchEnabled={collisionWatchEnabled}
         onTrailEnabledChange={setTrailEnabled}
         onTrailDurationChange={setTrailDuration}
         onTrackedBodyChange={setTrackedBodyId}
+        onCollisionWatchEnabledChange={setCollisionWatchEnabled}
         onRunningChange={setIsRunning}
         onSpeedChange={setSpeed}
         onBodyScaleChange={changeBodyScale}
