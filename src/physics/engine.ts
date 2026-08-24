@@ -211,11 +211,11 @@ function classifyCollision(a: BodyState, b: BodyState, geometry: CollisionGeomet
     if (grazing > 0.82 && speedRatio > 0.65 && speedRatio < 2.8) {
       return { mode: 'hitRun', ejectaFraction: clamp(0.012 + speedRatio * 0.022, 0.018, 0.075) }
     }
-    const stellarDisruptionThreshold = 2.25 - headOn * 0.2
-    if (speedRatio > stellarDisruptionThreshold) {
+    const stellarFlyThroughThreshold = 2.25 - headOn * 0.2
+    if (speedRatio > stellarFlyThroughThreshold) {
       return {
-        mode: 'disrupt',
-        ejectaFraction: clamp(0.18 + (speedRatio - stellarDisruptionThreshold) * 0.12, 0.18, 0.42),
+        mode: 'hitRun',
+        ejectaFraction: clamp(0.1 + (speedRatio - stellarFlyThroughThreshold) * 0.1, 0.1, 0.3),
       }
     }
     return { mode: 'merge', ejectaFraction: clamp(0.008 + speedRatio * 0.018 + headOn * 0.008, 0.008, 0.07) }
@@ -408,7 +408,7 @@ function makeEjecta(
         name: 'Stellar plasma',
         color: source.color,
         mass,
-        radius: Math.max(0.006, Math.min(0.014, radius * 0.18)),
+        radius,
         position,
         velocity,
         bodyType: 'effect',
