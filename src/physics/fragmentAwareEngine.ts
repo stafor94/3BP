@@ -10,6 +10,12 @@ const PLASMA_EXPANSION_RATE = 0.009
 const PLASMA_MAX_RADIUS = 0.06
 const PLASMA_DRAG_PER_SECOND = 0.28
 
+// Large solid fragments behave as long-lived asteroids. Keep the cap deliberately
+// small so N-body cost remains predictable even after many collisions.
+const ASTEROID_MIN_RADIUS = 0.012
+const ASTEROID_MIN_MASS = 0.0003
+const MAX_PERSISTENT_ASTEROIDS = 10
+
 const addVec = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z })
 const subVec = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z })
 const scaleVec = (value: Vec3, scale: number): Vec3 => ({
@@ -39,6 +45,28 @@ function isFreshStellarEjecta(body: BodyState, inputStars: BodyState[]) {
 
 function isPlasmaEffect(body: BodyState) {
   return body.bodyType === 'effect' && body.id.includes(PLASMA_ID_TOKEN)
+}
+
+function isAsteroidCandidate(body: BodyState) {
+  return body.bodyType === 'fragment' &&
+    body.radius >= ASTEROID_MIN_RADIUS &&
+    body.mass >= ASTEROID_MIN_MASS
+}
+
+function selectPersistentAsteroidIds(bodies: BodyState[]) {
+  return new Set(
+    bodies
+      .filter(isAsteroidCandidate)
+      .sort((a, b) => {
+        const massDelta = b.mass - a.mass
+        if (Math.abs(massDelta) > 1e-12) return massDelta
+        const radiusDelta = b.radius - a.radius
+        if (Math.abs(radiusDelta) > 1e-12) return radiusDelta
+        return a.id.localeCompare(b.id)
+      })
+      .slice(0, MAX_PERSISTENT_ASTEROIDS)
+      .map((body) => body.id),
+  )
 }
 
 function restoreStellarEjectaMass(
@@ -143,12 +171,14 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
     })
   }
 
-  return stepped
-    .map((body) => (
-      isFreshStellarEjecta(body, inputStars)
-        ? convertToStellarPlasma(body, inputStars)
-        : body
-    ))
+  const converted = stepped.map((body) => (
+    isFreshStellarEjecta(body, inputStars)
+      ? convertToStellarPlasma(body, inputStars)
+      : body
+  ))
+  const persistentAsteroidIds = selectPersistentAsteroidIds(converted)
+
+  return converted
     .map((body) => {
       if (isPlasmaEffect(body)) {
         const age = body.age ?? 0
@@ -166,6 +196,14 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
       }
 
       if (body.bodyType === 'fragment') {
+        if (persistentAsteroidIds.has(body.id)) {
+          return {
+            ...body,
+            age: undefined,
+            lifetime: undefined,
+          }
+        }
+
         return {
           ...body,
           age: (body.age ?? 0) + dt,
@@ -182,5 +220,9 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
 
       return body
     })
-    .filter((body) => body.bodyType !== 'fragment' || (body.age ?? 0) < FRAGMENT_LIFETIME)
+    .filter((body) => (
+      body.bodyType !== 'fragment' ||
+      persistentAsteroidIds.has(body.id) ||
+      (body.age ?? 0) < FRAGMENT_LIFETIME
+    ))
 }
