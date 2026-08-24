@@ -3,6 +3,7 @@ import { applyPresetBodyTypes } from './bodyTypes'
 import { CollisionAlert } from './components/CollisionAlert'
 import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
+import { FRAGMENT_TRAIL_TIME } from './fragmentLifecycle'
 import { getOrbital2dPresetOverride } from './orbital2dPresets'
 import { getOrbital3dPresetOverride } from './orbital3dPresets'
 import { translations, type Language } from './i18n'
@@ -10,7 +11,7 @@ import {
   predictUpcomingCollision,
   type CollisionPrediction,
 } from './physics/collisionPrediction'
-import { stepBodies } from './physics/engine'
+import { stepBodies } from './physics/fragmentAwareEngine'
 import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
 import type { BodyCount, BodyState, PresetId, SpaceMode, TrailSample, TrailSampleBatch } from './types'
 
@@ -443,6 +444,9 @@ export default function App() {
         if (trailEnabledRef.current && simulationTime + 1e-12 >= nextTrailSampleAtRef.current) {
           const sampleTime = nextTrailSampleAtRef.current
           nextBodies.forEach((body) => {
+            if (body.bodyType === 'effect') return
+            if (body.bodyType === 'fragment' && (body.age ?? 0) >= FRAGMENT_TRAIL_TIME) return
+
             trailSampleQueueRef.current.push({
               bodyId: body.id,
               color: body.color,
