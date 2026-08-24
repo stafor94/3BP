@@ -75,3 +75,26 @@
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
+
+.simulation-view canvas {
+  transform: scale(1);
+  transform-origin: 50% 50%;
+  transition: transform 260ms cubic-bezier(.2, .75, .25, 1);
+}
+
+.simulation-view.is-body-tracked canvas {
+  transform: scale(1.5);
+}
+
+@media (max-width: 760px) {
+  .simulation-view.is-body-tracked canvas {
+    transform: scale(1.42);
+    transform-origin: 50% 42%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .simulation-view canvas {
+    transition: none;
+  }
+}
