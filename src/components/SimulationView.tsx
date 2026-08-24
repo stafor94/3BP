@@ -334,9 +334,15 @@ export function SimulationView({
         positions[offset + 2] = point.z
       })
       visual.trailCoreGeometry.setPositions(positions)
+      visual.trailCore.computeLineDistances()
     }
 
-    const updateTrailVisual = (visual: VisualBody, currentTime: number, duration: number) => {
+    const updateTrailVisual = (
+      visual: VisualBody,
+      currentTime: number,
+      duration: number,
+      currentBodyPosition?: THREE.Vector3,
+    ) => {
       const count = visual.points.length
       if (count === 0) {
         visual.trailGeometry.setDrawRange(0, 0)
@@ -346,7 +352,7 @@ export function SimulationView({
         return
       }
 
-      const singleBodyMode = latestBodies.current.length === 1
+      const singleBodyMode = latestBodies.current.length === 1 && currentBodyPosition !== undefined
       if (singleBodyMode) {
         visual.trailGeometry.setDrawRange(0, 0)
         visual.trailPoints.visible = false
@@ -354,8 +360,9 @@ export function SimulationView({
         visual.trailCoreMaterial.linewidth = 2.6
         visual.trailCoreMaterial.opacity = 0.5
 
-        if (count >= 2) {
-          setLinePositions(visual, visual.points.map((point) => point.position))
+        const oldestPoint = visual.points[0].position
+        if (oldestPoint.distanceToSquared(currentBodyPosition) > 1e-10) {
+          setLinePositions(visual, [oldestPoint, currentBodyPosition])
           visual.trailCore.visible = latestTrailEnabled.current
         } else {
           visual.trailCore.visible = false
@@ -570,7 +577,7 @@ export function SimulationView({
         while (visual.points.length > 0 && visual.points[0].capturedAt < cutoff) {
           visual.points.shift()
         }
-        updateTrailVisual(visual, simulationTimeNow, trailDurationNow)
+        updateTrailVisual(visual, simulationTimeNow, trailDurationNow, position)
       })
 
       controls.update()
