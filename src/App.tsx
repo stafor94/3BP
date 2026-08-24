@@ -23,6 +23,8 @@ const COLLISION_MISS_GRACE_MS = 180
 const COLLISION_CONFIRMATION_COUNT = 2
 const COLLISION_REPLAY_LEAD_TIME = 1.2
 const COLLISION_WATCH_MUTE_MS = 12000
+const MIN_BODY_SCALE = 0.25
+const MAX_BODY_SCALE = 4
 const LANGUAGE_STORAGE_KEY = '3bp-language'
 const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
 const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
@@ -82,6 +84,7 @@ export default function App() {
   const [bodies, setBodies] = useState<BodyState[]>(() => applyPresetBodyTypes('figure8', getPreset('figure8')))
   const [isRunning, setIsRunning] = useState(false)
   const [speed, setSpeed] = useState(1)
+  const [bodyScale, setBodyScale] = useState(1)
   const [time, setTime] = useState(0)
   const [trailVersion, setTrailVersion] = useState(0)
   const [trailEnabled, setTrailEnabled] = useState(getInitialTrailEnabled)
@@ -95,6 +98,7 @@ export default function App() {
   const bodiesRef = useRef(bodies)
   const runningRef = useRef(isRunning)
   const speedRef = useRef(speed)
+  const bodyScaleRef = useRef(1)
   const trailEnabledRef = useRef(trailEnabled)
   const simulationTimeRef = useRef(0)
   const nextTrailSampleAtRef = useRef(0)
@@ -161,6 +165,8 @@ export default function App() {
       ? getOrbital3dPresetOverride(nextPreset) ?? getPreset(nextPreset)
       : getOrbital2dPresetOverride(nextPreset) ?? getPreset(nextPreset)
     const next = applyPresetBodyTypes(nextPreset, raw)
+    bodyScaleRef.current = 1
+    setBodyScale(1)
     bodiesRef.current = next
     setBodies(next)
     setTrackedBodyId(next.length === 1 ? next[0].id : null)
@@ -190,6 +196,33 @@ export default function App() {
       bodiesRef.current = updated
       return updated
     })
+    clearCollisionWarning()
+    resetTrailSampling(simulationTimeRef.current)
+    setTrailVersion((v) => v + 1)
+  }, [clearCollisionWarning, resetTrailSampling])
+
+  const changeBodyScale = useCallback((nextScale: number) => {
+    if (!Number.isFinite(nextScale)) return
+    const clamped = Math.min(MAX_BODY_SCALE, Math.max(MIN_BODY_SCALE, nextScale))
+    const previousScale = bodyScaleRef.current
+    if (Math.abs(clamped - previousScale) < 1e-9) return
+
+    const ratio = clamped / previousScale
+    const nextBodies = bodiesRef.current.map((body) => {
+      if (body.bodyType === 'fragment' || body.bodyType === 'effect') return body
+      return {
+        ...body,
+        mass: Math.max(0.001, body.mass * ratio),
+        radius: Math.max(0.005, body.radius * ratio),
+      }
+    })
+
+    bodyScaleRef.current = clamped
+    setBodyScale(clamped)
+    bodiesRef.current = nextBodies
+    setBodies(nextBodies)
+    runningRef.current = false
+    setIsRunning(false)
     clearCollisionWarning()
     resetTrailSampling(simulationTimeRef.current)
     setTrailVersion((v) => v + 1)
@@ -415,6 +448,7 @@ export default function App() {
         spaceMode={spaceMode}
         isRunning={isRunning}
         speed={speed}
+        bodyScale={bodyScale}
         preset={preset}
         language={language}
         trailEnabled={trailEnabled}
@@ -425,6 +459,7 @@ export default function App() {
         onTrackedBodyChange={setTrackedBodyId}
         onRunningChange={setIsRunning}
         onSpeedChange={setSpeed}
+        onBodyScaleChange={changeBodyScale}
         onSpaceModeChange={changeSpaceMode}
         onBodyCountChange={changeBodyCount}
         onPresetChange={loadPreset}
