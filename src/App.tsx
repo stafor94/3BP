@@ -187,10 +187,11 @@ export default function App() {
     })
   }, [bodies])
   useEffect(() => {
-    const impactObservedAt = collisionWatchInfo?.impactObservedAt
-    if (impactObservedAt === null || impactObservedAt === undefined) return
+    const activeInfo = collisionWatchInfo
+    if (!activeInfo || activeInfo.impactObservedAt === null) return
 
-    const pairKey = collisionWatchInfo.pairKey
+    const impactObservedAt = activeInfo.impactObservedAt
+    const pairKey = activeInfo.pairKey
     const remaining = Math.max(
       0,
       COLLISION_WATCH_INFO_POST_IMPACT_MS - (performance.now() - impactObservedAt),
