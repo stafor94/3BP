@@ -4,12 +4,13 @@ import { add, magnitude, magnitudeSquared, scale, sub } from './vector'
 const G = 1
 const SOFTENING_SQUARED = 1e-6
 const MAX_DYNAMIC_BODIES = 28
-const MAX_FRAGMENTS_PER_COLLISION = 6
-const MIN_PERSISTENT_FRAGMENT_RADIUS = 0.018
-const MIN_PERSISTENT_FRAGMENT_MASS = 0.0025
-const EFFECT_LIFETIME = 0.18
-const HIT_RUN_COOLDOWN = 0.035
-const FRAGMENT_COOLDOWN = 0.025
+const MAX_FRAGMENTS_PER_COLLISION = 8
+const MIN_PERSISTENT_FRAGMENT_RADIUS = 0.01
+const MIN_PERSISTENT_FRAGMENT_MASS = 0.00025
+const EFFECT_LIFETIME = 2
+const COLLISION_FLASH_RADIUS = 0.055
+const HIT_RUN_COOLDOWN = 0.055
+const FRAGMENT_COOLDOWN = 0.12
 
 let collisionSerial = 0
 
@@ -193,6 +194,24 @@ function centerOfMassVelocity(a: BodyState, b: BodyState): Vec3 {
   return scale(add(momentum(a), momentum(b)), 1 / Math.max(totalMass, 1e-9))
 }
 
+function makeCollisionFlash(a: BodyState, b: BodyState): BodyState {
+  const dominant = a.mass >= b.mass ? a : b
+  const totalRadius = a.radius + b.radius
+
+  return {
+    id: `${a.id}+${b.id}+flash${collisionSerial}`,
+    name: 'Collision flash',
+    color: dominant.color,
+    mass: 0,
+    radius: Math.max(COLLISION_FLASH_RADIUS, Math.min(0.11, totalRadius * 0.42)),
+    position: centerOfMassPosition(a, b),
+    velocity: centerOfMassVelocity(a, b),
+    bodyType: 'effect',
+    age: 0,
+    lifetime: EFFECT_LIFETIME,
+  }
+}
+
 function makeEjecta(
   a: BodyState,
   b: BodyState,
@@ -204,10 +223,11 @@ function makeEjecta(
   if (requestedMass <= 1e-9 || requestedVolume <= 1e-12 || availableSlots <= 0) return []
 
   const serial = collisionSerial
+  const ejectaFraction = requestedMass / Math.max(a.mass + b.mass, 1e-9)
   const count = Math.min(
     MAX_FRAGMENTS_PER_COLLISION,
     availableSlots,
-    Math.max(1, Math.ceil(2 + (requestedMass / Math.max(a.mass + b.mass, 1e-9)) * 8)),
+    Math.max(2, Math.ceil(3 + ejectaFraction * 10)),
   )
   const seed = `${a.id}:${b.id}:${serial}`
   const weights = Array.from({ length: count }, (_, index) => {
@@ -219,8 +239,9 @@ function makeEjecta(
   const centerVelocity = centerOfMassVelocity(a, b)
   const is2d =
     Math.abs(a.position.z) + Math.abs(b.position.z) + Math.abs(a.velocity.z) + Math.abs(b.velocity.z) < 1e-8
-  const baseKick = Math.max(geometry.relativeSpeed * 0.38, geometry.escapeSpeed * 0.16, 0.05)
+  const baseKick = Math.max(geometry.relativeSpeed * 0.5, geometry.escapeSpeed * 0.3, 0.08)
   const contactScale = Math.max(a.radius, b.radius)
+  const spawnDistance = contactScale * 1.55
 
   return weights.map((weight, index) => {
     const share = weight / weightTotal
@@ -228,15 +249,15 @@ function makeEjecta(
     const volume = requestedVolume * share
     const radius = Math.cbrt(Math.max(volume, 1e-12))
     const direction = seededUnit(seed, index, is2d)
-    const speedNoise = 0.72 + (hashString(`${seed}:speed:${index}`) / 4294967295) * 0.62
+    const speedNoise = 0.78 + (hashString(`${seed}:speed:${index}`) / 4294967295) * 0.72
     const velocity = add(centerVelocity, scale(direction, baseKick * speedNoise))
-    const position = add(centerPosition, scale(direction, contactScale * 0.35 + radius * 1.5))
+    const position = add(centerPosition, scale(direction, spawnDistance + radius * 2.5))
     const tiny = radius < MIN_PERSISTENT_FRAGMENT_RADIUS || mass < MIN_PERSISTENT_FRAGMENT_MASS
     const source = index % 2 === 0 ? a : b
 
     return {
       id: `${a.id}+${b.id}+${tiny ? 'fx' : 'frag'}${serial}-${index}`,
-      name: tiny ? 'Collision flash' : 'Debris',
+      name: tiny ? 'Collision spark' : 'Debris',
       color: source.color,
       mass,
       radius,
@@ -288,7 +309,7 @@ function resolveMergedCollision(
     bodyType: dominantBodyType(a, b),
   }
 
-  return [remnant, ...fragments]
+  return [remnant, ...fragments, makeCollisionFlash(a, b)]
 }
 
 function resolveHitAndRun(
@@ -357,7 +378,7 @@ function resolveHitAndRun(
     collisionCooldown: HIT_RUN_COOLDOWN,
   }
 
-  return [survivorA, survivorB, ...fragments]
+  return [survivorA, survivorB, ...fragments, makeCollisionFlash(a, b)]
 }
 
 function resolveCollisions(input: BodyState[]): BodyState[] {
