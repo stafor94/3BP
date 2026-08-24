@@ -258,3 +258,22 @@ export function randomPreset(): BodyState[] {
     body('c', 'Outer', outerMass, 0.04, outerPosition, outerVelocity, colors[2]),
   ])
 }
+
+export function getPreset(id: PresetId): BodyState[] {
+  if (id === 'singleStill') return singleStillPreset()
+  if (id === 'singleDrift') return singleDriftPreset()
+  if (id === 'singleFast') return singleFastPreset()
+  if (id === 'single3d') return single3dPreset()
+  if (id === 'binaryOrbit') return binaryOrbitPreset()
+  if (id === 'binaryEllipse') return binaryEllipsePreset()
+  if (id === 'binaryUnequal') return binaryUnequalPreset()
+  if (id === 'binaryWide') return binaryWidePreset()
+  if (id === 'binaryInclined') return binaryInclinedPreset()
+  if (id === 'binaryTight') return binaryTightPreset()
+  if (id === 'hierarchical') return hierarchicalPreset()
+  if (id === 'circumbinary') return circumbinaryPreset()
+  if (id === 'trojan') return trojanPreset()
+  if (id === 'planetary') return planetaryPreset()
+  if (id === 'random') return randomPreset()
+  return figure8Preset()
+}
