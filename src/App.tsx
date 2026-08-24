@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { applyPresetBodyTypes } from './bodyTypes'
 import { CollisionAlert } from './components/CollisionAlert'
+import {
+  CollisionWatchInfo,
+  type CollisionWatchDetails,
+} from './components/CollisionWatchInfo'
 import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
 import { FRAGMENT_TRAIL_TIME } from './fragmentLifecycle'
@@ -24,6 +28,7 @@ const COLLISION_MISS_GRACE_MS = 180
 const COLLISION_CONFIRMATION_COUNT = 2
 const COLLISION_REPLAY_LEAD_TIME = 1.2
 const COLLISION_WATCH_MUTE_MS = 12000
+const COLLISION_WATCH_INFO_POST_IMPACT_MS = 3000
 const MIN_BODY_SCALE = 0.25
 const MAX_BODY_SCALE = 4
 const LANGUAGE_STORAGE_KEY = '3bp-language'
@@ -119,6 +124,7 @@ export default function App() {
   const [collisionPrediction, setCollisionPrediction] = useState<CollisionPrediction | null>(null)
   const [collisionReplayReady, setCollisionReplayReady] = useState(false)
   const [collisionWatchEnabled, setCollisionWatchEnabled] = useState(getInitialCollisionWatchEnabled)
+  const [collisionWatchInfo, setCollisionWatchInfo] = useState<CollisionWatchDetails | null>(null)
 
   const bodiesRef = useRef(bodies)
   const runningRef = useRef(isRunning)
@@ -138,6 +144,7 @@ export default function App() {
   const collisionLastSeenAtRef = useRef(0)
   const nextCollisionCheckAtRef = useRef(0)
   const collisionWatchMuteUntilRef = useRef(0)
+  const collisionWatchInfoRef = useRef<CollisionWatchDetails | null>(null)
   const t = translations[language]
 
   useEffect(() => { bodiesRef.current = bodies }, [bodies])
@@ -179,6 +186,23 @@ export default function App() {
       return largestDescendant?.id ?? null
     })
   }, [bodies])
+  useEffect(() => {
+    const impactObservedAt = collisionWatchInfo?.impactObservedAt
+    if (impactObservedAt === null || impactObservedAt === undefined) return
+
+    const pairKey = collisionWatchInfo.pairKey
+    const remaining = Math.max(
+      0,
+      COLLISION_WATCH_INFO_POST_IMPACT_MS - (performance.now() - impactObservedAt),
+    )
+    const timer = window.setTimeout(() => {
+      if (collisionWatchInfoRef.current?.pairKey !== pairKey) return
+      collisionWatchInfoRef.current = null
+      setCollisionWatchInfo(null)
+    }, remaining)
+
+    return () => window.clearTimeout(timer)
+  }, [collisionWatchInfo])
 
   const resetTrailSampling = useCallback((startTime: number) => {
     simulationTimeRef.current = startTime
@@ -196,8 +220,38 @@ export default function App() {
     nextCollisionCheckAtRef.current = 0
     collisionWatchMuteUntilRef.current = 0
     autoCollisionWatchPairRef.current = null
+    collisionWatchInfoRef.current = null
     setCollisionPrediction(null)
     setCollisionReplayReady(false)
+    setCollisionWatchInfo(null)
+  }, [])
+
+  const beginCollisionWatchInfo = useCallback((prediction: CollisionPrediction, sourceBodies: BodyState[]) => {
+    const bodyA = sourceBodies.find((body) => body.id === prediction.bodyAId)
+    const bodyB = sourceBodies.find((body) => body.id === prediction.bodyBId)
+    const details: CollisionWatchDetails = {
+      pairKey: prediction.pairKey,
+      bodyA: {
+        id: prediction.bodyAId,
+        name: prediction.bodyAName,
+        type: prediction.bodyAType,
+        color: bodyA?.color ?? '#dce8ff',
+        mass: bodyA?.mass ?? 0,
+        radius: bodyA?.radius ?? 0,
+      },
+      bodyB: {
+        id: prediction.bodyBId,
+        name: prediction.bodyBName,
+        type: prediction.bodyBType,
+        color: bodyB?.color ?? '#dce8ff',
+        mass: bodyB?.mass ?? 0,
+        radius: bodyB?.radius ?? 0,
+      },
+      closingSpeed: prediction.closingSpeed,
+      impactObservedAt: null,
+    }
+    collisionWatchInfoRef.current = details
+    setCollisionWatchInfo(details)
   }, [])
 
   const loadPreset = useCallback((nextPreset: PresetId, mode: SpaceMode = spaceMode) => {
@@ -311,6 +365,8 @@ export default function App() {
       setTrailVersion((value) => value + 1)
     }
 
+    beginCollisionWatchInfo(prediction, watchBodies)
+
     const candidates = watchBodies.filter((body) =>
       body.id === prediction.bodyAId ||
       body.id === prediction.bodyBId ||
@@ -336,7 +392,7 @@ export default function App() {
     autoCollisionWatchPairRef.current = null
     setCollisionPrediction(null)
     setCollisionReplayReady(false)
-  }, [resetTrailSampling])
+  }, [beginCollisionWatchInfo, resetTrailSampling])
 
   useEffect(() => {
     let animationFrame = 0
@@ -388,6 +444,7 @@ export default function App() {
                 ? (bodyA.mass >= bodyB.mass ? bodyA : bodyB)
                 : bodyA ?? bodyB
 
+              beginCollisionWatchInfo(upcoming, bodiesRef.current)
               if (target) setTrackedBodyId(target.id)
               speedRef.current = 0.1
               setSpeed(0.1)
@@ -441,6 +498,23 @@ export default function App() {
         simulationTime += PHYSICS_DT
         steps += 1
 
+        const activeWatch = collisionWatchInfoRef.current
+        if (activeWatch && activeWatch.impactObservedAt === null) {
+          const bodyA = nextBodies.find((body) => body.id === activeWatch.bodyA.id)
+          const bodyB = nextBodies.find((body) => body.id === activeWatch.bodyB.id)
+          const impactObserved =
+            !bodyA ||
+            !bodyB ||
+            (bodyA.collisionCooldown ?? 0) > 0 ||
+            (bodyB.collisionCooldown ?? 0) > 0
+
+          if (impactObserved) {
+            const impactedWatch = { ...activeWatch, impactObservedAt: now }
+            collisionWatchInfoRef.current = impactedWatch
+            setCollisionWatchInfo(impactedWatch)
+          }
+        }
+
         if (trailEnabledRef.current && simulationTime + 1e-12 >= nextTrailSampleAtRef.current) {
           const sampleTime = nextTrailSampleAtRef.current
           nextBodies.forEach((body) => {
@@ -483,7 +557,7 @@ export default function App() {
 
     animationFrame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(animationFrame)
-  }, [])
+  }, [beginCollisionWatchInfo])
 
   return (
     <main className="app-shell">
@@ -514,7 +588,10 @@ export default function App() {
           <span aria-hidden="true">·</span>
           <span>{t.elapsedTime} {time.toFixed(2)}</span>
         </div>
-        {collisionPrediction && (
+        {collisionWatchInfo && (
+          <CollisionWatchInfo details={collisionWatchInfo} language={language} />
+        )}
+        {collisionPrediction && !collisionWatchInfo && (
           <CollisionAlert
             prediction={collisionPrediction}
             language={language}
