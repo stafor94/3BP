@@ -1,5 +1,6 @@
 @media (min-width: 761px) and (max-width: 1366px) {
   .app-shell {
+    --tablet-collapsed-rail-width: 64px;
     position: relative;
     display: block;
     width: 100%;
@@ -45,7 +46,98 @@
   }
 
   .control-panel.collapsed {
-    transform: translateX(100%);
+    transform: translateX(
+      calc(
+        100% - var(--tablet-collapsed-rail-width) - env(safe-area-inset-right, 0px)
+      )
+    );
+    border-left-color: transparent;
+    background: transparent;
+  }
+
+  .control-panel.collapsed .panel-header {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .panel-content {
+    position: absolute !important;
+    z-index: 16;
+    top: 50%;
+    left: 0;
+    display: block !important;
+    width: var(--tablet-collapsed-rail-width) !important;
+    height: 154px;
+    min-height: 154px;
+    margin: 0 !important;
+    padding: 6px !important;
+    overflow: hidden !important;
+    transform: translateY(-50%);
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    border: 1px solid rgba(62, 76, 101, 0.72);
+    border-right: 0;
+    border-radius: 12px 0 0 12px;
+    background: rgba(7, 10, 17, 0.96);
+    backdrop-filter: blur(16px);
+    box-shadow: -3px 0 10px rgba(0, 0, 0, 0.12);
+    scrollbar-width: none;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .panel-content::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .panel-content > :not(.primary-controls) {
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .panel-content > .primary-controls.primary-controls {
+    position: relative;
+    z-index: 1;
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch !important;
+    grid-template-columns: none !important;
+    gap: 5px !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .primary-controls > .start-button,
+  .app-shell .control-panel.control-panel.collapsed .primary-controls > .secondary-button,
+  .app-shell .control-panel.control-panel.collapsed .primary-controls > .collision-watch-toggle {
+    flex: 0 0 42px;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 42px;
+    height: 42px;
+    margin: 0;
+    padding: 0 3px;
+    border-radius: 9px;
+    font-size: 9px;
+    line-height: 1.05;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .collision-watch-toggle {
+    flex-direction: column;
+    gap: 2px;
+    padding: 3px 2px;
+    white-space: normal;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .collision-watch-toggle input {
+    flex: 0 0 13px;
+    width: 13px;
+    min-width: 13px;
+    height: 13px;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .collision-watch-toggle span {
+    white-space: nowrap;
   }
 
   .control-panel .panel-toggle {
@@ -99,10 +191,7 @@
   }
 
   .control-panel.collapsed .panel-toggle {
-    transform: translate(
-      calc(-100% - env(safe-area-inset-right, 0px)),
-      -50%
-    );
+    transform: translate(-100%, -50%);
   }
 }
 
