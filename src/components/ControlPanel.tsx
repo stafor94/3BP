@@ -5,6 +5,7 @@ import { formatStellarColorOption, getNearestStellarColor, STELLAR_COLOR_OPTIONS
 import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
 import { APP_VERSION } from '../version'
 import { BodyTypeSelector } from './BodyTypeSelector'
+import '../body-scale-controls.css'
 import '../mobile-controls.css'
 import '../version.css'
 
@@ -14,6 +15,7 @@ type Props = {
   spaceMode: SpaceMode
   isRunning: boolean
   speed: number
+  bodyScale: number
   preset: PresetId
   language: Language
   trailEnabled: boolean
@@ -24,6 +26,7 @@ type Props = {
   onTrackedBodyChange: (bodyId: string | null) => void
   onRunningChange: (running: boolean) => void
   onSpeedChange: (speed: number) => void
+  onBodyScaleChange: (scale: number) => void
   onSpaceModeChange: (mode: SpaceMode) => void
   onBodyCountChange: (count: BodyCount) => void
   onPresetChange: (preset: PresetId) => void
@@ -90,6 +93,7 @@ export function ControlPanel({
   spaceMode,
   isRunning,
   speed,
+  bodyScale,
   preset,
   language,
   trailEnabled,
@@ -100,6 +104,7 @@ export function ControlPanel({
   onTrackedBodyChange,
   onRunningChange,
   onSpeedChange,
+  onBodyScaleChange,
   onSpaceModeChange,
   onBodyCountChange,
   onPresetChange,
@@ -200,6 +205,29 @@ export function ControlPanel({
                 {item}×
               </button>
             ))}
+          </div>
+        </section>
+
+        <section className="body-scale-section">
+          <div className="body-scale-heading-row">
+            <label className="section-label" htmlFor="body-scale">{t.bodyScale}</label>
+            <output htmlFor="body-scale">{bodyScale.toFixed(2)}×</output>
+          </div>
+          <input
+            id="body-scale"
+            className="body-scale-slider"
+            type="range"
+            min="-2"
+            max="2"
+            step="0.05"
+            value={Math.log2(bodyScale)}
+            aria-label={t.bodyScale}
+            onChange={(event) => onBodyScaleChange(2 ** Number(event.target.value))}
+          />
+          <div className="body-scale-range" aria-hidden="true">
+            <span>0.25×</span>
+            <small>{t.bodyScaleHint}</small>
+            <span>4.00×</span>
           </div>
         </section>
 
