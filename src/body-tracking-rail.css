@@ -117,6 +117,12 @@
   }
 }
 
+@media (max-width: 760px) and (orientation: portrait) {
+  .app-shell:has(.control-panel:not(.collapsed)) .body-tracking-rail {
+    top: calc(50% - min(22dvh, 210px));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .body-tracking-button {
     transition: none;
