@@ -36,6 +36,8 @@ const effectFragmentShader = `
   uniform float uTail;
   uniform float uTurbulence;
   uniform float uBrightness;
+  uniform float uInnerGlow;
+  uniform float uOuterGlow;
   uniform float uPulse;
   uniform float uSynthetic;
 
@@ -153,6 +155,31 @@ const effectFragmentShader = `
       edge = alpha * (1.0 - core);
     }
 
+    // Profile glow values are real shader inputs, not dead tuning knobs. This is
+    // a lightweight impact-only bloom surrogate that does not require a global
+    // post-processing pass or contaminate the stellar body material.
+    if (uKind < 0.5) {
+      float auraRadius = length(vec2(p.x * 0.72, p.y * 1.28));
+      float innerAura = 1.0 - smoothstep(0.08, 0.56, auraRadius);
+      float outerAura = 1.0 - smoothstep(0.36, 1.0, auraRadius);
+      float syntheticAuraScale = uSynthetic > 0.5 ? 0.55 : 1.0;
+      alpha = max(alpha, innerAura * 0.34 * uInnerGlow * syntheticAuraScale);
+      alpha = max(alpha, outerAura * 0.24 * uOuterGlow * syntheticAuraScale);
+      core += innerAura * 0.22 * uInnerGlow * syntheticAuraScale;
+      edge += outerAura * 0.2 * uOuterGlow * syntheticAuraScale;
+    } else if (uKind < 1.5) {
+      float sheetAura = exp(-abs(p.y) * 4.5) * (1.0 - smoothstep(0.66, 1.0, abs(p.x)));
+      alpha += sheetAura * 0.11 * uOuterGlow;
+      core += sheetAura * 0.07 * uInnerGlow;
+    } else if (uKind < 2.5) {
+      float plasmaAura = 1.0 - smoothstep(0.2, 0.96, length(vec2((p.x - 0.18) * 0.9, p.y * 1.18)));
+      alpha = max(alpha, plasmaAura * 0.12 * uOuterGlow);
+      core += plasmaAura * 0.06 * uInnerGlow;
+    } else if (uKind < 3.5) {
+      float shellAura = 1.0 - smoothstep(0.42, 1.0, length(vec2(p.x * 0.9, p.y)));
+      alpha = max(alpha, shellAura * 0.1 * uOuterGlow);
+    }
+
     float feather = 1.0 - smoothstep(0.78, 1.0, max(abs(p.x), abs(p.y)));
     alpha *= feather * uOpacity;
     if (alpha <= 0.002) discard;
@@ -241,6 +268,8 @@ function createEffectMaterial() {
       uTail: { value: 0 },
       uTurbulence: { value: 0 },
       uBrightness: { value: 1 },
+      uInnerGlow: { value: 0 },
+      uOuterGlow: { value: 0 },
       uPulse: { value: 0 },
       uSynthetic: { value: 0 },
     },
@@ -255,7 +284,7 @@ function createEffectMaterial() {
   })
 }
 
-function getSyntheticStellarEffects(bodies: BodyState[]) {
+export function getSyntheticStellarEffects(bodies: BodyState[]) {
   const stars = bodies.filter((body) => getEffectiveBodyType(body) === 'star')
   const effects: BodyState[] = []
   let pairCount = 0
@@ -302,15 +331,17 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
       const relativeDirection = normalize(relativeVelocity, tangent)
       const strippedDirection = smaller === a ? scale(relativeDirection, -1) : relativeDirection
       const dominantTangentSign = dot(strippedDirection, tangent) < 0 ? -1 : 1
-      const flashProgress = clamp(overlapRatio / 0.24, 0, 1)
-      const shearProgress = clamp(overlapRatio / 1.85, 0, 0.72)
+      // These are compression/buildup phases, not physical effect ages. Keep the
+      // mapping aligned with the staged stellar overlap envelope (18-36%).
+      const flashProgress = clamp(overlapRatio / 0.34, 0, 1)
+      const shearProgress = clamp(overlapRatio / 0.32, 0, 1)
 
       effects.push({
         id: `preview:${pairKey}:flash`,
         name: 'Collision flash',
         color: dominant.color,
         mass: 0,
-        radius: Math.max(0.055, Math.min(0.13, contactDistance * 0.38)),
+        radius: Math.max(0.055, Math.min(0.15, contactDistance * 0.4)),
         position: contactPoint,
         velocity: centerVelocity,
         bodyType: 'effect',
@@ -320,9 +351,9 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
           kind: 'contactFlash',
           direction: tangent,
           normal,
-          stretch: 2.7 + headOn * 0.95 + grazing * 0.2,
+          stretch: 2.8 + headOn * 1.0 + grazing * 0.24,
           widthScale: clamp(0.42 - headOn * 0.13 + grazing * 0.04, 0.25, 0.44),
-          brightness: 1.42 + headOn * 0.35 + clamp(relativeSpeed, 0, 2) * 0.08,
+          brightness: 1.44 + headOn * 0.36 + clamp(relativeSpeed, 0, 2) * 0.08,
           turbulence: 0.14 + grazing * 0.34,
           pulseStrength: 0.18 + headOn * 0.08,
           phaseOffset: getBodySeed(pairKey),
@@ -336,7 +367,7 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
         name: 'Collision shear',
         color: dominant.color,
         mass: 0,
-        radius: Math.max(0.06, Math.min(0.16, contactDistance * 0.34)),
+        radius: Math.max(0.06, Math.min(0.18, contactDistance * 0.36)),
         position: contactPoint,
         velocity: centerVelocity,
         bodyType: 'effect',
@@ -346,11 +377,11 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
           kind: 'compressionShear',
           direction: tangent,
           normal,
-          stretch: 3.25 + grazing * 1.45 + headOn * 0.3,
+          stretch: 3.35 + grazing * 1.5 + headOn * 0.34,
           widthScale: clamp(0.34 - grazing * 0.07 + headOn * 0.04, 0.25, 0.4),
-          tailLength: 0.18 + grazing * 0.28,
-          brightness: 1.08 + headOn * 0.24 + grazing * 0.08,
-          turbulence: 0.42 + grazing * 0.3,
+          tailLength: 0.18 + grazing * 0.3,
+          brightness: 1.1 + headOn * 0.25 + grazing * 0.08,
+          turbulence: 0.44 + grazing * 0.3,
           pulseStrength: 0.08,
           phaseOffset: getBodySeed(`${pairKey}:shear`),
           secondaryColor: smaller.color,
@@ -358,7 +389,10 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
         },
       })
 
-      const plasmaPhase = clamp((overlapRatio - 0.42) / 0.82, 0, 1)
+      // Plasma must start inside the normal staged overlap range. The old 42%
+      // threshold was above merge/partial/hit-and-run maxima, making this branch
+      // unreachable during the intended presentation envelope.
+      const plasmaPhase = clamp((overlapRatio - 0.055) / 0.22, 0, 1)
       if (plasmaPhase > 0) {
         const previewCount = grazing > 0.55 ? 3 : 2
         for (let index = 0; index < previewCount; index += 1) {
@@ -376,7 +410,7 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
             scale(tangent, sign),
           )
           const strength = counterStream ? 0.58 : 1 - index * 0.12
-          const travel = minRadius * (0.08 + plasmaPhase * 0.62 * strength)
+          const travel = minRadius * (0.04 + plasmaPhase * 0.5 * strength)
           const source = index === 0 || massAsymmetry > 0.3 ? smaller : dominant
 
           effects.push({
@@ -388,7 +422,7 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
             position: add(contactPoint, scale(direction, travel)),
             velocity: add(centerVelocity, scale(direction, Math.max(relativeSpeed * 0.48, 0.08))),
             bodyType: 'effect',
-            age: PREVIEW_PLASMA_LIFETIME * plasmaPhase * 0.34,
+            age: PREVIEW_PLASMA_LIFETIME * plasmaPhase,
             lifetime: PREVIEW_PLASMA_LIFETIME,
             effectVisual: {
               kind: 'stellarPlasma',
@@ -396,8 +430,8 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
               normal,
               stretch: clamp(2.0 + grazing * 2.4 + plasmaPhase * 0.8 + index * 0.24, 1.9, 5.4),
               widthScale: clamp(0.9 - grazing * 0.36 - index * 0.06, 0.45, 1.02),
-              tailLength: 0.42 + grazing * 0.72 + plasmaPhase * 0.28 + index * 0.1,
-              brightness: 1.12 + (index === 0 ? 0.18 : 0.04),
+              tailLength: 0.34 + grazing * 0.66 + plasmaPhase * 0.34 + index * 0.1,
+              brightness: 1.12 + plasmaPhase * 0.12 + (index === 0 ? 0.18 : 0.04),
               turbulence: 0.48 + grazing * 0.3 + index * 0.06,
               pulseStrength: 0.05,
               phaseOffset: getBodySeed(`${pairKey}:plasma:${index}`),
@@ -470,6 +504,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
   ) => {
     const profile = getCollisionEffectProfile(body)
     const synthetic = body.id.startsWith('preview:')
+    const stellarEffect = body.effectVisual?.stellarCollision === true
     const effectDirection = body.effectVisual?.direction
     const fallbackDirection = vec3LengthSquared(body.velocity) > 1e-12
       ? body.velocity
@@ -491,9 +526,13 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     let scaleX = diameter * profile.anisotropicStretch
     let scaleY = diameter * profile.widthScale
     const maxWorldDiameter = profile.kind === 'stellarAfterglow'
-      ? 0.96
-      : body.effectVisual?.stellarCollision
-        ? 0.84
+      ? stellarEffect ? 1.28 : 0.96
+      : stellarEffect
+        ? synthetic
+          ? 0.98
+          : profile.kind === 'contactFlash'
+            ? 1.18
+            : 1.08
         : 0.64
     const largestAxis = Math.max(scaleX, scaleY)
     if (largestAxis > maxWorldDiameter) {
@@ -531,17 +570,17 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     ;(uniforms.uMidColor.value as THREE.Color).copy(midColor)
     ;(uniforms.uEdgeColor.value as THREE.Color).copy(edgeColor)
     const syntheticOpacityCap = profile.kind === 'contactFlash'
-      ? 0.5
+      ? 0.56
       : profile.kind === 'compressionShear'
-        ? 0.48
-        : 0.6
+        ? 0.52
+        : 0.62
     uniforms.uOpacity.value = clamp(
       profile.baseOpacity * profile.fadeAlpha * clamp(opacityScale, 0, 1),
       0,
       synthetic
         ? syntheticOpacityCap
-        : body.effectVisual?.stellarCollision
-          ? 0.97
+        : stellarEffect
+          ? 0.98
           : 0.94,
     )
     uniforms.uProgress.value = profile.progress
@@ -549,11 +588,20 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     uniforms.uKind.value = kindNumber(profile.kind)
     uniforms.uTail.value = profile.tailLength
     uniforms.uTurbulence.value = profile.turbulence
+    const brightnessCap = synthetic
+      ? 1.6
+      : stellarEffect
+        ? profile.kind === 'contactFlash'
+          ? 3.45
+          : 3.05
+        : 2.82
     uniforms.uBrightness.value = clamp(
       profile.brightness * (synthetic ? 0.9 : 1),
       0,
-      synthetic ? 1.45 : 2.82,
+      brightnessCap,
     )
+    uniforms.uInnerGlow.value = profile.innerGlow
+    uniforms.uOuterGlow.value = profile.outerGlow
     uniforms.uPulse.value = profile.pulseStrength
     uniforms.uSynthetic.value = synthetic ? 1 : 0
   }
