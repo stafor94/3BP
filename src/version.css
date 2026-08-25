@@ -8,9 +8,16 @@
   min-width: 0;
 }
 
-.app-version {
+/* The legacy title-adjacent version node remains in ControlPanel for now, but is
+   intentionally hidden. The visible version is rendered at the document root so
+   panel transforms/backdrop filters can never change its containing block. */
+.control-panel .app-version {
+  display: none;
+}
+
+.screen-app-version {
   position: fixed;
-  z-index: 20;
+  z-index: 30;
   top: 16px;
   left: 50%;
   display: flex;
@@ -29,7 +36,7 @@
 }
 
 @media (max-width: 760px) {
-  .app-version {
+  .screen-app-version {
     top: 14px;
     height: 32px;
     font-size: 9px;
