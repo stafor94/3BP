@@ -229,7 +229,7 @@ function createPolygonDancePreset(totalCount: 4 | 5 | 6): BodyState[] {
 }
 
 export const PRESETS_BY_BODY_COUNT: Record<BodyCount, PresetId[]> = {
-  1: ['singleStill', 'singleDrift', 'singleFast', 'single3d'],
+  1: ['singleDrift'],
   2: ['binaryOrbit', 'binaryEllipse', 'binaryUnequal', 'binaryWide', 'binaryInclined', 'binaryTight'],
   3: ['figure8', 'hierarchical', 'circumbinary', 'trojan', 'planetary', 'random'],
   4: ['quadCrown', 'quadNested', 'quadCrossed', 'quadDance'],
@@ -238,7 +238,7 @@ export const PRESETS_BY_BODY_COUNT: Record<BodyCount, PresetId[]> = {
 }
 
 export const DEFAULT_PRESET_BY_BODY_COUNT: Record<BodyCount, PresetId> = {
-  1: 'singleStill',
+  1: 'singleDrift',
   2: 'binaryOrbit',
   3: 'figure8',
   4: 'quadCrown',
@@ -255,20 +255,8 @@ export function getPresetBodyCount(id: PresetId): BodyCount {
   return 6
 }
 
-export function singleStillPreset(): BodyState[] {
-  return [body('a', 'Alpha', 1, 0.09, [0, 0, 0], [0, 0, 0], colors[0])]
-}
-
 export function singleDriftPreset(): BodyState[] {
   return [body('a', 'Alpha', 1, 0.09, [-1.2, -0.45, 0], [0.42, 0.16, 0], colors[0])]
-}
-
-export function singleFastPreset(): BodyState[] {
-  return [body('a', 'Alpha', 1, 0.09, [-1.8, 0.2, 0], [1.1, -0.03, 0], colors[0])]
-}
-
-export function single3dPreset(): BodyState[] {
-  return [body('a', 'Alpha', 1, 0.09, [-1, -0.7, -0.8], [0.36, 0.24, 0.2], colors[0])]
 }
 
 export function binaryOrbitPreset(): BodyState[] {
@@ -452,10 +440,7 @@ export function hexaCrossedPreset() { return createCrossedRingsPreset(6) }
 export function hexaDancePreset() { return createPolygonDancePreset(6) }
 
 export function getPreset(id: PresetId): BodyState[] {
-  if (id === 'singleStill') return singleStillPreset()
   if (id === 'singleDrift') return singleDriftPreset()
-  if (id === 'singleFast') return singleFastPreset()
-  if (id === 'single3d') return single3dPreset()
   if (id === 'binaryOrbit') return binaryOrbitPreset()
   if (id === 'binaryEllipse') return binaryEllipsePreset()
   if (id === 'binaryUnequal') return binaryUnequalPreset()

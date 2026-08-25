@@ -37,10 +37,7 @@ export type BodyCount = 1 | 2 | 3 | 4 | 5 | 6
 export type SpaceMode = '2d' | '3d'
 
 export type PresetId =
-  | 'singleStill'
   | 'singleDrift'
-  | 'singleFast'
-  | 'single3d'
   | 'binaryOrbit'
   | 'binaryEllipse'
   | 'binaryUnequal'
