@@ -37,6 +37,7 @@ const effectFragmentShader = `
   uniform float uTurbulence;
   uniform float uBrightness;
   uniform float uPulse;
+  uniform float uSynthetic;
 
   varying vec2 vUv;
 
@@ -82,6 +83,15 @@ const effectFragmentShader = `
       core = ridge + hotBand * 0.72;
       body = hotBand * 0.7 + halo * 0.35;
       edge = halo;
+
+      if (uSynthetic > 0.5) {
+        // Keep overlap preview concentrated around the compression boundary. A
+        // full-opacity additive center reads as if the stellar disc itself changed hue.
+        float centerRelief = 0.66 + 0.34 * smoothstep(0.08, 0.52, abs(p.x));
+        alpha *= centerRelief * 0.82;
+        core *= 0.76;
+        body *= 0.72;
+      }
     } else if (uKind < 1.5) {
       // Compression/shear: uneven turbulent sheet with hot knots and filaments.
       float wave = sin((p.x * 5.4 + uSeed * 0.11) + noise * 3.4) * 0.08 * uTurbulence;
@@ -232,6 +242,7 @@ function createEffectMaterial() {
       uTurbulence: { value: 0 },
       uBrightness: { value: 1 },
       uPulse: { value: 0 },
+      uSynthetic: { value: 0 },
     },
     vertexShader: effectVertexShader,
     fragmentShader: effectFragmentShader,
@@ -458,6 +469,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     opacityScale = 1,
   ) => {
     const profile = getCollisionEffectProfile(body)
+    const synthetic = body.id.startsWith('preview:')
     const effectDirection = body.effectVisual?.direction
     const fallbackDirection = vec3LengthSquared(body.velocity) > 1e-12
       ? body.velocity
@@ -518,18 +530,32 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     ;(uniforms.uCoreColor.value as THREE.Color).copy(coreColor)
     ;(uniforms.uMidColor.value as THREE.Color).copy(midColor)
     ;(uniforms.uEdgeColor.value as THREE.Color).copy(edgeColor)
+    const syntheticOpacityCap = profile.kind === 'contactFlash'
+      ? 0.5
+      : profile.kind === 'compressionShear'
+        ? 0.48
+        : 0.6
     uniforms.uOpacity.value = clamp(
       profile.baseOpacity * profile.fadeAlpha * clamp(opacityScale, 0, 1),
       0,
-      body.effectVisual?.stellarCollision ? 0.97 : 0.94,
+      synthetic
+        ? syntheticOpacityCap
+        : body.effectVisual?.stellarCollision
+          ? 0.97
+          : 0.94,
     )
     uniforms.uProgress.value = profile.progress
     uniforms.uSeed.value = getBodySeed(body.id) * 1000 + (body.effectVisual?.phaseOffset ?? 0) * 37
     uniforms.uKind.value = kindNumber(profile.kind)
     uniforms.uTail.value = profile.tailLength
     uniforms.uTurbulence.value = profile.turbulence
-    uniforms.uBrightness.value = clamp(profile.brightness, 0, 2.62)
+    uniforms.uBrightness.value = clamp(
+      profile.brightness * (synthetic ? 0.9 : 1),
+      0,
+      synthetic ? 1.45 : 2.82,
+    )
     uniforms.uPulse.value = profile.pulseStrength
+    uniforms.uSynthetic.value = synthetic ? 1 : 0
   }
 
   return {

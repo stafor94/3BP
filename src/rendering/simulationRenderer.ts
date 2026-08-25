@@ -517,6 +517,7 @@ function updateTrailRibbon(
   samples: TrailCurveSample[],
   currentTime: number,
   duration: number,
+  energyBoost = 0,
 ) {
   const count = Math.min(samples.length, RENDER_TUNING.trail.maxRibbonSamples)
   if (count < 2) {
@@ -532,12 +533,14 @@ function updateTrailRibbon(
     const freshness = getFreshness(sample, currentTime, duration)
     const alphaProgress = smooth01(freshness)
     const widthProgress = Math.pow(freshness, 0.85)
+    const boost = THREE.MathUtils.clamp(energyBoost, 0, 1)
     const width = THREE.MathUtils.lerp(
       RENDER_TUNING.trail.lineWidthOld,
       RENDER_TUNING.trail.lineWidthNew,
       widthProgress,
-    )
-    const alpha = RENDER_TUNING.trail.lineOpacity * alphaProgress
+    ) * (1 + boost * 0.08 * freshness)
+    const alpha = RENDER_TUNING.trail.lineOpacity * alphaProgress *
+      (1 + boost * 0.34 * freshness * freshness)
 
     for (let sideIndex = 0; sideIndex < 2; sideIndex += 1) {
       const vertexIndex = sampleIndex * 2 + sideIndex
@@ -571,7 +574,9 @@ function updateTrailRibbon(
 
 function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTime: number) {
   const renderRadius = Math.max(body.radius, RENDER_TUNING.body.minRenderRadius)
-  const stellarColor = getNearestStellarColor(body.color).hex
+  const stellarColor = body.stellarTemperatureK !== undefined
+    ? body.color
+    : getNearestStellarColor(body.color).hex
   const isFragment = body.bodyType === 'fragment'
   const isCollisionSpark = body.bodyType === 'effect' && body.name === 'Collision spark'
   const debrisOpacity = isFragment || isCollisionSpark ? getFragmentOpacity(body.age ?? 0) : 1
@@ -740,6 +745,18 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
   ]
 
   const visuals = new Map<string, VisualBody>()
+  const trailExcitationClock = new Map<string, { token: string; startedAt: number }>()
+
+  const getTrailExcitation = (body: BodyState, timeMs: number) => {
+    if (body.bodyType !== 'star' || !body.transientHeatToken || (body.trailExcitation01 ?? 0) <= 0) return 0
+    const token = body.transientHeatToken
+    const existing = trailExcitationClock.get(body.id)
+    const clock = existing?.token === token ? existing : { token, startedAt: timeMs }
+    if (existing?.token !== token) trailExcitationClock.set(body.id, clock)
+    const decayMs = Math.max(body.transientHeatDecayMs ?? 1200, 1)
+    const progress = THREE.MathUtils.clamp((timeMs - clock.startedAt) / decayMs, 0, 1)
+    return (body.trailExcitation01 ?? 0) * (1 - progress) ** 1.45
+  }
   let observedTrailVersion = initialState.trailVersion
   let observedTrailEnabled = initialState.trailEnabled
   let observedTrailSampleSequence = initialState.trailSampleBatch.sequence
@@ -781,6 +798,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     visual.trailRibbon.geometry.dispose()
     visual.trailRibbon.material.dispose()
     visuals.delete(id)
+    trailExcitationClock.delete(id)
   }
 
   const ensureVisual = (
@@ -894,6 +912,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     duration: number,
     enabled: boolean,
     currentBodyPosition?: THREE.Vector3,
+    energyBoost = 0,
   ) => {
     const count = visual.points.length
     if (!enabled || count === 0) {
@@ -917,12 +936,14 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
 
       const freshness = getFreshness(point, currentTime, duration)
       const featherProgress = smooth01(freshness)
-      visual.trailAlphas[index] = RENDER_TUNING.trail.softPointAlpha * featherProgress
+      const boost = THREE.MathUtils.clamp(energyBoost, 0, 1)
+      visual.trailAlphas[index] = RENDER_TUNING.trail.softPointAlpha * featherProgress *
+        (1 + boost * 0.38 * freshness * freshness)
       visual.trailSizes[index] = THREE.MathUtils.lerp(
         RENDER_TUNING.trail.softPointSizeOld,
         RENDER_TUNING.trail.softPointSizeNew,
         Math.pow(freshness, 0.9),
-      )
+      ) * (1 + boost * 0.08 * freshness)
     }
 
     positionAttribute.needsUpdate = true
@@ -933,7 +954,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
 
     const curveSamples = buildCurveSamples(visual.points, currentBodyPosition, currentTime)
     const smoothSamples = smoothCurveSamples(curveSamples)
-    updateTrailRibbon(visual.trailRibbon, smoothSamples, currentTime, duration)
+    updateTrailRibbon(visual.trailRibbon, smoothSamples, currentTime, duration, energyBoost)
   }
 
   const compositionOffset = new THREE.Vector3()
@@ -1259,6 +1280,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       removeVisual(id)
     })
 
+    const renderNowMs = performance.now()
     current.forEach((body) => {
       const visual = ensureVisual(body)
       visual.mesh.visible = true
@@ -1285,6 +1307,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
         trailDurationNow,
         trailVisibleForBody,
         visual.mesh.position,
+        getTrailExcitation(body, renderNowMs),
       )
     })
 

@@ -6,6 +6,22 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [Unreleased]
+
+### Added
+- 항성↔항성 충돌 결과를 `merge`, `hitAndRun`, `partialDisruption`으로 분리하고, 비합체 충돌에서도 질량 이동·질량 손실·반지름 갱신·충격 가열 상태가 남도록 했습니다.
+- 항성 질량에서 광도·주계열 반지름·유효온도를 근사하고 온도를 연속 RGB로 변환해, 충돌 후 질량이 바뀐 항성의 평형색이 함께 갱신되도록 했습니다.
+- grazing hit-and-run, 정면 merge, partial disruption, display-only overlap 색 보존을 검증하는 항성 충돌 회귀 체크를 추가했습니다.
+
+### Changed
+- 항성 합체는 가장 강한 섬광·충격면·afterglow, hit-and-run은 양 survivor 방향의 긴 플라즈마 stream, partial disruption은 작은 별 쪽으로 편향된 stripping VFX를 사용하도록 outcome별 profile을 분리했습니다.
+- 충돌 직후 항성 본체/광원/글로우/궤적은 평형색 위에 실시간으로 감쇠하는 shock-temperature bias를 적용하며, 궤적도 짧은 구간만 약하게 밝아지도록 했습니다.
+
+### Fixed
+- display-only 충돌 overlap이 `body.color`를 직접 백색 혼합해 항성 본체가 노랗거나 탈색된 것처럼 보이던 경로를 제거했습니다.
+- synthetic overlap contact sheet의 중심 additive 기여도와 opacity/brightness를 제한해 항성 원판 전체의 base hue를 덮지 않도록 했습니다.
+- 항성 partial disruption이 내부 `disrupt` 판정 후에도 단일 merge 잔여체로 처리되던 topology 오류를 수정했습니다.
+
 ## [0.17.24] - 2026-08-26
 
 ### Added
