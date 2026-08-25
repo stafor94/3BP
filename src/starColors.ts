@@ -8,6 +8,8 @@ export type StellarColorOption = {
   nameEn: string
 }
 
+export type StellarRgb = { r: number; g: number; b: number }
+
 // Display-oriented approximations of visible stellar colors. The palette deliberately
 // keeps realistic spectral ordering while increasing perceptual separation for the simulator UI.
 export const STELLAR_COLOR_OPTIONS: readonly StellarColorOption[] = [
@@ -24,6 +26,8 @@ export const STELLAR_COLOR_BY_CLASS = Object.fromEntries(
   STELLAR_COLOR_OPTIONS.map((option) => [option.spectralClass, option.hex]),
 ) as Record<StellarSpectralClass, string>
 
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
 function hexToRgb(hex: string) {
   const normalized = hex.replace('#', '')
   if (!/^[0-9a-f]{6}$/i.test(normalized)) return { r: 255, g: 255, b: 255 }
@@ -32,6 +36,83 @@ function hexToRgb(hex: string) {
     g: Number.parseInt(normalized.slice(2, 4), 16),
     b: Number.parseInt(normalized.slice(4, 6), 16),
   }
+}
+
+function normalizeStellarMass(mass: number) {
+  return clamp(Number.isFinite(mass) ? mass : 1, 0.08, 60)
+}
+
+function rgbToHex({ r, g, b }: StellarRgb) {
+  const channel = (value: number) => Math.round(clamp(value, 0, 255)).toString(16).padStart(2, '0')
+  return `#${channel(r)}${channel(g)}${channel(b)}`
+}
+
+export function getStellarLuminosityFromMass(mass: number) {
+  const m = normalizeStellarMass(mass)
+  if (m < 0.43) return 0.23 * m ** 2.3
+  if (m < 2) return m ** 4
+  if (m < 20) return 1.5 * m ** 3.5
+
+  // Very massive main-sequence stars approach the Eddington regime, so do not
+  // continue the steep M^3.5 law indefinitely. Preserve monotonicity while
+  // keeping collision remnants numerically and visually bounded.
+  const luminosityAt20 = 1.5 * 20 ** 3.5
+  return luminosityAt20 * (m / 20) ** 1.35
+}
+
+export function getStellarRadiusFromMass(mass: number) {
+  return normalizeStellarMass(mass) ** 0.8
+}
+
+export function getStellarTemperatureKelvin(
+  mass: number,
+  radiusSolar = getStellarRadiusFromMass(mass),
+) {
+  const luminositySolar = getStellarLuminosityFromMass(mass)
+  const radius = Math.max(radiusSolar, 0.05)
+  return clamp(5778 * (luminositySolar / (radius * radius)) ** 0.25, 2400, 50000)
+}
+
+export function kelvinToRgb(temperatureK: number): StellarRgb {
+  const temperature = clamp(temperatureK, 1000, 40000) / 100
+  let r: number
+  let g: number
+  let b: number
+
+  if (temperature <= 66) {
+    r = 255
+    g = 99.4708025861 * Math.log(temperature) - 161.1195681661
+  } else {
+    r = 329.698727446 * (temperature - 60) ** -0.1332047592
+    g = 288.1221695283 * (temperature - 60) ** -0.0755148492
+  }
+
+  if (temperature >= 66) b = 255
+  else if (temperature <= 19) b = 0
+  else b = 138.5177312231 * Math.log(temperature - 10) - 305.044792731
+
+  return {
+    r: clamp(r, 0, 255),
+    g: clamp(g, 0, 255),
+    b: clamp(b, 0, 255),
+  }
+}
+
+export function getStellarDisplayColorFromTemperature(temperatureK: number) {
+  const source = kelvinToRgb(temperatureK)
+  const luminance = source.r * 0.2126 + source.g * 0.7152 + source.b * 0.0722
+  const desaturate = 0.055
+  const whiteMix = 0.045
+  const toneMapped: StellarRgb = {
+    r: (source.r * (1 - desaturate) + luminance * desaturate) * (1 - whiteMix) + 255 * whiteMix,
+    g: (source.g * (1 - desaturate) + luminance * desaturate) * (1 - whiteMix) + 255 * whiteMix,
+    b: (source.b * (1 - desaturate) + luminance * desaturate) * (1 - whiteMix) + 255 * whiteMix,
+  }
+  return rgbToHex(toneMapped)
+}
+
+export function getEquilibriumStellarDisplayColor(mass: number) {
+  return getStellarDisplayColorFromTemperature(getStellarTemperatureKelvin(mass))
 }
 
 export function getNearestStellarColor(color: string): StellarColorOption {

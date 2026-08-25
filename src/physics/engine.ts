@@ -1,4 +1,5 @@
-import type { BodyState, BodyType, EffectVisualState, Vec3 } from '../types'
+import { getEquilibriumStellarDisplayColor, getStellarTemperatureKelvin } from '../starColors'
+import type { BodyState, BodyType, EffectVisualState, StellarCollisionOutcome, Vec3 } from '../types'
 import { getCollisionContactDistance } from './collisionContact'
 import { add, magnitude, magnitudeSquared, scale, sub } from './vector'
 
@@ -35,6 +36,7 @@ type CollisionMode = 'absorb' | 'merge' | 'disrupt' | 'hitRun'
 type CollisionDecision = {
   mode: CollisionMode
   ejectaFraction: number
+  stellarOutcome?: StellarCollisionOutcome
 }
 
 type CollisionGeometry = {
@@ -113,6 +115,75 @@ function dominantBodyType(a: BodyState, b: BodyState): PhysicalBodyType {
 
 function isStellarCollision(a: BodyState, b: BodyState) {
   return inferBodyType(a) === 'star' && inferBodyType(b) === 'star'
+}
+
+function getStellarRadiusAfterMassChange(body: BodyState, newMass: number) {
+  const massRatio = Math.max(newMass, 1e-9) / Math.max(body.mass, 1e-9)
+  return Math.max(body.radius * 0.32, body.radius * massRatio ** 0.8)
+}
+
+function getMergedStellarRadius(
+  a: BodyState,
+  b: BodyState,
+  remnantMass: number,
+  remnantVolume: number,
+) {
+  const dominant = a.mass >= b.mass ? a : b
+  const volumeRadius = Math.cbrt(Math.max(remnantVolume, 1e-12))
+  const massScaledRadius = getStellarRadiusAfterMassChange(dominant, remnantMass)
+  return clamp(
+    volumeRadius * 0.55 + massScaledRadius * 0.45,
+    Math.max(volumeRadius * 0.82, dominant.radius * 0.72),
+    Math.max(a.radius + b.radius, volumeRadius),
+  )
+}
+
+function getStellarCollisionAppearance(
+  body: BodyState,
+  newMass: number,
+  outcome: StellarCollisionOutcome,
+  geometry: CollisionGeometry,
+  damageBias = 1,
+) {
+  const speedEnergy = clamp(geometry.speedRatio / 2.35, 0, 1)
+  const compression = clamp(geometry.headOn * 0.64 + speedEnergy * 0.52, 0, 1)
+  let heatStrength: number
+  let heatDecayMs: number
+  let temperatureBiasK: number
+  let scarIntensity: number
+  let trailExcitation: number
+
+  if (outcome === 'merge') {
+    heatStrength = clamp(0.82 + compression * 0.18, 0.82, 1)
+    heatDecayMs = 2050 + compression * 450
+    temperatureBiasK = 9000 + compression * 5500
+    scarIntensity = 0.62 + compression * 0.3
+    trailExcitation = 0.62 + speedEnergy * 0.26
+  } else if (outcome === 'partialDisruption') {
+    heatStrength = clamp((0.58 + speedEnergy * 0.2 + geometry.headOn * 0.1) * damageBias, 0.5, 0.94)
+    heatDecayMs = clamp(1500 + speedEnergy * 520 + geometry.headOn * 260, 1500, 2350)
+    temperatureBiasK = clamp((6200 + speedEnergy * 4300 + geometry.headOn * 1600) * damageBias, 5800, 12500)
+    scarIntensity = clamp((0.46 + speedEnergy * 0.26) * damageBias, 0.38, 0.96)
+    trailExcitation = clamp((0.48 + speedEnergy * 0.25) * damageBias, 0.42, 0.92)
+  } else {
+    heatStrength = clamp((0.46 + speedEnergy * 0.17 + geometry.grazing * 0.08) * damageBias, 0.42, 0.8)
+    heatDecayMs = clamp(1050 + speedEnergy * 430 + geometry.grazing * 180, 1050, 1750)
+    temperatureBiasK = clamp((3900 + speedEnergy * 3600 + geometry.grazing * 900) * damageBias, 3600, 8800)
+    scarIntensity = clamp((0.26 + speedEnergy * 0.2 + geometry.grazing * 0.08) * damageBias, 0.22, 0.76)
+    trailExcitation = clamp((0.34 + speedEnergy * 0.2 + geometry.grazing * 0.12) * damageBias, 0.3, 0.78)
+  }
+
+  return {
+    color: getEquilibriumStellarDisplayColor(newMass),
+    stellarTemperatureK: getStellarTemperatureKelvin(newMass),
+    stellarCollisionOutcome: outcome,
+    transientHeat01: heatStrength,
+    transientHeatDecayMs: heatDecayMs,
+    shockTemperatureBiasK: temperatureBiasK,
+    transientHeatToken: `${collisionSerial}:${outcome}:${body.id}`,
+    collisionScarIntensity: scarIntensity,
+    trailExcitation01: trailExcitation,
+  }
 }
 
 function originalNameParts(body: BodyState) {
@@ -248,17 +319,65 @@ function classifyCollision(a: BodyState, b: BodyState, geometry: CollisionGeomet
   }
 
   if (starCount === 2) {
-    if (grazing > 0.82 && speedRatio > 0.65 && speedRatio < 2.8) {
-      return { mode: 'hitRun', ejectaFraction: clamp(0.012 + speedRatio * 0.022, 0.018, 0.075) }
-    }
-    const stellarFlyThroughThreshold = 2.25 - headOn * 0.2
-    if (speedRatio > stellarFlyThroughThreshold) {
+    const partialSeverity =
+      clamp((speedRatio - 0.82) / 1.25, 0, 1) *
+      (0.55 + headOn * 0.45) *
+      (0.75 + (1 - massRatio) * 0.45)
+
+    // Unequal stellar encounters with meaningful compression strip the smaller
+    // star instead of collapsing every non-hit-and-run outcome into a merge.
+    if (
+      massRatio < 0.82 &&
+      speedRatio > 0.92 &&
+      speedRatio < 2.3 &&
+      headOn > 0.34 &&
+      grazing < 0.88 &&
+      partialSeverity > 0.16
+    ) {
+      const strippedFractionOfSmaller = clamp(
+        0.05 + partialSeverity * 0.13 + (1 - massRatio) * 0.035,
+        0.05,
+        0.2,
+      )
       return {
-        mode: 'hitRun',
-        ejectaFraction: clamp(0.1 + (speedRatio - stellarFlyThroughThreshold) * 0.1, 0.1, 0.3),
+        mode: 'disrupt',
+        ejectaFraction: smallerMassFraction * strippedFractionOfSmaller,
+        stellarOutcome: 'partialDisruption',
       }
     }
-    return { mode: 'merge', ejectaFraction: clamp(0.008 + speedRatio * 0.018 + headOn * 0.008, 0.008, 0.07) }
+
+    if (grazing > 0.82 && speedRatio > 0.65 && speedRatio < 2.8) {
+      const strippedFractionOfSmaller = clamp(
+        0.015 + speedRatio * 0.014 + (grazing - 0.82) * 0.08,
+        0.015,
+        0.075,
+      )
+      return {
+        mode: 'hitRun',
+        ejectaFraction: smallerMassFraction * strippedFractionOfSmaller,
+        stellarOutcome: 'hitAndRun',
+      }
+    }
+
+    const stellarFlyThroughThreshold = 2.25 - headOn * 0.2
+    if (speedRatio > stellarFlyThroughThreshold) {
+      const strippedFractionOfSmaller = clamp(
+        0.045 + (speedRatio - stellarFlyThroughThreshold) * 0.055,
+        0.045,
+        0.1,
+      )
+      return {
+        mode: 'hitRun',
+        ejectaFraction: smallerMassFraction * strippedFractionOfSmaller,
+        stellarOutcome: 'hitAndRun',
+      }
+    }
+
+    return {
+      mode: 'merge',
+      ejectaFraction: clamp(0.008 + speedRatio * 0.018 + headOn * 0.008, 0.008, 0.07),
+      stellarOutcome: 'merge',
+    }
   }
 
   const hasPlanet = typeA === 'planet' || typeB === 'planet'
@@ -367,13 +486,31 @@ function getStellarEjectaBias(a: BodyState, b: BodyState, geometry: CollisionGeo
   }
 }
 
-function makeCollisionFlash(a: BodyState, b: BodyState, geometry: CollisionGeometry): BodyState {
+function makeCollisionFlash(
+  a: BodyState,
+  b: BodyState,
+  geometry: CollisionGeometry,
+  decision: CollisionDecision,
+): BodyState {
   const dominant = a.mass >= b.mass ? a : b
   const secondary = dominant === a ? b : a
   const totalRadius = a.radius + b.radius
   const speedHeat = clamp(geometry.speedRatio / 2.8, 0, 1)
   const phaseOffset = seededScalar(`${a.id}:${b.id}:flash:${collisionSerial}`)
   const stellarCollision = isStellarCollision(a, b)
+  const stellarOutcome = decision.stellarOutcome
+  const outcomeRadiusScale = stellarOutcome === 'merge'
+    ? 1.12
+    : stellarOutcome === 'partialDisruption'
+      ? 1.02
+      : stellarOutcome === 'hitAndRun'
+        ? 0.9
+        : 1
+  const outcomeBrightness = stellarOutcome === 'merge'
+    ? 0.28
+    : stellarOutcome === 'partialDisruption'
+      ? 0.14
+      : 0
 
   return {
     id: `${a.id}+${b.id}+flash${collisionSerial}`,
@@ -381,26 +518,32 @@ function makeCollisionFlash(a: BodyState, b: BodyState, geometry: CollisionGeome
     color: dominant.color,
     mass: 0,
     radius: stellarCollision
-      ? Math.max(0.1, Math.min(0.28, totalRadius * 0.78))
+      ? Math.max(0.1, Math.min(0.31, totalRadius * 0.78 * outcomeRadiusScale))
       : Math.max(COLLISION_FLASH_RADIUS, Math.min(0.13, totalRadius * 0.42)),
     position: collisionContactPoint(a, b, geometry.normal),
     velocity: centerOfMassVelocity(a, b),
     bodyType: 'effect',
     age: 0,
-    lifetime: stellarCollision ? STELLAR_FLASH_LIFETIME : COLLISION_FLASH_LIFETIME,
+    lifetime: stellarCollision
+      ? STELLAR_FLASH_LIFETIME + (stellarOutcome === 'merge' ? 0.1 : stellarOutcome === 'partialDisruption' ? 0.05 : 0)
+      : COLLISION_FLASH_LIFETIME,
     effectVisual: {
       kind: 'contactFlash',
       direction: { ...geometry.tangent },
       normal: { ...geometry.normal },
       stretch: stellarCollision
-        ? clamp(4.15 + geometry.headOn * 1.25 + geometry.grazing * 0.55, 4.1, 5.8)
+        ? clamp(
+            4.15 + geometry.headOn * 1.25 + geometry.grazing * 0.55 + (stellarOutcome === 'merge' ? 0.45 : 0),
+            4.1,
+            6.15,
+          )
         : clamp(2.65 + geometry.headOn * 0.95 + geometry.grazing * 0.2, 2.6, 3.8),
       widthScale: stellarCollision
         ? clamp(0.31 - geometry.headOn * 0.07 + geometry.grazing * 0.05, 0.22, 0.36)
         : clamp(0.42 - geometry.headOn * 0.13 + geometry.grazing * 0.04, 0.25, 0.44),
       tailLength: 0,
       brightness: stellarCollision
-        ? clamp(2.05 + geometry.headOn * 0.45 + speedHeat * 0.32, 2.05, 2.62)
+        ? clamp(2.05 + geometry.headOn * 0.45 + speedHeat * 0.32 + outcomeBrightness, 2.05, 2.82)
         : clamp(1.28 + geometry.headOn * 0.48 + speedHeat * 0.34, 1.3, 2.05),
       turbulence: stellarCollision
         ? clamp(0.42 + geometry.grazing * 0.34 + speedHeat * 0.16, 0.42, 0.88)
@@ -410,6 +553,7 @@ function makeCollisionFlash(a: BodyState, b: BodyState, geometry: CollisionGeome
       secondaryColor: secondary.color,
       temperatureBias: speedHeat,
       stellarCollision,
+      stellarOutcome,
     },
   }
 }
@@ -418,37 +562,54 @@ function makeStellarCompressionSheet(
   a: BodyState,
   b: BodyState,
   geometry: CollisionGeometry,
+  decision: CollisionDecision,
 ): BodyState {
   const dominant = a.mass >= b.mass ? a : b
   const secondary = dominant === a ? b : a
   const totalRadius = a.radius + b.radius
   const speedHeat = clamp(geometry.speedRatio / 2.8, 0, 1)
+  const stellarOutcome = decision.stellarOutcome
+  const mergeBoost = stellarOutcome === 'merge' ? 1 : 0
+  const partialBoost = stellarOutcome === 'partialDisruption' ? 1 : 0
 
   return {
     id: `${a.id}+${b.id}+shock${collisionSerial}`,
     name: 'Stellar shock sheet',
     color: dominant.color,
     mass: 0,
-    radius: Math.max(0.09, Math.min(0.26, totalRadius * 0.62)),
+    radius: Math.max(0.09, Math.min(0.29, totalRadius * (0.62 + mergeBoost * 0.08))),
     position: collisionContactPoint(a, b, geometry.normal),
     velocity: centerOfMassVelocity(a, b),
     bodyType: 'effect',
     age: 0,
-    lifetime: STELLAR_SHOCK_LIFETIME,
+    lifetime: STELLAR_SHOCK_LIFETIME + mergeBoost * 0.18 + partialBoost * 0.08,
     effectVisual: {
       kind: 'compressionShear',
       direction: { ...geometry.tangent },
       normal: { ...geometry.normal },
-      stretch: clamp(4.1 + geometry.grazing * 2.1 + geometry.headOn * 0.55, 4.2, 6.7),
-      widthScale: clamp(0.31 - geometry.grazing * 0.08 + geometry.headOn * 0.03, 0.2, 0.34),
-      tailLength: 0.22 + geometry.grazing * 0.34,
-      brightness: clamp(1.48 + geometry.headOn * 0.22 + speedHeat * 0.24, 1.48, 1.92),
+      stretch: clamp(
+        4.1 + geometry.grazing * 2.1 + geometry.headOn * 0.55 + mergeBoost * 0.5,
+        4.2,
+        7.2,
+      ),
+      widthScale: clamp(
+        0.31 - geometry.grazing * 0.08 + geometry.headOn * 0.03 + mergeBoost * 0.035,
+        0.2,
+        0.38,
+      ),
+      tailLength: 0.22 + geometry.grazing * 0.34 + (stellarOutcome === 'hitAndRun' ? 0.14 : 0),
+      brightness: clamp(
+        1.48 + geometry.headOn * 0.22 + speedHeat * 0.24 + mergeBoost * 0.2 + partialBoost * 0.1,
+        1.48,
+        2.12,
+      ),
       turbulence: clamp(0.66 + geometry.grazing * 0.24 + speedHeat * 0.12, 0.66, 1),
       pulseStrength: 0.055,
       phaseOffset: seededScalar(`${a.id}:${b.id}:shock:${collisionSerial}`),
       secondaryColor: secondary.color,
       temperatureBias: speedHeat,
       stellarCollision: true,
+      stellarOutcome,
     },
   }
 }
@@ -457,46 +618,68 @@ function makeStellarAfterglow(
   a: BodyState,
   b: BodyState,
   geometry: CollisionGeometry,
+  decision: CollisionDecision,
 ): BodyState {
   const dominant = a.mass >= b.mass ? a : b
   const secondary = dominant === a ? b : a
   const totalRadius = a.radius + b.radius
+  const stellarOutcome = decision.stellarOutcome
+  const radiusScale = stellarOutcome === 'merge'
+    ? 0.82
+    : stellarOutcome === 'partialDisruption'
+      ? 0.7
+      : 0.58
+  const lifetime = stellarOutcome === 'merge'
+    ? 1.55
+    : stellarOutcome === 'partialDisruption'
+      ? 1.25
+      : 0.95
 
   return {
     id: `${a.id}+${b.id}+afterglow${collisionSerial}`,
     name: 'Stellar afterglow',
     color: dominant.color,
     mass: 0,
-    radius: Math.max(0.11, Math.min(0.31, totalRadius * 0.72)),
+    radius: Math.max(0.1, Math.min(0.36, totalRadius * radiusScale)),
     position: collisionContactPoint(a, b, geometry.normal),
     velocity: centerOfMassVelocity(a, b),
     bodyType: 'effect',
     age: 0,
-    lifetime: STELLAR_AFTERGLOW_LIFETIME,
+    lifetime,
     effectVisual: {
       kind: 'stellarAfterglow',
       direction: { ...geometry.tangent },
       normal: { ...geometry.normal },
-      stretch: clamp(1.18 + geometry.grazing * 0.42, 1.18, 1.6),
+      stretch: clamp(
+        1.18 + geometry.grazing * 0.42 + (stellarOutcome === 'hitAndRun' ? 0.18 : 0),
+        1.18,
+        1.8,
+      ),
       widthScale: clamp(0.9 - geometry.grazing * 0.14, 0.72, 0.92),
-      brightness: 1.22,
+      brightness: stellarOutcome === 'merge' ? 1.38 : stellarOutcome === 'partialDisruption' ? 1.25 : 1.08,
       turbulence: 0.72 + geometry.grazing * 0.2,
       pulseStrength: 0.02,
       phaseOffset: seededScalar(`${a.id}:${b.id}:afterglow:${collisionSerial}`),
       secondaryColor: secondary.color,
       temperatureBias: 0.62,
       stellarCollision: true,
+      stellarOutcome,
     },
   }
 }
 
-function makeCollisionEffects(a: BodyState, b: BodyState, geometry: CollisionGeometry) {
-  const flash = makeCollisionFlash(a, b, geometry)
+function makeCollisionEffects(
+  a: BodyState,
+  b: BodyState,
+  geometry: CollisionGeometry,
+  decision: CollisionDecision,
+) {
+  const flash = makeCollisionFlash(a, b, geometry, decision)
   if (!isStellarCollision(a, b)) return [flash]
   return [
     flash,
-    makeStellarCompressionSheet(a, b, geometry),
-    makeStellarAfterglow(a, b, geometry),
+    makeStellarCompressionSheet(a, b, geometry, decision),
+    makeStellarAfterglow(a, b, geometry, decision),
   ]
 }
 
@@ -599,10 +782,12 @@ function makeStellarEffectVisual(
   count: number,
   largeCount: number,
   stellarBias: StellarEjectaBias,
+  decision: CollisionDecision,
   seed: string,
 ): EffectVisualState {
   const large = index < largeCount
   const stellarCollision = isStellarCollision(a, b)
+  const stellarOutcome = decision.stellarOutcome
   const speedEnergy = clamp(geometry.speedRatio / 2.6, 0, 1)
   const geometryStretch = geometry.grazing * 2.4 - geometry.headOn * 0.45
   const sizeStretch = large ? 0.15 : 0.58
@@ -611,15 +796,26 @@ function makeStellarEffectVisual(
   const tailVariance = seededScalar(`${seed}:tail:${index}`)
   const phaseOffset = seededScalar(`${seed}:phase:${index}`)
   const sourceBias = stellarBias.massAsymmetry
+  const outcomeTailBoost = stellarOutcome === 'hitAndRun'
+    ? 0.34
+    : stellarOutcome === 'partialDisruption'
+      ? 0.2
+      : 0
+  const outcomeBrightness = stellarOutcome === 'merge'
+    ? 0.14
+    : stellarOutcome === 'partialDisruption'
+      ? 0.1
+      : 0.05
 
   return {
     kind: 'stellarPlasma',
     direction: { ...direction },
     normal: { ...geometry.normal },
     stretch: clamp(
-      2.0 + geometryStretch + speedEnergy * 0.72 + sizeStretch + variance * 0.55 + (stellarCollision ? 0.42 : 0),
+      2.0 + geometryStretch + speedEnergy * 0.72 + sizeStretch + variance * 0.55 +
+        (stellarCollision ? 0.42 : 0) + outcomeTailBoost * 0.75,
       1.75,
-      stellarCollision ? 6.2 : 5.8,
+      stellarCollision ? 6.8 : 5.8,
     ),
     widthScale: clamp(
       0.92 - geometry.grazing * 0.35 + geometry.headOn * 0.12 + (widthVariance - 0.5) * 0.18,
@@ -627,17 +823,20 @@ function makeStellarEffectVisual(
       1.08,
     ),
     tailLength: clamp(
-      0.38 + geometry.grazing * 0.72 + speedEnergy * 0.34 + (large ? 0.08 : 0.28) + tailVariance * 0.22 + (stellarCollision ? 0.12 : 0),
+      0.38 + geometry.grazing * 0.72 + speedEnergy * 0.34 + (large ? 0.08 : 0.28) +
+        tailVariance * 0.22 + (stellarCollision ? 0.12 : 0) + outcomeTailBoost,
       0.35,
-      1.55,
+      1.9,
     ),
     brightness: clamp(
-      1.0 + speedEnergy * 0.28 + (large ? 0.18 : -0.02) + variance * 0.1 + (stellarCollision ? 0.16 : 0),
+      1.0 + speedEnergy * 0.28 + (large ? 0.18 : -0.02) + variance * 0.1 +
+        (stellarCollision ? 0.16 : 0) + outcomeBrightness,
       0.92,
-      stellarCollision ? 1.64 : 1.48,
+      stellarCollision ? 1.78 : 1.48,
     ),
     turbulence: clamp(
-      0.38 + geometry.grazing * 0.27 + speedEnergy * 0.2 + (large ? 0.04 : 0.14) + (stellarCollision ? 0.08 : 0),
+      0.38 + geometry.grazing * 0.27 + speedEnergy * 0.2 + (large ? 0.04 : 0.14) +
+        (stellarCollision ? 0.08 : 0) + (stellarOutcome === 'partialDisruption' ? 0.08 : 0),
       0.38,
       1,
     ),
@@ -648,6 +847,7 @@ function makeStellarEffectVisual(
       : stellarBias.smaller.color,
     temperatureBias: speedEnergy,
     stellarCollision,
+    stellarOutcome,
   }
 }
 
@@ -769,6 +969,7 @@ function makeEjecta(
           count,
           largeCount,
           stellarBias,
+          decision,
           seed,
         ),
       }
@@ -827,29 +1028,159 @@ function resolveMergedCollision(
     requestedEjectaVolume,
     availableSlots,
   )
-  const ejectedMass = fragments.reduce((sum, fragment) => sum + fragment.mass, 0)
-  const ejectedVolume = fragments.reduce((sum, fragment) => sum + fragment.radius ** 3, 0)
-  const remnantMass = Math.max(totalMass - ejectedMass, totalMass * 0.05)
-  const remnantVolume = Math.max(totalVolume - ejectedVolume, totalVolume * 0.02)
+  const representedEjectaMass = fragments.reduce((sum, fragment) => sum + fragment.mass, 0)
+  const representedEjectaVolume = fragments.reduce((sum, fragment) => sum + fragment.radius ** 3, 0)
+  const missingEjectaMass = Math.max(0, requestedEjectaMass - representedEjectaMass)
+  const missingEjectaVolume = Math.max(0, requestedEjectaVolume - representedEjectaVolume)
+  const remnantMass = Math.max(totalMass - requestedEjectaMass, totalMass * 0.05)
+  const remnantVolume = Math.max(totalVolume - representedEjectaVolume - missingEjectaVolume, totalVolume * 0.02)
   const totalMomentum = add(momentum(a), momentum(b))
-  const ejectaMomentum = fragments.reduce(
+  const representedEjectaMomentum = fragments.reduce(
     (sum, fragment) => add(sum, momentum(fragment)),
     { x: 0, y: 0, z: 0 },
   )
-  const remnantVelocity = scale(sub(totalMomentum, ejectaMomentum), 1 / remnantMass)
+  const missingEjectaMomentum = scale(centerOfMassVelocity(a, b), missingEjectaMass)
+  const remnantVelocity = scale(
+    sub(totalMomentum, add(representedEjectaMomentum, missingEjectaMomentum)),
+    1 / remnantMass,
+  )
   const dominant = a.mass >= b.mass ? a : b
+  const bodyType = dominantBodyType(a, b)
+  const remnantRadius = bodyType === 'star'
+    ? getMergedStellarRadius(a, b, remnantMass, remnantVolume)
+    : Math.cbrt(remnantVolume)
+  const stellarOutcome = decision.stellarOutcome ?? 'merge'
   const remnant: BodyState = {
     id: `${a.id}+${b.id}`,
     name: mergedBodyName(a, b),
     color: dominant.color,
     mass: remnantMass,
-    radius: Math.cbrt(remnantVolume),
+    radius: remnantRadius,
     position: centerOfMassPosition(a, b),
     velocity: remnantVelocity,
-    bodyType: dominantBodyType(a, b),
+    bodyType,
+    ...(bodyType === 'star'
+      ? getStellarCollisionAppearance(dominant, remnantMass, stellarOutcome, geometry)
+      : {}),
   }
 
-  return [remnant, ...fragments, ...makeCollisionEffects(a, b, geometry)]
+  return [remnant, ...fragments, ...makeCollisionEffects(a, b, geometry, decision)]
+}
+
+function resolveStellarSeparatedCollision(
+  a: BodyState,
+  b: BodyState,
+  geometry: CollisionGeometry,
+  decision: CollisionDecision,
+  availableSlots: number,
+  outcome: Extract<StellarCollisionOutcome, 'hitAndRun' | 'partialDisruption'>,
+): BodyState[] {
+  const totalMass = a.mass + b.mass
+  const totalVolume = a.radius ** 3 + b.radius ** 3
+  const requestedEjectaMass = totalMass * decision.ejectaFraction
+  const requestedEjectaVolume = totalVolume * decision.ejectaFraction
+  const fragments = makeEjecta(
+    a,
+    b,
+    geometry,
+    decision,
+    requestedEjectaMass,
+    requestedEjectaVolume,
+    availableSlots,
+  )
+  const representedEjectaMass = fragments.reduce((sum, fragment) => sum + fragment.mass, 0)
+  const missingEjectaMass = Math.max(0, requestedEjectaMass - representedEjectaMass)
+  const smaller = a.mass <= b.mass ? a : b
+  const larger = smaller === a ? b : a
+  const massRatio = smaller.mass / Math.max(larger.mass, 1e-9)
+  const massAsymmetry = 1 - clamp(massRatio, 0, 1)
+  const smallerLossShare = outcome === 'partialDisruption'
+    ? clamp(0.76 + massAsymmetry * 0.15 + geometry.headOn * 0.05, 0.74, 0.94)
+    : clamp(0.58 + massAsymmetry * 0.18 + geometry.headOn * 0.04, 0.56, 0.82)
+  const smallerLoss = requestedEjectaMass * smallerLossShare
+  const largerLoss = Math.max(0, requestedEjectaMass - smallerLoss)
+  const transferFraction = outcome === 'partialDisruption'
+    ? clamp(0.012 + geometry.speedRatio * 0.01 + geometry.grazing * 0.014, 0.012, 0.045)
+    : clamp(0.006 + geometry.speedRatio * 0.006 + geometry.grazing * 0.008, 0.006, 0.025)
+  const transferMass = Math.min(
+    smaller.mass * transferFraction,
+    Math.max(0, smaller.mass - smallerLoss - smaller.mass * 0.22),
+  )
+
+  const smallerMass = Math.max(smaller.mass - smallerLoss - transferMass, smaller.mass * 0.2)
+  const largerMass = Math.max(larger.mass - largerLoss + transferMass, larger.mass * 0.2)
+  const massA = smaller === a ? smallerMass : largerMass
+  const massB = smaller === b ? smallerMass : largerMass
+  const radiusA = getStellarRadiusAfterMassChange(a, massA)
+  const radiusB = getStellarRadiusAfterMassChange(b, massB)
+
+  const relativeNormalSpeed = dot(geometry.relativeVelocity, geometry.normal)
+  const restitution = outcome === 'partialDisruption'
+    ? clamp(0.08 + geometry.grazing * 0.19, 0.09, 0.27)
+    : clamp(0.16 + geometry.grazing * 0.28, 0.18, 0.42)
+  const impulseMagnitude = relativeNormalSpeed < 0
+    ? (-(1 + restitution) * relativeNormalSpeed) / (1 / a.mass + 1 / b.mass)
+    : 0
+  let velocityA = sub(a.velocity, scale(geometry.normal, impulseMagnitude / a.mass))
+  let velocityB = add(b.velocity, scale(geometry.normal, impulseMagnitude / b.mass))
+
+  const center = centerOfMassPosition(a, b)
+  const separationScale = outcome === 'partialDisruption' ? 1.035 : 1 + geometry.grazing * 0.08
+  const separation = (radiusA + radiusB) * separationScale + 1e-4
+  const survivorMass = massA + massB
+  const positionA = sub(center, scale(geometry.normal, separation * (massB / survivorMass)))
+  const positionB = add(center, scale(geometry.normal, separation * (massA / survivorMass)))
+
+  const fragmentMomentum = fragments.reduce(
+    (sum, fragment) => add(sum, momentum(fragment)),
+    { x: 0, y: 0, z: 0 },
+  )
+  const missingEjectaMomentum = scale(centerOfMassVelocity(a, b), missingEjectaMass)
+  const targetMomentum = sub(
+    add(momentum(a), momentum(b)),
+    add(fragmentMomentum, missingEjectaMomentum),
+  )
+  const survivorMomentum = add(scale(velocityA, massA), scale(velocityB, massB))
+  const correction = scale(sub(targetMomentum, survivorMomentum), 1 / survivorMass)
+  velocityA = add(velocityA, correction)
+  velocityB = add(velocityB, correction)
+
+  const smallerDamageBias = outcome === 'partialDisruption' ? 1.18 : 1.08
+  const largerDamageBias = outcome === 'partialDisruption' ? 0.82 : 0.92
+  const survivorA: BodyState = {
+    ...cloneBody(a),
+    mass: massA,
+    radius: radiusA,
+    position: positionA,
+    velocity: velocityA,
+    bodyType: 'star',
+    collisionCooldown: HIT_RUN_COOLDOWN,
+    ...getStellarCollisionAppearance(
+      a,
+      massA,
+      outcome,
+      geometry,
+      a === smaller ? smallerDamageBias : largerDamageBias,
+    ),
+  }
+  const survivorB: BodyState = {
+    ...cloneBody(b),
+    mass: massB,
+    radius: radiusB,
+    position: positionB,
+    velocity: velocityB,
+    bodyType: 'star',
+    collisionCooldown: HIT_RUN_COOLDOWN,
+    ...getStellarCollisionAppearance(
+      b,
+      massB,
+      outcome,
+      geometry,
+      b === smaller ? smallerDamageBias : largerDamageBias,
+    ),
+  }
+
+  return [survivorA, survivorB, ...fragments, ...makeCollisionEffects(a, b, geometry, decision)]
 }
 
 function resolveHitAndRun(
@@ -859,6 +1190,10 @@ function resolveHitAndRun(
   decision: CollisionDecision,
   availableSlots: number,
 ): BodyState[] {
+  if (isStellarCollision(a, b)) {
+    return resolveStellarSeparatedCollision(a, b, geometry, decision, availableSlots, 'hitAndRun')
+  }
+
   const totalMass = a.mass + b.mass
   const totalVolume = a.radius ** 3 + b.radius ** 3
   const requestedEjectaMass = totalMass * decision.ejectaFraction
@@ -922,7 +1257,27 @@ function resolveHitAndRun(
     collisionCooldown: HIT_RUN_COOLDOWN,
   }
 
-  return [survivorA, survivorB, ...fragments, ...makeCollisionEffects(a, b, geometry)]
+  return [survivorA, survivorB, ...fragments, ...makeCollisionEffects(a, b, geometry, decision)]
+}
+
+function resolvePartialDisruption(
+  a: BodyState,
+  b: BodyState,
+  geometry: CollisionGeometry,
+  decision: CollisionDecision,
+  availableSlots: number,
+): BodyState[] {
+  if (!isStellarCollision(a, b)) {
+    return resolveMergedCollision(a, b, geometry, decision, availableSlots)
+  }
+  return resolveStellarSeparatedCollision(
+    a,
+    b,
+    geometry,
+    decision,
+    availableSlots,
+    'partialDisruption',
+  )
 }
 
 function resolveCollisions(input: BodyState[]): BodyState[] {
@@ -942,7 +1297,7 @@ function resolveCollisions(input: BodyState[]): BodyState[] {
         collisionSerial += 1
         const geometry = getCollisionGeometry(a, b)
         const decision = classifyCollision(a, b, geometry)
-        const baseResultCount = decision.mode === 'hitRun' ? 2 : 1
+        const baseResultCount = decision.mode === 'hitRun' || decision.stellarOutcome === 'partialDisruption' ? 2 : 1
         // Reserve all non-physical VFX slots before allocating ejecta so large
         // stellar flashes/shock sheets/afterglow cannot exceed the dynamic-body cap.
         const collisionEffectReserve = isStellarCollision(a, b) ? 3 : 1
@@ -950,9 +1305,11 @@ function resolveCollisions(input: BodyState[]): BodyState[] {
           0,
           MAX_DYNAMIC_BODIES - (bodies.length - 2 + baseResultCount + collisionEffectReserve),
         )
-        const replacement = decision.mode === 'hitRun'
-          ? resolveHitAndRun(a, b, geometry, decision, availableSlots)
-          : resolveMergedCollision(a, b, geometry, decision, availableSlots)
+        const replacement = decision.stellarOutcome === 'partialDisruption'
+          ? resolvePartialDisruption(a, b, geometry, decision, availableSlots)
+          : decision.mode === 'hitRun'
+            ? resolveHitAndRun(a, b, geometry, decision, availableSlots)
+            : resolveMergedCollision(a, b, geometry, decision, availableSlots)
 
         bodies.splice(j, 1)
         bodies.splice(i, 1, ...replacement)

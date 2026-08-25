@@ -1,6 +1,10 @@
 import * as THREE from 'three'
 import { getEffectiveBodyType } from '../bodyTypes'
-import { getNearestStellarColor } from '../starColors'
+import {
+  getNearestStellarColor,
+  getStellarDisplayColorFromTemperature,
+  getStellarTemperatureKelvin,
+} from '../starColors'
 import type { BodyState } from '../types'
 import { createCollisionEffectsLayer } from './collisionEffectRenderer'
 
@@ -17,6 +21,39 @@ const trailColorScratch = new THREE.Color()
 let installed = false
 let bodyBySeed = new Map<string, BodyState>()
 let lightingStars: BodyState[] = []
+const stellarHeatClock = new Map<string, { token: string; startedAt: number }>()
+
+function nowMs() {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
+}
+
+function getTransientHeatStrength(body: BodyState) {
+  const token = body.transientHeatToken
+  const initialStrength = body.transientHeat01 ?? 0
+  const decayMs = body.transientHeatDecayMs ?? 0
+  if (!token || initialStrength <= 0 || decayMs <= 0) return 0
+
+  const existing = stellarHeatClock.get(body.id)
+  const clock = existing?.token === token
+    ? existing
+    : { token, startedAt: nowMs() }
+  if (existing?.token !== token) stellarHeatClock.set(body.id, clock)
+
+  const progress = Math.min(1, Math.max(0, (nowMs() - clock.startedAt) / decayMs))
+  return initialStrength * (1 - progress) ** 1.55
+}
+
+function getResolvedStellarColor(body: BodyState) {
+  const equilibriumColor = body.stellarTemperatureK !== undefined
+    ? body.color
+    : getNearestStellarColor(body.color).hex
+  const heatStrength = getTransientHeatStrength(body)
+  if (heatStrength <= 0.001) return equilibriumColor
+
+  const equilibriumTemperature = body.stellarTemperatureK ?? getStellarTemperatureKelvin(body.mass)
+  const heatedTemperature = equilibriumTemperature + (body.shockTemperatureBiasK ?? 0) * heatStrength
+  return getStellarDisplayColorFromTemperature(heatedTemperature)
+}
 
 type CollisionEffectsLayer = ReturnType<typeof createCollisionEffectsLayer>
 const collisionEffectsByScene = new WeakMap<THREE.Scene, CollisionEffectsLayer>()
@@ -206,7 +243,7 @@ function setSurfaceProfile(material: THREE.ShaderMaterial, body: BodyState) {
   const identityColor = material.uniforms.uIdentityColor.value as THREE.Color
 
   if (bodyType === 'star') {
-    identityColor.set(getNearestStellarColor(body.color).hex)
+    identityColor.set(getResolvedStellarColor(body))
     material.uniforms.uBodyKind.value = 0
     material.uniforms.uSpecularStrength.value = 0
     material.uniforms.uSpecularPower.value = 32
@@ -263,7 +300,7 @@ function setSurfaceProfile(material: THREE.ShaderMaterial, body: BodyState) {
 function updateTrailColor(scene: THREE.Scene, objectIndex: number, body: BodyState) {
   trailColorScratch.set(
     getEffectiveBodyType(body) === 'star'
-      ? getNearestStellarColor(body.color).hex
+      ? getResolvedStellarColor(body)
       : body.color,
   )
   const trailPoints = scene.children[objectIndex - 3]
@@ -280,18 +317,25 @@ function updateTrailColor(scene: THREE.Scene, objectIndex: number, body: BodySta
   }
 }
 
-function setBodyGlowVisibility(scene: THREE.Scene, objectIndex: number, visible: boolean) {
+function setBodyGlowVisibility(
+  scene: THREE.Scene,
+  objectIndex: number,
+  visible: boolean,
+  stellarColor?: string,
+) {
   const glowInner = scene.children[objectIndex - 1]
   const glowOuter = scene.children[objectIndex - 2]
 
   if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
     glowInner.visible = visible
     if (!visible) glowInner.material.opacity = 0
+    else if (stellarColor) glowInner.material.color.set(stellarColor)
   }
 
   if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
     glowOuter.visible = visible
     if (!visible) glowOuter.material.opacity = 0
+    else if (stellarColor) glowOuter.material.color.set(stellarColor)
   }
 }
 
@@ -308,8 +352,9 @@ function syncBodyPresentationBeforeRender(scene: THREE.Scene) {
     if (!body) return
 
     const bodyType = getEffectiveBodyType(body)
+    const stellarColor = bodyType === 'star' ? getResolvedStellarColor(body) : undefined
     setSurfaceProfile(object.material, body)
-    if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, bodyType === 'star')
+    if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, bodyType === 'star', stellarColor)
     if (bodyType !== 'effect' && objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
   })
 }
@@ -360,13 +405,13 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
     }
 
     lightPositions[index].set(star.position.x, star.position.y, star.position.z)
-    lightColors[index].set(getNearestStellarColor(star.color).hex)
+    lightColors[index].set(getResolvedStellarColor(star))
     lightStrengths[index] = Math.min(4.2, 1 + Math.log2(1 + Math.max(star.mass, 0)) * 0.72)
   }
 
   const objectIndex = scene.children.indexOf(object)
   if (objectIndex >= 2) {
-    setBodyGlowVisibility(scene, objectIndex, isStar)
+    setBodyGlowVisibility(scene, objectIndex, isStar, isStar ? getResolvedStellarColor(body) : undefined)
     if (!isEffect && objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
   }
 }
@@ -414,6 +459,11 @@ function installCollisionEffectRenderHook() {
 }
 
 export function syncBodyLightingState(bodies: BodyState[]) {
+  const activeBodyIds = new Set(bodies.map((body) => body.id))
+  Array.from(stellarHeatClock.keys()).forEach((id) => {
+    if (!activeBodyIds.has(id)) stellarHeatClock.delete(id)
+  })
+
   const nextBodyBySeed = new Map<string, BodyState>()
   bodies.forEach((body) => nextBodyBySeed.set(seedKey(getBodySeed(body.id)), body))
   bodyBySeed = nextBodyBySeed

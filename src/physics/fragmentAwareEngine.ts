@@ -12,8 +12,10 @@ const COLLISION_FLASH_NAME = 'Collision flash'
 // this simulated overlap would otherwise recreate a multi-second 0.03x stall.
 const COLLISION_IMPACT_SIM_DURATION = 0.006
 const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.009
+const STELLAR_PARTIAL_IMPACT_SIM_DURATION = 0.0075
 const IMPACT_MAX_OVERLAP_RATIO = 0.14
 const STELLAR_MERGE_MAX_OVERLAP_RATIO = 0.34
+const STELLAR_PARTIAL_MAX_OVERLAP_RATIO = 0.22
 const CONTACT_RESOLUTION_OVERLAP = 1e-6
 const CONTACT_RESOLUTION_DT = 1e-8
 const TRACKING_G = 1
@@ -24,7 +26,7 @@ const ASTEROID_MIN_RADIUS = 0.012
 const ASTEROID_MIN_MASS = 0.0003
 const MAX_PERSISTENT_ASTEROIDS = 10
 
-type CollisionPresentationMode = 'merge' | 'hitRun'
+type CollisionPresentationMode = 'merge' | 'hitRun' | 'partialDisruption'
 
 type CollisionTransition = {
   bodyAId: string
@@ -176,6 +178,17 @@ function inferCollisionPresentationMode(
   bodyA: BodyState,
   bodyB: BodyState,
 ): CollisionPresentationMode {
+  const stellarOutcome = stepped.find((body) => (
+    body.bodyType === 'effect' &&
+    body.name === COLLISION_FLASH_NAME &&
+    body.effectVisual?.stellarOutcome &&
+    (
+      body.id.startsWith(`${bodyA.id}+${bodyB.id}+flash`) ||
+      body.id.startsWith(`${bodyB.id}+${bodyA.id}+flash`)
+    )
+  ))?.effectVisual?.stellarOutcome
+  if (stellarOutcome === 'partialDisruption') return 'partialDisruption'
+
   const survivorA = stepped.some((body) => body.bodyType !== 'effect' && body.id === bodyA.id)
   const survivorB = stepped.some((body) => body.bodyType !== 'effect' && body.id === bodyB.id)
   return survivorA && survivorB ? 'hitRun' : 'merge'
@@ -292,10 +305,6 @@ function attachAbsorptionTrackingContinuity(
   ))
 }
 
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t
-}
-
 function smoothstep01(value: number) {
   const t = Math.min(1, Math.max(0, value))
   return t * t * (3 - 2 * t)
@@ -308,9 +317,13 @@ function isStellarMerge(a: BodyState, b: BodyState, mode: CollisionPresentationM
 }
 
 function getImpactDuration(a: BodyState, b: BodyState, mode: CollisionPresentationMode) {
-  return isStellarMerge(a, b, mode)
-    ? STELLAR_MERGE_IMPACT_SIM_DURATION
-    : COLLISION_IMPACT_SIM_DURATION
+  if (isStellarMerge(a, b, mode)) return STELLAR_MERGE_IMPACT_SIM_DURATION
+  if (
+    mode === 'partialDisruption' &&
+    getEffectiveBodyType(a) === 'star' &&
+    getEffectiveBodyType(b) === 'star'
+  ) return STELLAR_PARTIAL_IMPACT_SIM_DURATION
+  return COLLISION_IMPACT_SIM_DURATION
 }
 
 function getCollisionContactPositions(
@@ -402,21 +415,6 @@ function getDriftedCollisionContactPositions(
   }
 }
 
-function brightenHex(color: string, amount: number) {
-  const normalized = color.trim().replace(/^#/, '')
-  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return color
-
-  const red = Number.parseInt(normalized.slice(0, 2), 16)
-  const green = Number.parseInt(normalized.slice(2, 4), 16)
-  const blue = Number.parseInt(normalized.slice(4, 6), 16)
-  const mix = Math.min(1, Math.max(0, amount))
-  const channel = (value: number) => Math.round(lerp(value, 255, mix))
-    .toString(16)
-    .padStart(2, '0')
-
-  return `#${channel(red)}${channel(green)}${channel(blue)}`
-}
-
 function advanceDisplayBody(body: BodyState, elapsed: number): BodyState {
   const next = cloneBody(body)
   next.position = {
@@ -443,26 +441,24 @@ function getImpactOverlap(
 ) {
   const overlapRatio = isStellarMerge(a, b, mode)
     ? STELLAR_MERGE_MAX_OVERLAP_RATIO
-    : IMPACT_MAX_OVERLAP_RATIO
+    : mode === 'partialDisruption'
+      ? STELLAR_PARTIAL_MAX_OVERLAP_RATIO
+      : IMPACT_MAX_OVERLAP_RATIO
   const maxOverlap = Math.min(a.radius, b.radius) * overlapRatio
-  if (mode === 'hitRun') return maxOverlap * Math.sin(Math.PI * progress)
+  if (mode !== 'merge') return maxOverlap * Math.sin(Math.PI * progress)
   return maxOverlap * smoothstep01(progress)
 }
 
 function animateCollider(
   body: BodyState,
   impactPosition: Vec3,
-  progress: number,
-  mode: CollisionPresentationMode,
 ) {
-  const energy = mode === 'hitRun'
-    ? Math.sin(Math.PI * progress)
-    : smoothstep01(progress)
-  const whiteMix = 0.04 + energy * 0.46
-
+  // The overlap bridge is positional only. Never rewrite body.color here: doing
+  // so made the additive synthetic contact sheet read as a permanent yellow/white
+  // recolor of the stellar disc. Shock heating is rendered from transient state
+  // only after the physical outcome exists.
   return {
     ...cloneBody(body),
-    color: brightenHex(body.color, whiteMix),
     position: { ...impactPosition },
   }
 }
@@ -497,10 +493,10 @@ function buildCollisionImpactFrame(transition: CollisionTransition) {
   return transition.sourceBodies
     .map((body) => {
       if (body.id === pair.bodyA.id) {
-        return animateCollider(body, impactPositions.bodyA, progress, transition.mode)
+        return animateCollider(body, impactPositions.bodyA)
       }
       if (body.id === pair.bodyB.id) {
-        return animateCollider(body, impactPositions.bodyB, progress, transition.mode)
+        return animateCollider(body, impactPositions.bodyB)
       }
       return advanceDisplayBody(body, transition.elapsed)
     })

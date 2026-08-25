@@ -2,6 +2,8 @@ export type Vec3 = { x: number; y: number; z: number }
 
 export type BodyType = 'star' | 'planet' | 'moon' | 'fragment' | 'effect'
 
+export type StellarCollisionOutcome = 'merge' | 'hitAndRun' | 'partialDisruption'
+
 export type EffectVisualKind =
   | 'contactFlash'
   | 'compressionShear'
@@ -23,6 +25,7 @@ export type EffectVisualState = {
   secondaryColor?: string
   temperatureBias?: number
   stellarCollision?: boolean
+  stellarOutcome?: StellarCollisionOutcome
 }
 
 export type BodyState = {
@@ -38,6 +41,14 @@ export type BodyState = {
   lifetime?: number
   collisionCooldown?: number
   effectVisual?: EffectVisualState
+  stellarCollisionOutcome?: StellarCollisionOutcome
+  stellarTemperatureK?: number
+  transientHeat01?: number
+  transientHeatDecayMs?: number
+  shockTemperatureBiasK?: number
+  transientHeatToken?: string
+  collisionScarIntensity?: number
+  trailExcitation01?: number
   /**
    * Source body ids whose ordinary camera tracking may continue onto this body.
    * This is intentionally narrower than collision lineage: only the strictly

@@ -46,6 +46,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const duration = Math.max(body.lifetime ?? defaultLifetime, 1e-6)
   const progress = THREE.MathUtils.clamp(age / duration, 0, 1)
   const visual = body.effectVisual
+  const stellarOutcome = visual?.stellarOutcome
 
   if (kind === 'contactFlash') {
     const stellar = body.effectVisual?.stellarCollision === true && !body.id.startsWith('preview:')
@@ -55,11 +56,21 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       kind,
       progress,
       fadeAlpha: rise * decay,
-      baseOpacity: stellar ? 0.97 : 0.94,
+      baseOpacity: stellar
+        ? stellarOutcome === 'hitAndRun'
+          ? 0.88
+          : stellarOutcome === 'partialDisruption'
+            ? 0.93
+            : 0.97
+        : 0.94,
       innerGlow: 1,
       outerGlow: stellar ? 0.38 : 0.3,
       visualRadius: stellar
-        ? THREE.MathUtils.clamp(body.radius * 0.78, 0.11, 0.28)
+        ? THREE.MathUtils.clamp(
+            body.radius * (stellarOutcome === 'merge' ? 0.86 : stellarOutcome === 'hitAndRun' ? 0.7 : 0.78),
+            0.1,
+            0.31,
+          )
         : THREE.MathUtils.clamp(body.radius * 0.42, 0.052, 0.13),
       anisotropicStretch: visual?.stretch ?? (stellar ? 4.8 : 3.1),
       widthScale: visual?.widthScale ?? (stellar ? 0.28 : 0.34),
@@ -79,7 +90,13 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       kind,
       progress,
       fadeAlpha: rise * decay,
-      baseOpacity: stellar ? 0.8 : 0.7,
+      baseOpacity: stellar
+        ? stellarOutcome === 'merge'
+          ? 0.84
+          : stellarOutcome === 'partialDisruption'
+            ? 0.76
+            : 0.66
+        : 0.7,
       innerGlow: stellar ? 0.82 : 0.72,
       outerGlow: stellar ? 0.24 : 0.18,
       visualRadius: stellar
@@ -97,7 +114,14 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
 
   if (kind === 'stellarPlasma') {
     const stellar = body.effectVisual?.stellarCollision === true
-    const linger = Math.pow(1 - progress, stellar ? 1.18 : 1.28)
+    const lingerExponent = stellar
+      ? stellarOutcome === 'hitAndRun'
+        ? 1.02
+        : stellarOutcome === 'partialDisruption'
+          ? 1.1
+          : 1.18
+      : 1.28
+    const linger = Math.pow(1 - progress, lingerExponent)
     const expansion = smooth01(progress)
     return {
       kind,
@@ -111,7 +135,9 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
         : THREE.MathUtils.clamp(body.radius * 0.26, 0.021, 0.058),
       anisotropicStretch: (visual?.stretch ?? 2.7) * (0.92 + expansion * 0.58),
       widthScale: (visual?.widthScale ?? 0.72) * (1 + expansion * 0.3),
-      tailLength: (visual?.tailLength ?? 0.76) * (0.72 + expansion * 0.72),
+      tailLength: (visual?.tailLength ?? 0.76) *
+        (0.72 + expansion * 0.72) *
+        (stellarOutcome === 'hitAndRun' ? 1.18 : stellarOutcome === 'partialDisruption' ? 1.1 : 1),
       pulseStrength: visual?.pulseStrength ?? 0.08,
       brightness: (visual?.brightness ?? (stellar ? 1.28 : 1.12)) * (1 - progress * 0.18),
       turbulence: visual?.turbulence ?? 0.62,
@@ -126,10 +152,15 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       kind,
       progress,
       fadeAlpha: decay,
-      baseOpacity: 0.48,
+      baseOpacity: stellarOutcome === 'merge' ? 0.54 : stellarOutcome === 'partialDisruption' ? 0.44 : 0.34,
       innerGlow: 0.18,
       outerGlow: 0.62,
-      visualRadius: THREE.MathUtils.clamp(body.radius * (0.72 + expansion * 0.6), 0.09, 0.32),
+      visualRadius: THREE.MathUtils.clamp(
+        body.radius * (0.72 + expansion * 0.6) *
+          (stellarOutcome === 'merge' ? 1.12 : stellarOutcome === 'hitAndRun' ? 0.9 : 1),
+        0.08,
+        0.36,
+      ),
       anisotropicStretch: (visual?.stretch ?? 1.28) * (0.88 + expansion * 0.4),
       widthScale: (visual?.widthScale ?? 0.82) * (0.9 + expansion * 0.3),
       tailLength: 0,
