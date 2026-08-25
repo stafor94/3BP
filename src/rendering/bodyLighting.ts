@@ -118,6 +118,11 @@ const litBodyFragmentShader = `
   }
 
   void main() {
+    // Glow-only collision effects intentionally set opacity to zero. Discard their
+    // sphere fragments entirely so an opaque render-queue classification cannot
+    // turn an invisible effect mesh into a black depth-writing occluder.
+    if (uOpacity <= 0.001) discard;
+
     vec3 normalWorld = normalize(vWorldNormal);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
     float surfaceDetail = drawBodySurfaceDetail(normalize(vObjectNormal));
