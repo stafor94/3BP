@@ -115,6 +115,17 @@ export function getEquilibriumStellarDisplayColor(mass: number) {
   return getStellarDisplayColorFromTemperature(getStellarTemperatureKelvin(mass))
 }
 
+export function mixStellarDisplayColors(a: string, b: string, mix01: number) {
+  const first = hexToRgb(a)
+  const second = hexToRgb(b)
+  const t = clamp(mix01, 0, 1)
+  return rgbToHex({
+    r: first.r + (second.r - first.r) * t,
+    g: first.g + (second.g - first.g) * t,
+    b: first.b + (second.b - first.b) * t,
+  })
+}
+
 export function getNearestStellarColor(color: string): StellarColorOption {
   const source = hexToRgb(color)
   let best = STELLAR_COLOR_OPTIONS[0]

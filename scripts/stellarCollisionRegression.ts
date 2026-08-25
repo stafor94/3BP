@@ -49,7 +49,7 @@ function testGrazingHitAndRunHasConsequences() {
     0.3,
     -0.2999995,
     '#ffd36b',
-    { x: 0.15, y: -1, z: 0 },
+    { x: 0.15, y: -1.65, z: 0 },
   )
   const b = makeStar(
     'stellar-graze-b',
@@ -57,7 +57,7 @@ function testGrazingHitAndRunHasConsequences() {
     0.3,
     0.2999995,
     '#ffaf5f',
-    { x: -0.15, y: 1, z: 0 },
+    { x: -0.15, y: 1.65, z: 0 },
   )
 
   const result = stepCoreBodies([a, b], 1e-8)
@@ -86,6 +86,64 @@ function testGrazingHitAndRunHasConsequences() {
   assert(
     result.some((body) => body.bodyType === 'effect' && body.effectVisual?.stellarOutcome === 'hitAndRun'),
     'hit-and-run VFX should carry its outcome profile',
+  )
+}
+
+function testSubEscapeGrazingContactCapturesInsteadOfBouncing() {
+  const a = makeStar(
+    'stellar-bound-graze-a',
+    1,
+    0.3,
+    -0.2999995,
+    '#ff6b5e',
+    { x: 0.15, y: -1, z: 0 },
+  )
+  const b = makeStar(
+    'stellar-bound-graze-b',
+    1,
+    0.3,
+    0.2999995,
+    '#f5f7ff',
+    { x: -0.15, y: 1, z: 0 },
+  )
+
+  const result = stepCoreBodies([a, b], 1e-8)
+  const survivorA = result.find((body) => body.id === a.id)
+  const survivorB = result.find((body) => body.id === b.id)
+  assert(
+    !(survivorA?.stellarCollisionOutcome === 'hitAndRun' && survivorB?.stellarCollisionOutcome === 'hitAndRun'),
+    'sub-escape stellar contact must not be resolved as an elastic-looking hit-and-run',
+  )
+  assert(
+    result.some((body) => body.bodyType === 'star' && body.id.includes(a.id) && body.id.includes(b.id)),
+    'sub-escape grazing stellar contact should be captured into a merged remnant',
+  )
+}
+
+function testDeepOverlapCannotBecomeHitAndRun() {
+  const a = makeStar(
+    'stellar-deep-a',
+    1,
+    0.3,
+    -0.22,
+    '#ff6b5e',
+    { x: 0.1, y: -1.65, z: 0 },
+  )
+  const b = makeStar(
+    'stellar-deep-b',
+    1,
+    0.3,
+    0.22,
+    '#f5f7ff',
+    { x: -0.1, y: 1.65, z: 0 },
+  )
+
+  const result = stepCoreBodies([a, b], 1e-8)
+  const survivorA = result.find((body) => body.id === a.id)
+  const survivorB = result.find((body) => body.id === b.id)
+  assert(
+    !(survivorA?.stellarCollisionOutcome === 'hitAndRun' && survivorB?.stellarCollisionOutcome === 'hitAndRun'),
+    'deep stellar overlap must be merge/stripping, never a teleport-apart hit-and-run',
   )
 }
 
@@ -202,6 +260,8 @@ function testImpactBridgeDoesNotRewriteStellarHue() {
 
 testMassTemperatureModel()
 testGrazingHitAndRunHasConsequences()
+testSubEscapeGrazingContactCapturesInsteadOfBouncing()
+testDeepOverlapCannotBecomeHitAndRun()
 testHeadOnMergeUsesRemnantMassColor()
 testPartialDisruptionStripsSmallerStar()
 testImpactBridgeDoesNotRewriteStellarHue()
