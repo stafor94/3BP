@@ -6,35 +6,46 @@ import { build } from 'vite'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const outDir = resolve(root, '.tmp-physics-regression')
-const outputFile = resolve(outDir, 'physicsRegression.mjs')
+const checks = [
+  { source: 'physicsRegression.ts', output: 'physicsRegression.mjs' },
+  { source: 'nonStellarRegression.ts', output: 'nonStellarRegression.mjs' },
+]
 
 rmSync(outDir, { recursive: true, force: true })
 
 try {
-  await build({
-    root,
-    logLevel: 'error',
-    build: {
-      ssr: resolve(root, 'scripts/physicsRegression.ts'),
-      outDir,
-      emptyOutDir: true,
-      minify: false,
-      rollupOptions: {
-        output: {
-          entryFileNames: 'physicsRegression.mjs',
-          format: 'es',
+  for (let index = 0; index < checks.length; index += 1) {
+    const check = checks[index]
+    const outputFile = resolve(outDir, check.output)
+
+    await build({
+      root,
+      logLevel: 'error',
+      build: {
+        ssr: resolve(root, 'scripts', check.source),
+        outDir,
+        emptyOutDir: index === 0,
+        minify: false,
+        rollupOptions: {
+          output: {
+            entryFileNames: check.output,
+            format: 'es',
+          },
         },
       },
-    },
-  })
+    })
 
-  const run = spawnSync(
-    process.execPath,
-    [outputFile],
-    { cwd: root, stdio: 'inherit' },
-  )
+    const run = spawnSync(
+      process.execPath,
+      [outputFile],
+      { cwd: root, stdio: 'inherit' },
+    )
 
-  process.exitCode = run.status ?? 1
+    if ((run.status ?? 1) !== 0) {
+      process.exitCode = run.status ?? 1
+      break
+    }
+  }
 } catch (error) {
   console.error(error)
   process.exitCode = 1
