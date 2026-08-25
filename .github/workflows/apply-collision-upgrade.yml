@@ -1,0 +1,32 @@
+name: Apply collision watch upgrade
+
+on:
+  push:
+    branches: [collision-watch-stellar-vfx-0.17.24]
+    paths:
+      - scripts/applyCollisionWatchUpgrade.mjs
+      - .github/workflows/apply-collision-upgrade.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: collision-watch-stellar-vfx-0.17.24
+      - name: Apply upgrade
+        run: node scripts/applyCollisionWatchUpgrade.mjs
+      - name: Remove one-shot tooling
+        run: rm scripts/applyCollisionWatchUpgrade.mjs .github/workflows/apply-collision-upgrade.yml
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: redesign collision watch and stellar impact VFX"
+          git push origin HEAD:collision-watch-stellar-vfx-0.17.24
