@@ -182,11 +182,69 @@ function testStagedImpactKeepsCollidersVisibleBeforeResolution() {
   assert(sawVisibleOverlap, 'merge impact staging must visibly compress the colliders after contact')
 }
 
+function testStellarMergeDeepensBeforeResolution() {
+  const starA: BodyState = {
+    id: 'stellar-merge-a',
+    name: 'Stellar Merge A',
+    color: '#fff0cc',
+    mass: 1,
+    radius: 0.3,
+    position: { x: -0.30025, y: 0, z: 0 },
+    velocity: { x: 0.2, y: 0, z: 0 },
+    bodyType: 'star',
+  }
+  const starB: BodyState = {
+    id: 'stellar-merge-b',
+    name: 'Stellar Merge B',
+    color: '#ff9977',
+    mass: 1,
+    radius: 0.3,
+    position: { x: 0.30025, y: 0, z: 0 },
+    velocity: { x: -0.2, y: 0, z: 0 },
+    bodyType: 'star',
+  }
+
+  const dt = 0.0015
+  const contactDistance = getCollisionContactDistance(starA, starB)
+  const minRadius = Math.min(starA.radius, starB.radius)
+  let frame = stepFragmentAwareBodies([starA, starB], dt)
+  let contactFrames = 0
+  let deepestOverlap = 0
+  let resolved = false
+
+  for (let step = 0; step < 64; step += 1) {
+    const bodyA = frame.find((body) => body.id === starA.id)
+    const bodyB = frame.find((body) => body.id === starB.id)
+
+    if (bodyA && bodyB) {
+      const overlap = Math.max(0, contactDistance - distance(bodyA, bodyB))
+      deepestOverlap = Math.max(deepestOverlap, overlap)
+      contactFrames += 1
+      frame = stepFragmentAwareBodies(frame, dt)
+      continue
+    }
+
+    resolved = true
+    break
+  }
+
+  assert(resolved, 'stellar merge must eventually resolve to its physical result')
+  assert(
+    contactFrames >= 35,
+    'stellar merge should preserve the two stars for most of the 0.06 simulated-second absorption window',
+  )
+  assert(
+    deepestOverlap >= minRadius * 0.65,
+    'stellar merge should visibly interpenetrate well beyond the ordinary 18% impact overlap before resolving',
+  )
+}
+
 const tests = [
   testContactDistanceUsesVisibleSurface,
   testFlashStartsAtImpactSurface,
   testHitAndRunSurvivorsDoNotOverlap,
   testStagedImpactKeepsCollidersVisibleBeforeResolution,
+  testStellarMergeDeepensBeforeResolution,
 ]
 
 for (const test of tests) test()
