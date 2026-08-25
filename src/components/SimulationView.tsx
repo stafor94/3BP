@@ -38,12 +38,16 @@ type TrackingCameraAnchorState = {
   anchorVelocity: Vec3
 }
 
-const COLLISION_CAMERA_BODY_MARGIN = 1.65
-const COLLISION_CAMERA_TRACKING_ZOOM_RATIO = 0.8
-const COLLISION_CAMERA_PAIR_DISTANCE_FACTOR = 1
-const COLLISION_CAMERA_DIRECTION_EPSILON = 0.0005
-const TRACKING_CAMERA_MIN_ENVELOPE_RADIUS = 0.18
-const TRACKING_CAMERA_BODY_RADIUS_FACTOR = 5.2
+// simulationRenderer frames a focus pair with a 55-degree vertical FOV,
+// collisionBodyMargin=1.65 and collisionFrameFill=0.64. Build an invisible
+// render-only anchor so the selected body's rendered radius lands at about
+// 1/20 of the viewport width, regardless of portrait/landscape aspect ratio.
+const CAMERA_VERTICAL_FOV_DEGREES = 55
+const CAMERA_BODY_MARGIN = 1.65
+const CAMERA_FRAME_FILL = 0.64
+const TARGET_BODY_RADIUS_SCREEN_FRACTION = 1 / 20
+const CAMERA_DIRECTION_EPSILON = 0.0005
+const MIN_RENDER_RADIUS = 0.025
 
 function isBodyDescendedFrom(bodyId: string, sourceId: string) {
   const bodyParts = new Set(bodyId.split('+'))
@@ -66,7 +70,7 @@ function normalizedDirection(from: BodyState, to: BodyState): { direction: Vec3;
     z: to.position.z - from.position.z,
   }
   const distance = vectorLength(delta)
-  if (distance <= 1e-10) return { direction: { x: 0, y: 0, z: 1 }, distance: 0 }
+  if (distance <= 1e-10) return { direction: { x: 1, y: 0, z: 0 }, distance: 0 }
   return {
     direction: {
       x: delta.x / distance,
@@ -77,41 +81,32 @@ function normalizedDirection(from: BodyState, to: BodyState): { direction: Vec3;
   }
 }
 
-function findOrbitReference(bodies: BodyState[], trackedBody: BodyState): BodyState | null {
-  let bestBody: BodyState | null = null
-  let bestInfluence = Number.NEGATIVE_INFINITY
-
-  for (const body of bodies) {
-    if (
-      body.id === trackedBody.id ||
-      body.bodyType === 'effect' ||
-      body.bodyType === 'fragment'
-    ) continue
-
-    const dx = body.position.x - trackedBody.position.x
-    const dy = body.position.y - trackedBody.position.y
-    const dz = body.position.z - trackedBody.position.z
-    const distanceSquared = dx * dx + dy * dy + dz * dz
-    if (distanceSquared <= 1e-12) continue
-
-    // The strongest instantaneous pull is still useful for choosing a readable
-    // viewing direction, but it must not control zoom. Otherwise selecting the
-    // same body at a different orbital phase can produce a completely different
-    // camera scale.
-    const influence = Math.max(body.mass, 0) / distanceSquared
-    if (influence > bestInfluence) {
-      bestInfluence = influence
-      bestBody = body
-    }
-  }
-
-  return bestBody
+function getViewportAspect() {
+  if (typeof window === 'undefined') return 1
+  const width = Math.max(window.innerWidth, 1)
+  const height = Math.max(window.innerHeight, 1)
+  return width / height
 }
 
-function getStableTrackingEnvelopeRadius(trackedBody: BodyState) {
+function getFixedScreenEnvelopeRadius(body: BodyState) {
+  const renderedRadius = Math.max(body.radius, MIN_RENDER_RADIUS)
+  const verticalHalfFov = CAMERA_VERTICAL_FOV_DEGREES * Math.PI / 360
+  const verticalTan = Math.tan(verticalHalfFov)
+  const horizontalTan = verticalTan * Math.max(getViewportAspect(), 0.1)
+  const limitingTan = Math.min(verticalTan, horizontalTan)
+  const desiredNdcRadius = TARGET_BODY_RADIUS_SCREEN_FRACTION * 2
+
+  // renderer rawDistance = frameRadius / (tan(limitingFov) * frameFill)
+  // and horizontal NDC radius ~= radius / (distance * tan(horizontalFov)).
+  // Solve those equations for frameRadius at a 0.1 NDC radius (= 1/20 width).
+  const desiredFrameRadius = renderedRadius * limitingTan * CAMERA_FRAME_FILL /
+    Math.max(desiredNdcRadius * horizontalTan, 1e-9)
+
+  // The invisible anchor's margin becomes the dominant frame extent. Keep the
+  // primary body itself as a lower bound so unusual ultra-wide viewports remain safe.
   return Math.max(
-    trackedBody.radius * TRACKING_CAMERA_BODY_RADIUS_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
-    TRACKING_CAMERA_MIN_ENVELOPE_RADIUS,
+    desiredFrameRadius / CAMERA_BODY_MARGIN,
+    renderedRadius * 1.01,
   )
 }
 
@@ -122,28 +117,15 @@ function createTrackingCameraAnchorState(
   const trackedBody = resolveBody(bodies, trackedSourceId)
   if (!trackedBody) return null
 
-  const orbitReference = findOrbitReference(bodies, trackedBody)
-  if (orbitReference) {
-    const { direction } = normalizedDirection(trackedBody, orbitReference)
-    return {
-      trackedSourceId,
-      pairKey: `tracking-camera:${trackedSourceId}`,
-      anchorId: `__tracking-camera-anchor__${trackedSourceId}`,
-      direction,
-      envelopeRadius: getStableTrackingEnvelopeRadius(trackedBody),
-      anchorVelocity: { ...orbitReference.velocity },
-    }
-  }
-
-  // A single/free body has no meaningful orbital partner. Give it a stable
-  // top-like view. Zoom uses the same body-size rule as every other target so
-  // reselecting a body never depends on an instantaneous neighbor distance.
+  // Tracking no longer searches for a nearby massive/orbiting body. Use a tiny
+  // fixed-direction helper only to establish a deterministic initial camera angle;
+  // zoom comes exclusively from the selected body's own rendered radius.
   return {
     trackedSourceId,
     pairKey: `tracking-camera:${trackedSourceId}`,
     anchorId: `__tracking-camera-anchor__${trackedSourceId}`,
     direction: { x: 1, y: 0, z: 0 },
-    envelopeRadius: getStableTrackingEnvelopeRadius(trackedBody),
+    envelopeRadius: getFixedScreenEnvelopeRadius(trackedBody),
     anchorVelocity: {
       x: trackedBody.velocity.x,
       y: trackedBody.velocity.y + 1,
@@ -170,9 +152,9 @@ function createRenderOnlyCameraAnchor(
     age: FRAGMENT_LIFETIME,
     lifetime: FRAGMENT_LIFETIME,
     position: {
-      x: mainBody.position.x + direction.x * COLLISION_CAMERA_DIRECTION_EPSILON,
-      y: mainBody.position.y + direction.y * COLLISION_CAMERA_DIRECTION_EPSILON,
-      z: mainBody.position.z + direction.z * COLLISION_CAMERA_DIRECTION_EPSILON,
+      x: mainBody.position.x + direction.x * CAMERA_DIRECTION_EPSILON,
+      y: mainBody.position.y + direction.y * CAMERA_DIRECTION_EPSILON,
+      z: mainBody.position.z + direction.z * CAMERA_DIRECTION_EPSILON,
     },
     velocity: { ...anchorVelocity },
   }
@@ -214,24 +196,16 @@ export function SimulationView({
         const mainSourceId = mainBody === bodyA
           ? collisionCameraFocus.bodyAId
           : collisionCameraFocus.bodyBId
-        const { direction, distance } = normalizedDirection(mainBody, secondaryBody)
-        const stableTrackingEnvelope = getStableTrackingEnvelopeRadius(mainBody)
-        const pairEnvelope = secondaryBody.radius +
-          distance * COLLISION_CAMERA_PAIR_DISTANCE_FACTOR / COLLISION_CAMERA_BODY_MARGIN
+        const { direction } = normalizedDirection(mainBody, secondaryBody)
 
         collisionCameraAnchorRef.current = {
           pairKey: collisionCameraFocus.pairKey,
           mainSourceId,
           anchorId: `__collision-camera-anchor__${collisionCameraFocus.pairKey}`,
           direction,
-          // Never let collision watch zoom closer than roughly 20% beyond the
-          // normal tracking framing. If the secondary body needs more room, zoom
-          // out instead so both colliders remain visible.
-          envelopeRadius: Math.max(
-            stableTrackingEnvelope * COLLISION_CAMERA_TRACKING_ZOOM_RATIO,
-            pairEnvelope,
-            0.001,
-          ),
+          // Collision watch now uses exactly the same screen-size rule as manual
+          // tracking. The other collider affects viewing direction only, never zoom.
+          envelopeRadius: getFixedScreenEnvelopeRadius(mainBody),
           anchorVelocity: { ...secondaryBody.velocity },
           trackingEstablished: trackedBodyId !== null && isBodyDescendedFrom(trackedBodyId, mainSourceId),
         }
@@ -281,9 +255,9 @@ export function SimulationView({
   }
 
   // Collision watch owns the camera only while its one-shot framing is active.
-  // Otherwise every newly selected tracking target receives its own orbit-aware
-  // viewing direction but a body-size-based stable zoom. The synthetic anchor
-  // moves with the selected body, so manual camera changes remain intact later.
+  // Otherwise every selected target receives the same body-size-only framing.
+  // The synthetic anchor moves with the selected body, so manual camera changes
+  // remain intact once the initial settle completes.
   if (effectiveCollisionCameraFocus) {
     trackingCameraAnchorRef.current = null
   } else if (trackedBodyId) {
