@@ -111,6 +111,7 @@ const RENDER_TUNING = {
     collisionTransition: 0.12,
     collisionEntryTransition: 0.2,
     collisionMaxDistance: 18,
+    focusSettleFrames: 18,
   },
 } as const
 
@@ -746,6 +747,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
   let observedTrailSampleSequence = initialState.trailSampleBatch.sequence
   let observedTrackedBodyId = initialState.trackedBodyId
   let observedCollisionPairKey: string | null = null
+  let cameraFocusSettleFrames = 0
   let wasTrackingBody = false
 
   const clearTrail = (visual: VisualBody) => {
@@ -1004,6 +1006,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     const focus = state.collisionCameraFocus
     if (!focus) {
       observedCollisionPairKey = null
+      cameraFocusSettleFrames = 0
       controls.minDistance = RENDER_TUNING.camera.defaultMinDistance
       return false
     }
@@ -1012,6 +1015,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     const bodyB = getCollisionBody(state.bodies, focus.bodyBId)
     if (!bodyA || !bodyB || bodyA.id === bodyB.id) {
       observedCollisionPairKey = null
+      cameraFocusSettleFrames = 0
       controls.minDistance = RENDER_TUNING.camera.defaultMinDistance
       return false
     }
@@ -1024,6 +1028,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     if (pairChanged) {
       updateCollisionViewDirection(primary, secondary)
       observedCollisionPairKey = focus.pairKey
+      cameraFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
     }
 
     collisionPrimaryPosition.set(primary.position.x, primary.position.y, primary.position.z)
@@ -1069,12 +1074,17 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       .copy(collisionViewDirection)
       .multiplyScalar(desiredDistance)
       .add(collisionFocusPoint)
-    camera.position.lerp(
-      collisionDesiredCameraPosition,
-      pairChanged
-        ? RENDER_TUNING.camera.collisionEntryTransition
-        : RENDER_TUNING.camera.collisionTransition,
-    )
+
+    if (cameraFocusSettleFrames > 0) {
+      camera.position.lerp(
+        collisionDesiredCameraPosition,
+        pairChanged
+          ? RENDER_TUNING.camera.collisionEntryTransition
+          : RENDER_TUNING.camera.collisionTransition,
+      )
+      cameraFocusSettleFrames -= 1
+    }
+
     wasTrackingBody = true
     return true
   }
