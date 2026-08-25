@@ -77,22 +77,22 @@ function normalizedDirection(from: BodyState, to: BodyState): { direction: Vec3;
   }
 }
 
-function findOrbitReference(bodies: BodyState[], trackedBody: BodyState) {
+function findOrbitReference(bodies: BodyState[], trackedBody: BodyState): BodyState | null {
   let bestBody: BodyState | null = null
   let bestInfluence = Number.NEGATIVE_INFINITY
 
-  bodies.forEach((body) => {
+  for (const body of bodies) {
     if (
       body.id === trackedBody.id ||
       body.bodyType === 'effect' ||
       body.bodyType === 'fragment'
-    ) return
+    ) continue
 
     const dx = body.position.x - trackedBody.position.x
     const dy = body.position.y - trackedBody.position.y
     const dz = body.position.z - trackedBody.position.z
     const distanceSquared = dx * dx + dy * dy + dz * dz
-    if (distanceSquared <= 1e-12) return
+    if (distanceSquared <= 1e-12) continue
 
     // Pick the body exerting the strongest instantaneous gravitational pull.
     // This naturally chooses a nearby planet for a moon, while a star wins for
@@ -102,7 +102,7 @@ function findOrbitReference(bodies: BodyState[], trackedBody: BodyState) {
       bestInfluence = influence
       bestBody = body
     }
-  })
+  }
 
   return bestBody
 }
