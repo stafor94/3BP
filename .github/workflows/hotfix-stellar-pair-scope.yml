@@ -1,0 +1,42 @@
+name: Validate stellar pair scope hotfix
+
+on:
+  push:
+    branches: [fix/stellar-collision-outcomes-vfx]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: ${{ !contains(github.event.head_commit.message, '[pair-scope-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: fix/stellar-collision-outcomes-vfx
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Apply hotfix
+        run: python3 .github/scripts/hotfix-stellar-pair-scope.py
+      - name: Install dependencies
+        run: npm install --no-package-lock
+      - name: Physics regression
+        run: npm run check:physics
+      - name: TypeScript compile
+        run: npx tsc -b
+      - name: Vite build
+        run: npx vite build
+      - name: Commit validated hotfix
+        run: |
+          rm .github/workflows/hotfix-stellar-pair-scope.yml
+          rm .github/scripts/hotfix-stellar-pair-scope.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: scope stellar collision outcomes to active pair [pair-scope-applied]"
+          git push origin HEAD:fix/stellar-collision-outcomes-vfx
