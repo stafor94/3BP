@@ -1,11 +1,7 @@
 import type { BodyState } from '../types'
 
-// Physics and rendering use the same solid-body surface. Stellar atmosphere/glow
-// belongs to rendering and must not move the physical collision boundary inward.
-export function getCollisionContactScale(_a: BodyState, _b: BodyState) {
-  return 1
-}
-
+// Physics, collision prediction, and collision staging share one solid-body
+// boundary. Atmosphere/corona effects belong to rendering only.
 export function getCollisionContactDistance(a: BodyState, b: BodyState) {
-  return (a.radius + b.radius) * getCollisionContactScale(a, b)
+  return a.radius + b.radius
 }
