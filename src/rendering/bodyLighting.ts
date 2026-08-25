@@ -2,22 +2,22 @@ import * as THREE from 'three'
 import { getEffectiveBodyType } from '../bodyTypes'
 import { getNearestStellarColor } from '../starColors'
 import type { BodyState } from '../types'
+import { createCollisionEffectsLayer } from './collisionEffectRenderer'
+
+export { getCollisionEffectProfile } from './collisionEffectProfile'
+export type { CollisionEffectProfile } from './collisionEffectProfile'
 
 const MAX_STAR_LIGHTS = 6
 const FRAGMENT_VISUAL_MIN_RADIUS = 0.04
-const COLLISION_FLASH_VISUAL_MIN_RADIUS = 0.04
-const COLLISION_FLASH_VISUAL_MAX_RADIUS = 0.07
-const STELLAR_PLASMA_VISUAL_MIN_RADIUS = 0.018
-const STELLAR_PLASMA_VISUAL_MAX_RADIUS = 0.032
-const COLLISION_SPARK_VISUAL_MIN_RADIUS = 0.012
-const COLLISION_FLASH_VISUAL_DURATION = 0.9
-const STELLAR_PLASMA_VISUAL_DURATION = 1.35
-const COLLISION_SPARK_VISUAL_DURATION = 0.9
 const EFFECT_MESH_EPSILON = 0.0001
 
 let installed = false
 let bodyBySeed = new Map<string, BodyState>()
 let lightingStars: BodyState[] = []
+
+type CollisionEffectsLayer = ReturnType<typeof createCollisionEffectsLayer>
+const collisionEffectsByScene = new WeakMap<THREE.Scene, CollisionEffectsLayer>()
+const collisionEffectScenesByRenderer = new WeakMap<THREE.WebGLRenderer, Set<THREE.Scene>>()
 
 function getBodySeed(id: string) {
   let hash = 2166136261
@@ -38,14 +38,6 @@ function isBodyShader(values: Record<string, any> | undefined) {
     typeof values?.fragmentShader === 'string' &&
     values.fragmentShader.includes('drawBodyEmission'),
   )
-}
-
-function fadeOut(age: number, duration: number, power: number) {
-  const progress = THREE.MathUtils.clamp(age / Math.max(duration, 1e-6), 0, 1)
-  return {
-    progress,
-    alpha: Math.pow(1 - progress, power),
-  }
 }
 
 const litBodyFragmentShader = `
@@ -118,9 +110,7 @@ const litBodyFragmentShader = `
   }
 
   void main() {
-    // Glow-only collision effects intentionally set opacity to zero. Discard their
-    // sphere fragments entirely so an opaque render-queue classification cannot
-    // turn an invisible effect mesh into a black depth-writing occluder.
+    // Collision effects are drawn by the dedicated directional plasma layer.
     if (uOpacity <= 0.001) discard;
 
     vec3 normalWorld = normalize(vWorldNormal);
@@ -173,69 +163,19 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
   const bodyType = getEffectiveBodyType(body)
   const isStar = bodyType === 'star'
   const isEffect = bodyType === 'effect'
-  const isCollisionFlash = isEffect && body.name === 'Collision flash'
-  const isStellarPlasma = isEffect && body.id.includes('+plasma')
-  const isCollisionSpark = isEffect && body.name === 'Collision spark' && !isStellarPlasma
-  const age = Math.max(body.age ?? 0, 0)
   const selfLuminous = isStar || isEffect
 
   let emissionStrength = isStar ? 1 : 0
   let effectOpacity = 1
-  let visualRadius = body.radius
-  let glowInnerScale = 0
-  let glowOuterScale = 0
-  let glowInnerOpacity = 0
-  let glowOuterOpacity = 0
 
   if (bodyType === 'fragment') {
-    visualRadius = Math.max(body.radius, FRAGMENT_VISUAL_MIN_RADIUS)
-    object.scale.setScalar(visualRadius)
-  } else if (isCollisionFlash) {
-    const fade = fadeOut(age, COLLISION_FLASH_VISUAL_DURATION, 1.8)
-    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.22
-    const baseRadius = THREE.MathUtils.clamp(
-      body.radius * 0.24,
-      COLLISION_FLASH_VISUAL_MIN_RADIUS,
-      COLLISION_FLASH_VISUAL_MAX_RADIUS,
-    )
-    visualRadius = baseRadius * pulse
-    // Flash is a luminous cloud, not a spherical body. Collapse the body mesh and
-    // render only the additive glow sprites below.
+    object.scale.setScalar(Math.max(body.radius, FRAGMENT_VISUAL_MIN_RADIUS))
+  } else if (isEffect) {
+    // Never let an effect fall back to the spherical body mesh or radial sprite
+    // path: contact flash, shear, plasma and sparks all use directional shaders.
     emissionStrength = 0
     effectOpacity = 0
-    glowInnerScale = 5.0
-    glowOuterScale = 9.0
-    glowInnerOpacity = 0.72 * fade.alpha
-    glowOuterOpacity = 0.22 * Math.pow(1 - fade.progress, 1.9)
     object.scale.setScalar(EFFECT_MESH_EPSILON)
-  } else if (isStellarPlasma) {
-    const fade = fadeOut(age, STELLAR_PLASMA_VISUAL_DURATION, 1.3)
-    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.10
-    const baseRadius = THREE.MathUtils.clamp(
-      body.radius * 0.18,
-      STELLAR_PLASMA_VISUAL_MIN_RADIUS,
-      STELLAR_PLASMA_VISUAL_MAX_RADIUS,
-    )
-    visualRadius = baseRadius * pulse
-    // Stellar ejecta must read as diffuse plasma knots, never asteroid-sized balls.
-    emissionStrength = 0
-    effectOpacity = 0
-    glowInnerScale = 4.2
-    glowOuterScale = 7.2
-    glowInnerOpacity = 0.42 * fade.alpha
-    glowOuterOpacity = 0.11 * Math.pow(1 - fade.progress, 1.5)
-    object.scale.setScalar(EFFECT_MESH_EPSILON)
-  } else if (isCollisionSpark || isEffect) {
-    const fade = fadeOut(age, COLLISION_SPARK_VISUAL_DURATION, 1.8)
-    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.10
-    visualRadius = Math.max(body.radius, COLLISION_SPARK_VISUAL_MIN_RADIUS) * pulse
-    emissionStrength = 0.38 * fade.alpha
-    effectOpacity = 0.72 * fade.alpha
-    glowInnerScale = 1.8
-    glowOuterScale = 2.5
-    glowInnerOpacity = 0.12 * fade.alpha
-    glowOuterOpacity = 0.016 * Math.pow(1 - fade.progress, 2)
-    object.scale.setScalar(visualRadius)
   }
 
   material.uniforms.uSelfLuminous.value = selfLuminous ? 1 : 0
@@ -269,11 +209,7 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
     if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
       if (isStar) {
         glowInner.visible = true
-      } else if (isEffect && glowInnerOpacity > 0.001) {
-        glowInner.visible = true
-        glowInner.scale.setScalar(visualRadius * glowInnerScale)
-        glowInner.material.opacity = glowInnerOpacity
-      } else {
+      } else if (isEffect) {
         glowInner.visible = false
         glowInner.material.opacity = 0
       }
@@ -282,15 +218,51 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
     if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
       if (isStar) {
         glowOuter.visible = true
-      } else if (isEffect && glowOuterOpacity > 0.001) {
-        glowOuter.visible = true
-        glowOuter.scale.setScalar(visualRadius * glowOuterScale)
-        glowOuter.material.opacity = glowOuterOpacity
-      } else {
+      } else if (isEffect) {
         glowOuter.visible = false
         glowOuter.material.opacity = 0
       }
     }
+  }
+}
+
+function installCollisionEffectRenderHook() {
+  const rendererPrototype = THREE.WebGLRenderer.prototype as any
+  const originalRender = rendererPrototype.render
+  const originalDispose = rendererPrototype.dispose
+
+  rendererPrototype.render = function renderWithCollisionEffects(
+    scene: THREE.Object3D,
+    camera: THREE.Camera,
+  ) {
+    if (scene instanceof THREE.Scene) {
+      let layer = collisionEffectsByScene.get(scene)
+      if (!layer) {
+        layer = createCollisionEffectsLayer(scene)
+        collisionEffectsByScene.set(scene, layer)
+      }
+
+      let scenes = collisionEffectScenesByRenderer.get(this as THREE.WebGLRenderer)
+      if (!scenes) {
+        scenes = new Set<THREE.Scene>()
+        collisionEffectScenesByRenderer.set(this as THREE.WebGLRenderer, scenes)
+      }
+      scenes.add(scene)
+      layer.update(Array.from(bodyBySeed.values()), camera)
+    }
+
+    return originalRender.call(this, scene, camera)
+  }
+
+  rendererPrototype.dispose = function disposeWithCollisionEffects() {
+    const renderer = this as THREE.WebGLRenderer
+    const scenes = collisionEffectScenesByRenderer.get(renderer)
+    scenes?.forEach((scene) => {
+      collisionEffectsByScene.get(scene)?.dispose()
+      collisionEffectsByScene.delete(scene)
+    })
+    collisionEffectScenesByRenderer.delete(renderer)
+    return originalDispose.call(this)
   }
 }
 
@@ -345,4 +317,6 @@ export function installBodyLighting() {
     }
     return result
   }
+
+  installCollisionEffectRenderHook()
 }

@@ -1,4 +1,4 @@
-import type { BodyState, BodyType, Vec3 } from '../types'
+import type { BodyState, BodyType, EffectVisualState, Vec3 } from '../types'
 import { getCollisionContactDistance } from './collisionContact'
 import { add, magnitude, magnitudeSquared, scale, sub } from './vector'
 
@@ -6,10 +6,12 @@ const G = 1
 const SOFTENING_SQUARED = 1e-6
 const MAX_DYNAMIC_BODIES = 28
 const MAX_FRAGMENTS_PER_COLLISION = 8
+const MAX_STELLAR_EJECTA_PER_COLLISION = 10
 const MIN_PERSISTENT_FRAGMENT_RADIUS = 0.01
 const MIN_PERSISTENT_FRAGMENT_MASS = 0.00025
 const EFFECT_LIFETIME = 2
-const STELLAR_PLASMA_LIFETIME = 1.35
+const COLLISION_FLASH_LIFETIME = 0.72
+const STELLAR_PLASMA_LIFETIME = 1.55
 const COLLISION_FLASH_RADIUS = 0.055
 const HIT_RUN_COOLDOWN = 0.075
 const FRAGMENT_COOLDOWN = 0.12
@@ -37,6 +39,16 @@ type CollisionGeometry = {
   grazing: number
 }
 
+type StellarEjectaBias = {
+  smaller: BodyState
+  larger: BodyState
+  massRatio: number
+  massAsymmetry: number
+  strippedDirection: Vec3
+  relativeDirection: Vec3
+  dominantTangentSign: number
+}
+
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z
 const cross = (a: Vec3, b: Vec3): Vec3 => ({
@@ -45,10 +57,20 @@ const cross = (a: Vec3, b: Vec3): Vec3 => ({
   z: a.x * b.y - a.y * b.x,
 })
 
+function cloneEffectVisual(effectVisual: EffectVisualState | undefined) {
+  if (!effectVisual) return undefined
+  return {
+    ...effectVisual,
+    direction: { ...effectVisual.direction },
+    normal: effectVisual.normal ? { ...effectVisual.normal } : undefined,
+  }
+}
+
 const cloneBody = (body: BodyState): BodyState => ({
   ...body,
   position: { ...body.position },
   velocity: { ...body.velocity },
+  effectVisual: cloneEffectVisual(body.effectVisual),
 })
 
 function normalize(value: Vec3, fallback: Vec3): Vec3 {
@@ -104,9 +126,13 @@ function hashString(value: string) {
   return hash >>> 0
 }
 
+function seededScalar(seed: string) {
+  return hashString(seed) / 4294967295
+}
+
 function seededUnit(seed: string, index: number, is2d: boolean): Vec3 {
-  const first = hashString(`${seed}:${index}:a`) / 4294967295
-  const second = hashString(`${seed}:${index}:b`) / 4294967295
+  const first = seededScalar(`${seed}:${index}:a`)
+  const second = seededScalar(`${seed}:${index}:b`)
   const theta = first * Math.PI * 2
 
   if (is2d) return { x: Math.cos(theta), y: Math.sin(theta), z: 0 }
@@ -303,21 +329,62 @@ function collisionContactPoint(a: BodyState, b: BodyState, normal: Vec3): Vec3 {
   return scale(add(pointA, pointB), 0.5)
 }
 
+function getStellarEjectaBias(a: BodyState, b: BodyState, geometry: CollisionGeometry): StellarEjectaBias {
+  const smaller = a.mass <= b.mass ? a : b
+  const larger = smaller === a ? b : a
+  const massRatio = smaller.mass / Math.max(larger.mass, 1e-9)
+  const massAsymmetry = 1 - clamp(massRatio, 0, 1)
+  const relativeDirection = normalize(geometry.relativeVelocity, geometry.tangent)
+  const strippedDirection = normalize(
+    smaller === a ? scale(relativeDirection, -1) : relativeDirection,
+    geometry.tangent,
+  )
+  const tangentProjection = dot(strippedDirection, geometry.tangent)
+  const dominantTangentSign = tangentProjection < -1e-8 ? -1 : 1
+
+  return {
+    smaller,
+    larger,
+    massRatio,
+    massAsymmetry,
+    strippedDirection,
+    relativeDirection,
+    dominantTangentSign,
+  }
+}
+
 function makeCollisionFlash(a: BodyState, b: BodyState, geometry: CollisionGeometry): BodyState {
   const dominant = a.mass >= b.mass ? a : b
+  const secondary = dominant === a ? b : a
   const totalRadius = a.radius + b.radius
+  const speedHeat = clamp(geometry.speedRatio / 2.8, 0, 1)
+  const phaseOffset = seededScalar(`${a.id}:${b.id}:flash:${collisionSerial}`)
 
   return {
     id: `${a.id}+${b.id}+flash${collisionSerial}`,
     name: 'Collision flash',
     color: dominant.color,
     mass: 0,
-    radius: Math.max(COLLISION_FLASH_RADIUS, Math.min(0.11, totalRadius * 0.42)),
+    radius: Math.max(COLLISION_FLASH_RADIUS, Math.min(0.13, totalRadius * 0.42)),
     position: collisionContactPoint(a, b, geometry.normal),
     velocity: centerOfMassVelocity(a, b),
     bodyType: 'effect',
     age: 0,
-    lifetime: EFFECT_LIFETIME,
+    lifetime: COLLISION_FLASH_LIFETIME,
+    effectVisual: {
+      kind: 'contactFlash',
+      direction: { ...geometry.tangent },
+      normal: { ...geometry.normal },
+      stretch: clamp(2.65 + geometry.headOn * 0.95 + geometry.grazing * 0.2, 2.6, 3.8),
+      widthScale: clamp(0.42 - geometry.headOn * 0.13 + geometry.grazing * 0.04, 0.25, 0.44),
+      tailLength: 0,
+      brightness: clamp(1.28 + geometry.headOn * 0.48 + speedHeat * 0.34, 1.3, 2.05),
+      turbulence: clamp(0.12 + geometry.grazing * 0.3 + speedHeat * 0.18, 0.12, 0.58),
+      pulseStrength: 0.16 + geometry.headOn * 0.1,
+      phaseOffset,
+      secondaryColor: secondary.color,
+      temperatureBias: speedHeat,
+    },
   }
 }
 
@@ -326,32 +393,136 @@ function getEjectaDirection(
   index: number,
   is2d: boolean,
   geometry: CollisionGeometry,
+  stellarBias?: StellarEjectaBias,
 ) {
   const randomDirection = seededUnit(seed, index, is2d)
+  const randomProjected = sub(randomDirection, scale(geometry.normal, dot(randomDirection, geometry.normal)))
+  const splashRandom = normalize(randomProjected, geometry.tangent)
 
-  if (geometry.grazing > 0.68) {
-    const sign = index % 2 === 0 ? 1 : -1
-    const tangentWeight = clamp(0.58 + geometry.grazing * 0.28, 0.72, 0.86)
-    return normalize(
-      add(
-        scale(randomDirection, 1 - tangentWeight),
-        scale(geometry.tangent, sign * tangentWeight),
-      ),
-      randomDirection,
-    )
-  }
-
-  if (geometry.headOn > 0.72) {
-    const splash = sub(randomDirection, scale(geometry.normal, dot(randomDirection, geometry.normal)))
-    if (magnitude(splash) > 1e-8) {
+  if (!stellarBias) {
+    if (geometry.grazing > 0.68) {
+      const sign = index % 2 === 0 ? 1 : -1
+      const tangentWeight = clamp(0.58 + geometry.grazing * 0.28, 0.72, 0.86)
       return normalize(
-        add(scale(normalize(splash, randomDirection), 0.76), scale(randomDirection, 0.24)),
+        add(
+          scale(randomDirection, 1 - tangentWeight),
+          scale(geometry.tangent, sign * tangentWeight),
+        ),
         randomDirection,
       )
     }
+
+    if (geometry.headOn > 0.72) {
+      return normalize(
+        add(scale(splashRandom, 0.76), scale(randomDirection, 0.24)),
+        randomDirection,
+      )
+    }
+
+    return randomDirection
   }
 
-  return randomDirection
+  const { massAsymmetry, strippedDirection, relativeDirection, dominantTangentSign } = stellarBias
+  const speedEnergy = clamp(geometry.speedRatio / 2.6, 0, 1)
+
+  if (geometry.grazing > 0.6) {
+    // Most of a grazing stellar spray follows one sheared tangent direction.
+    // A minority counter-stream prevents a mechanically perfect one-sided fan.
+    const counterStream = index % 4 === 3
+    const sign = counterStream ? -dominantTangentSign : dominantTangentSign
+    const tangentWeight = clamp(0.64 + geometry.grazing * 0.2 + speedEnergy * 0.05, 0.68, 0.9)
+    const strippedWeight = 0.08 + massAsymmetry * 0.2
+    const relativeWeight = 0.05 + speedEnergy * 0.08
+    const normalSign = index % 3 === 0 ? 1 : -1
+    const normalWeight = 0.025 + geometry.grazing * 0.035
+    const randomWeight = clamp(1 - tangentWeight - strippedWeight - relativeWeight, 0.06, 0.16)
+    return normalize(
+      add(
+        add(
+          add(scale(geometry.tangent, sign * tangentWeight), scale(strippedDirection, strippedWeight)),
+          add(scale(relativeDirection, relativeWeight), scale(geometry.normal, normalSign * normalWeight)),
+        ),
+        scale(splashRandom, randomWeight),
+      ),
+      scale(geometry.tangent, sign),
+    )
+  }
+
+  if (geometry.headOn > 0.7) {
+    // Head-on collisions vent sideways from the compressed contact layer. Keep
+    // the spray short/thick in visuals, but derive its axis from the contact tangent.
+    const sign = index % 2 === 0 ? 1 : -1
+    const tangentWeight = 0.62 + geometry.headOn * 0.12
+    const randomWeight = 0.14 + speedEnergy * 0.05
+    const strippedWeight = 0.08 + massAsymmetry * 0.12
+    const normalWeight = 0.04 + speedEnergy * 0.035
+    return normalize(
+      add(
+        add(scale(geometry.tangent, sign * tangentWeight), scale(splashRandom, randomWeight)),
+        add(
+          scale(strippedDirection, strippedWeight),
+          scale(geometry.normal, (index % 3 === 0 ? 1 : -1) * normalWeight),
+        ),
+      ),
+      scale(geometry.tangent, sign),
+    )
+  }
+
+  const sign = index % 3 === 2 ? -dominantTangentSign : dominantTangentSign
+  return normalize(
+    add(
+      add(scale(geometry.tangent, sign * 0.48), scale(strippedDirection, 0.22 + massAsymmetry * 0.16)),
+      add(scale(relativeDirection, 0.12 + speedEnergy * 0.08), scale(splashRandom, 0.1)),
+    ),
+    geometry.tangent,
+  )
+}
+
+function makeStellarEffectVisual(
+  a: BodyState,
+  b: BodyState,
+  geometry: CollisionGeometry,
+  direction: Vec3,
+  index: number,
+  count: number,
+  largeCount: number,
+  stellarBias: StellarEjectaBias,
+  seed: string,
+): EffectVisualState {
+  const large = index < largeCount
+  const speedEnergy = clamp(geometry.speedRatio / 2.6, 0, 1)
+  const geometryStretch = geometry.grazing * 2.4 - geometry.headOn * 0.45
+  const sizeStretch = large ? 0.15 : 0.58
+  const variance = seededScalar(`${seed}:shape:${index}`)
+  const widthVariance = seededScalar(`${seed}:width:${index}`)
+  const tailVariance = seededScalar(`${seed}:tail:${index}`)
+  const phaseOffset = seededScalar(`${seed}:phase:${index}`)
+  const sourceBias = stellarBias.massAsymmetry
+
+  return {
+    kind: 'stellarPlasma',
+    direction: { ...direction },
+    normal: { ...geometry.normal },
+    stretch: clamp(2.0 + geometryStretch + speedEnergy * 0.72 + sizeStretch + variance * 0.55, 1.75, 5.8),
+    widthScale: clamp(
+      0.92 - geometry.grazing * 0.35 + geometry.headOn * 0.12 + (widthVariance - 0.5) * 0.18,
+      0.42,
+      1.08,
+    ),
+    tailLength: clamp(
+      0.38 + geometry.grazing * 0.72 + speedEnergy * 0.34 + (large ? 0.08 : 0.28) + tailVariance * 0.22,
+      0.35,
+      1.55,
+    ),
+    brightness: clamp(1.0 + speedEnergy * 0.28 + (large ? 0.18 : -0.02) + variance * 0.1, 0.92, 1.48),
+    turbulence: clamp(0.38 + geometry.grazing * 0.27 + speedEnergy * 0.2 + (large ? 0.04 : 0.14), 0.38, 0.95),
+    pulseStrength: 0.035 + (1 - index / Math.max(count - 1, 1)) * 0.055,
+    phaseOffset,
+    secondaryColor: index % 3 === 0 || sourceBias < 0.32
+      ? stellarBias.larger.color
+      : stellarBias.smaller.color,
+    temperatureBias: speedEnergy,
+  }
 }
 
 function makeEjecta(
@@ -368,19 +539,33 @@ function makeEjecta(
   const serial = collisionSerial
   const stellarEjecta = inferBodyType(a) === 'star' || inferBodyType(b) === 'star'
   const ejectaFraction = requestedMass / Math.max(a.mass + b.mass, 1e-9)
-  const count = Math.min(
-    MAX_FRAGMENTS_PER_COLLISION,
-    availableSlots,
-    Math.max(2, Math.ceil(3 + ejectaFraction * 10)),
+  const stellarBias = stellarEjecta ? getStellarEjectaBias(a, b, geometry) : undefined
+  const speedEnergy = clamp(geometry.speedRatio / 2.6, 0, 1)
+  const desiredStellarCount = Math.max(
+    5,
+    Math.round(5 + geometry.grazing * 2 + speedEnergy * 2 + clamp(ejectaFraction * 18, 0, 2)),
   )
+  const desiredSolidCount = Math.max(2, Math.ceil(3 + ejectaFraction * 10))
+  const count = Math.min(
+    stellarEjecta ? MAX_STELLAR_EJECTA_PER_COLLISION : MAX_FRAGMENTS_PER_COLLISION,
+    availableSlots,
+    stellarEjecta ? desiredStellarCount : desiredSolidCount,
+  )
+  if (count <= 0) return []
+
   const seed = `${a.id}:${b.id}:${serial}`
+  const largeCount = stellarEjecta
+    ? Math.min(count, clamp(Math.round(2 + geometry.grazing + speedEnergy * 0.7), 2, 4))
+    : count
   const weights = Array.from({ length: count }, (_, index) => {
-    const unit = hashString(`${seed}:weight:${index}`) / 4294967295
-    return 0.65 + unit * 0.7
+    const unit = seededScalar(`${seed}:weight:${index}`)
+    if (!stellarEjecta) return 0.65 + unit * 0.7
+    return index < largeCount ? 1.25 + unit * 0.85 : 0.28 + unit * 0.5
   })
   const weightTotal = weights.reduce((sum, value) => sum + value, 0)
   const centerPosition = centerOfMassPosition(a, b)
   const centerVelocity = centerOfMassVelocity(a, b)
+  const contactPosition = collisionContactPoint(a, b, geometry.normal)
   const is2d =
     Math.abs(a.position.z) + Math.abs(b.position.z) + Math.abs(a.velocity.z) + Math.abs(b.velocity.z) < 1e-8
   const kickRatio = decision.mode === 'disrupt'
@@ -394,23 +579,36 @@ function makeEjecta(
     geometry.relativeSpeed * kickRatio * (0.92 + geometry.headOn * 0.16),
     geometry.escapeSpeed * (decision.mode === 'disrupt' ? 0.42 : 0.3),
     0.08,
-  )
+  ) * (stellarEjecta ? 1 + speedEnergy * 0.14 + geometry.grazing * 0.12 : 1)
   const contactScale = Math.max(a.radius, b.radius)
-  const spawnDistance = contactScale * (decision.mode === 'hitRun' ? 1.7 : 1.55)
+  const solidSpawnDistance = contactScale * (decision.mode === 'hitRun' ? 1.7 : 1.55)
+  const plasmaSpawnDistance = Math.min(a.radius, b.radius) * (0.08 + geometry.grazing * 0.08)
 
   return weights.map((weight, index) => {
     const share = weight / weightTotal
     const mass = requestedMass * share
     const volume = requestedVolume * share
     const radius = Math.cbrt(Math.max(volume, 1e-12))
-    const direction = getEjectaDirection(seed, index, is2d, geometry)
-    const speedNoise = 0.78 + (hashString(`${seed}:speed:${index}`) / 4294967295) * 0.72
+    const direction = getEjectaDirection(seed, index, is2d, geometry, stellarBias)
+    const speedNoise = 0.78 + seededScalar(`${seed}:speed:${index}`) * 0.72
     const velocity = add(centerVelocity, scale(direction, baseKick * speedNoise))
-    const position = add(centerPosition, scale(direction, spawnDistance + radius * 2.5))
+    const position = stellarEjecta
+      ? add(contactPosition, scale(direction, plasmaSpawnDistance + radius * 0.45))
+      : add(centerPosition, scale(direction, solidSpawnDistance + radius * 2.5))
     const tiny = radius < MIN_PERSISTENT_FRAGMENT_RADIUS || mass < MIN_PERSISTENT_FRAGMENT_MASS
-    const source = index % 2 === 0 ? a : b
 
-    if (stellarEjecta) {
+    if (stellarEjecta && stellarBias) {
+      const strippedSourceChance = 0.52 + stellarBias.massAsymmetry * 0.34
+      const source = seededScalar(`${seed}:source:${index}`) < strippedSourceChance
+        ? stellarBias.smaller
+        : stellarBias.larger
+      const lifetimeNoise = seededScalar(`${seed}:life:${index}`)
+      const lifetime = clamp(
+        STELLAR_PLASMA_LIFETIME + (index < largeCount ? 0.18 : -0.08) + speedEnergy * 0.22 + lifetimeNoise * 0.2,
+        1.25,
+        2.05,
+      )
+
       return {
         id: `${a.id}+${b.id}+plasma${serial}-${index}`,
         name: 'Stellar plasma',
@@ -421,10 +619,22 @@ function makeEjecta(
         velocity,
         bodyType: 'effect',
         age: 0,
-        lifetime: STELLAR_PLASMA_LIFETIME,
+        lifetime,
+        effectVisual: makeStellarEffectVisual(
+          a,
+          b,
+          geometry,
+          direction,
+          index,
+          count,
+          largeCount,
+          stellarBias,
+          seed,
+        ),
       }
     }
 
+    const source = index % 2 === 0 ? a : b
     return {
       id: `${a.id}+${b.id}+${tiny ? 'fx' : 'frag'}${serial}-${index}`,
       name: tiny ? 'Collision spark' : 'Debris',
@@ -437,6 +647,22 @@ function makeEjecta(
       age: tiny ? 0 : undefined,
       lifetime: tiny ? EFFECT_LIFETIME : undefined,
       collisionCooldown: FRAGMENT_COOLDOWN,
+      effectVisual: tiny
+        ? {
+            kind: 'collisionSpark',
+            direction: { ...direction },
+            normal: { ...geometry.normal },
+            stretch: 1.7 + geometry.speedRatio * 0.18,
+            widthScale: 0.46,
+            tailLength: 0.4 + geometry.speedRatio * 0.08,
+            brightness: 0.9 + speedEnergy * 0.18,
+            turbulence: 0.25 + geometry.grazing * 0.2,
+            pulseStrength: 0.06,
+            phaseOffset: seededScalar(`${seed}:spark-phase:${index}`),
+            secondaryColor: index % 2 === 0 ? b.color : a.color,
+            temperatureBias: speedEnergy,
+          }
+        : undefined,
     }
   })
 }
@@ -577,7 +803,12 @@ function resolveCollisions(input: BodyState[]): BodyState[] {
         const geometry = getCollisionGeometry(a, b)
         const decision = classifyCollision(a, b, geometry)
         const baseResultCount = decision.mode === 'hitRun' ? 2 : 1
-        const availableSlots = Math.max(0, MAX_DYNAMIC_BODIES - (bodies.length - 2 + baseResultCount))
+        // Reserve one slot for the contact flash so a visually richer stellar
+        // collision still respects the global dynamic-body performance ceiling.
+        const availableSlots = Math.max(
+          0,
+          MAX_DYNAMIC_BODIES - (bodies.length - 2 + baseResultCount + 1),
+        )
         const replacement = decision.mode === 'hitRun'
           ? resolveHitAndRun(a, b, geometry, decision, availableSlots)
           : resolveMergedCollision(a, b, geometry, decision, availableSlots)
