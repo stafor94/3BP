@@ -212,7 +212,7 @@ function testStellarMergeDeepensBeforeResolution() {
   let deepestOverlap = 0
   let resolved = false
 
-  for (let step = 0; step < 64; step += 1) {
+  for (let step = 0; step < 88; step += 1) {
     const bodyA = frame.find((body) => body.id === starA.id)
     const bodyB = frame.find((body) => body.id === starB.id)
 
@@ -230,12 +230,12 @@ function testStellarMergeDeepensBeforeResolution() {
 
   assert(resolved, 'stellar merge must eventually resolve to its physical result')
   assert(
-    contactFrames >= 35,
-    'stellar merge should preserve the two stars for most of the 0.06 simulated-second absorption window',
+    contactFrames >= 55,
+    'stellar merge should preserve the two stars for most of the 0.09 simulated-second absorption window',
   )
   assert(
-    deepestOverlap >= minRadius * 0.65,
-    'stellar merge should visibly interpenetrate well beyond the ordinary 18% impact overlap before resolving',
+    deepestOverlap >= minRadius * 1.05,
+    'stellar merge should interpenetrate beyond one full smaller-star radius before resolving',
   )
 }
 
