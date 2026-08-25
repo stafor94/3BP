@@ -8,7 +8,7 @@ export { getCollisionEffectProfile } from './collisionEffectProfile'
 export type { CollisionEffectProfile } from './collisionEffectProfile'
 
 const MAX_STAR_LIGHTS = 6
-const FRAGMENT_VISUAL_MIN_RADIUS = 0.04
+const FRAGMENT_VISUAL_MIN_RADIUS = 0.022
 const EFFECT_MESH_EPSILON = 0.0001
 
 let installed = false
@@ -48,6 +48,12 @@ const litBodyFragmentShader = `
   uniform float uOpacity;
   uniform float uSelfLuminous;
   uniform float uEmissionStrength;
+  uniform float uBodyKind;
+  uniform float uSpecularStrength;
+  uniform float uSpecularPower;
+  uniform float uAmbientStrength;
+  uniform float uTerminatorPower;
+  uniform float uAtmosphereStrength;
   uniform int uLightCount;
   uniform vec3 uLightPositions[${MAX_STAR_LIGHTS}];
   uniform vec3 uLightColors[${MAX_STAR_LIGHTS}];
@@ -86,15 +92,44 @@ const litBodyFragmentShader = `
   float drawBodySurfaceDetail(vec3 objectNormal) {
     vec3 seedOffset = vec3(uSeed * 0.071, uSeed * 0.113, uSeed * 0.157);
     float broad = valueNoise(objectNormal * 3.4 + seedOffset);
-    float fine = valueNoise(objectNormal * 8.2 - seedOffset * 1.5);
+    float medium = valueNoise(objectNormal * 7.2 - seedOffset * 1.1);
+    float fine = valueNoise(objectNormal * 15.5 + seedOffset * 2.2);
     float bands = 0.5 + 0.5 * sin((objectNormal.y * 6.8 + broad * 0.75 + uSeed * 0.013) * 6.2831853);
+    float variation;
 
-    float variation =
-      (broad - 0.5) * 0.095 +
-      (fine - 0.5) * 0.04 +
-      (bands - 0.5) * 0.018;
+    if (uBodyKind < 0.5) {
+      variation =
+        (broad - 0.5) * 0.095 +
+        (medium - 0.5) * 0.04 +
+        (bands - 0.5) * 0.018;
+    } else if (uBodyKind < 1.5) {
+      // Planet: broad continents/cloud belts with finer weather-scale breakup.
+      float cloud = smoothstep(0.68, 0.9, medium) * (0.35 + 0.65 * fine);
+      variation =
+        (broad - 0.5) * 0.24 +
+        (medium - 0.5) * 0.11 +
+        (bands - 0.5) * 0.075 +
+        cloud * 0.065;
+    } else if (uBodyKind < 2.5) {
+      // Moon: rough regolith and darker crater-like pits without atmospheric bands.
+      float pits = smoothstep(0.76, 0.96, medium * 0.62 + fine * 0.38);
+      float highlands = smoothstep(0.57, 0.82, broad) * 0.08;
+      variation =
+        (broad - 0.5) * 0.18 +
+        (fine - 0.5) * 0.11 +
+        highlands -
+        pits * 0.24;
+    } else {
+      // Solid fragments: coarse, chipped rock with much stronger local albedo variation.
+      float chips = smoothstep(0.7, 0.93, medium) * smoothstep(0.48, 0.8, fine);
+      variation =
+        (broad - 0.5) * 0.28 +
+        (medium - 0.5) * 0.18 +
+        (fine - 0.5) * 0.12 -
+        chips * 0.22;
+    }
 
-    return clamp(1.0 + variation * uDetailStrength, 0.92, 1.08);
+    return clamp(1.0 + variation * uDetailStrength, 0.52, 1.22);
   }
 
   float drawBodyEmission(vec3 worldNormal, vec3 viewDirection) {
@@ -110,7 +145,7 @@ const litBodyFragmentShader = `
   }
 
   void main() {
-    // Collision effects are drawn by the dedicated directional plasma layer.
+    // Collision effects are drawn by the dedicated directional effect layer.
     if (uOpacity <= 0.001) discard;
 
     vec3 normalWorld = normalize(vWorldNormal);
@@ -125,26 +160,36 @@ const litBodyFragmentShader = `
       color = uIdentityColor * intensity;
     } else {
       vec3 albedo = uIdentityColor * surfaceDetail;
-      vec3 litColor = albedo * 0.09;
+      vec3 litColor = albedo * uAmbientStrength;
+      vec3 atmosphereLight = vec3(0.0);
+      float viewFresnel = pow(1.0 - max(dot(normalWorld, viewDirection), 0.0), 3.2);
 
       for (int i = 0; i < ${MAX_STAR_LIGHTS}; i++) {
         if (i < uLightCount) {
           vec3 lightDelta = uLightPositions[i] - vWorldPosition;
           float distanceSquared = max(dot(lightDelta, lightDelta), 0.0025);
           vec3 lightDirection = normalize(lightDelta);
-          float diffuse = max(dot(normalWorld, lightDirection), 0.0);
+          float normalLight = max(dot(normalWorld, lightDirection), 0.0);
+          float diffuse = pow(normalLight, uTerminatorPower);
           float attenuation = 1.0 / (1.0 + distanceSquared * 0.16);
           vec3 irradiance = uLightColors[i] * uLightStrengths[i] * attenuation;
           vec3 halfDirection = normalize(lightDirection + viewDirection);
-          float specular = pow(max(dot(normalWorld, halfDirection), 0.0), 28.0) * diffuse * 0.10;
+          float specular =
+            pow(max(dot(normalWorld, halfDirection), 0.0), uSpecularPower) *
+            diffuse *
+            uSpecularStrength;
 
           litColor += albedo * irradiance * diffuse;
           litColor += irradiance * specular;
+          atmosphereLight += irradiance * (0.22 + diffuse * 0.78);
         }
       }
 
-      litColor += albedo * rim * 0.20;
-      color = min(litColor, vec3(1.35));
+      // Planetary atmosphere is deliberately confined to the surface limb so it
+      // cannot read as the additive stellar corona used by actual stars.
+      litColor += atmosphereLight * viewFresnel * uAtmosphereStrength;
+      litColor += albedo * rim * 0.16;
+      color = min(litColor, vec3(1.22));
     }
 
     gl_FragColor = vec4(color, uOpacity);
@@ -152,6 +197,85 @@ const litBodyFragmentShader = `
     #include <colorspace_fragment>
   }
 `
+
+function setSurfaceProfile(material: THREE.ShaderMaterial, body: BodyState) {
+  const bodyType = getEffectiveBodyType(body)
+  const identityColor = material.uniforms.uIdentityColor.value as THREE.Color
+
+  if (bodyType === 'star') {
+    identityColor.set(getNearestStellarColor(body.color).hex)
+    material.uniforms.uBodyKind.value = 0
+    material.uniforms.uSpecularStrength.value = 0
+    material.uniforms.uSpecularPower.value = 32
+    material.uniforms.uAmbientStrength.value = 0
+    material.uniforms.uTerminatorPower.value = 1
+    material.uniforms.uAtmosphereStrength.value = 0
+    return
+  }
+
+  identityColor.set(body.color)
+
+  if (bodyType === 'planet') {
+    identityColor.multiplyScalar(0.82)
+    material.uniforms.uBodyKind.value = 1
+    material.uniforms.uDetailStrength.value = 0.9
+    material.uniforms.uRimStrength.value = 0.025
+    material.uniforms.uSpecularStrength.value = 0.095
+    material.uniforms.uSpecularPower.value = 38
+    material.uniforms.uAmbientStrength.value = 0.055
+    material.uniforms.uTerminatorPower.value = 0.9
+    material.uniforms.uAtmosphereStrength.value = 0.045
+    return
+  }
+
+  if (bodyType === 'moon') {
+    identityColor.lerp(new THREE.Color('#9f9b92'), 0.28).multiplyScalar(0.7)
+    material.uniforms.uBodyKind.value = 2
+    material.uniforms.uDetailStrength.value = 1.12
+    material.uniforms.uRimStrength.value = 0.012
+    material.uniforms.uSpecularStrength.value = 0.018
+    material.uniforms.uSpecularPower.value = 18
+    material.uniforms.uAmbientStrength.value = 0.038
+    material.uniforms.uTerminatorPower.value = 1.06
+    material.uniforms.uAtmosphereStrength.value = 0
+    return
+  }
+
+  if (bodyType === 'fragment') {
+    identityColor.lerp(new THREE.Color('#71675f'), 0.24).multiplyScalar(0.58)
+    material.uniforms.uBodyKind.value = 3
+    material.uniforms.uDetailStrength.value = 1.28
+    material.uniforms.uRimStrength.value = 0.008
+    material.uniforms.uSpecularStrength.value = 0.012
+    material.uniforms.uSpecularPower.value = 14
+    material.uniforms.uAmbientStrength.value = 0.025
+    material.uniforms.uTerminatorPower.value = 1.12
+    material.uniforms.uAtmosphereStrength.value = 0
+    return
+  }
+
+  material.uniforms.uBodyKind.value = 4
+}
+
+function updateTrailColor(scene: THREE.Scene, objectIndex: number, body: BodyState) {
+  const trailColor = new THREE.Color(
+    getEffectiveBodyType(body) === 'star'
+      ? getNearestStellarColor(body.color).hex
+      : body.color,
+  )
+  const trailPoints = scene.children[objectIndex - 3]
+  const trailRibbon = scene.children[objectIndex - 4]
+
+  if (trailPoints instanceof THREE.Points && trailPoints.material instanceof THREE.ShaderMaterial) {
+    const uniform = trailPoints.material.uniforms.uColor
+    if (uniform?.value instanceof THREE.Color) uniform.value.copy(trailColor)
+  }
+
+  if (trailRibbon instanceof THREE.Mesh && trailRibbon.material instanceof THREE.ShaderMaterial) {
+    const uniform = trailRibbon.material.uniforms.uColor
+    if (uniform?.value instanceof THREE.Color) uniform.value.copy(trailColor)
+  }
+}
 
 function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, object: THREE.Object3D) {
   const seed = material.uniforms.uSeed?.value
@@ -167,6 +291,8 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
 
   let emissionStrength = isStar ? 1 : 0
   let effectOpacity = 1
+
+  setSurfaceProfile(material, body)
 
   if (bodyType === 'fragment') {
     object.scale.setScalar(Math.max(body.radius, FRAGMENT_VISUAL_MIN_RADIUS))
@@ -209,7 +335,7 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
     if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
       if (isStar) {
         glowInner.visible = true
-      } else if (isEffect) {
+      } else {
         glowInner.visible = false
         glowInner.material.opacity = 0
       }
@@ -218,11 +344,13 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
     if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
       if (isStar) {
         glowOuter.visible = true
-      } else if (isEffect) {
+      } else {
         glowOuter.visible = false
         glowOuter.material.opacity = 0
       }
     }
+
+    if (!isEffect && objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
   }
 }
 
@@ -292,6 +420,12 @@ export function installBodyLighting() {
         ...values.uniforms,
         uSelfLuminous: { value: 1 },
         uEmissionStrength: { value: 1 },
+        uBodyKind: { value: 0 },
+        uSpecularStrength: { value: 0 },
+        uSpecularPower: { value: 32 },
+        uAmbientStrength: { value: 0.05 },
+        uTerminatorPower: { value: 1 },
+        uAtmosphereStrength: { value: 0 },
         uLightCount: { value: 0 },
         uLightPositions: {
           value: Array.from({ length: MAX_STAR_LIGHTS }, () => new THREE.Vector3()),
