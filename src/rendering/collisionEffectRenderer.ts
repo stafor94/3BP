@@ -13,6 +13,8 @@ const MAX_SYNTHETIC_STELLAR_PAIRS = 2
 const PREVIEW_FLASH_LIFETIME = 0.72
 const PREVIEW_SHEAR_LIFETIME = 0.82
 const PREVIEW_PLASMA_LIFETIME = 1.55
+const SYNTHETIC_RETIRE_MS = 260
+const PHYSICAL_EFFECT_FADE_IN_MS = 120
 
 const effectVertexShader = `
   varying vec2 vUv;
@@ -393,6 +395,9 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
 
   const geometry = new THREE.PlaneGeometry(1, 1, 1, 1)
   const visuals = new Map<string, CollisionEffectVisual>()
+  const previousSyntheticBodies = new Map<string, BodyState>()
+  const retiringSyntheticBodies = new Map<string, { body: BodyState; startedAt: number }>()
+  const physicalEffectIntroducedAt = new Map<string, number>()
   const right = new THREE.Vector3()
   const up = new THREE.Vector3()
   const direction = new THREE.Vector3()
@@ -429,7 +434,12 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     return created
   }
 
-  const updateVisual = (visual: CollisionEffectVisual, body: BodyState, camera: THREE.Camera) => {
+  const updateVisual = (
+    visual: CollisionEffectVisual,
+    body: BodyState,
+    camera: THREE.Camera,
+    opacityScale = 1,
+  ) => {
     const profile = getCollisionEffectProfile(body)
     const effectDirection = body.effectVisual?.direction
     const fallbackDirection = vec3LengthSquared(body.velocity) > 1e-12
@@ -473,7 +483,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     ;(uniforms.uCoreColor.value as THREE.Color).copy(coreColor)
     ;(uniforms.uMidColor.value as THREE.Color).copy(midColor)
     ;(uniforms.uEdgeColor.value as THREE.Color).copy(edgeColor)
-    uniforms.uOpacity.value = profile.baseOpacity * profile.fadeAlpha
+    uniforms.uOpacity.value = profile.baseOpacity * profile.fadeAlpha * clamp(opacityScale, 0, 1)
     uniforms.uProgress.value = profile.progress
     uniforms.uSeed.value = getBodySeed(body.id) * 1000 + (body.effectVisual?.phaseOffset ?? 0) * 37
     uniforms.uKind.value = kindNumber(profile.kind)
@@ -485,17 +495,74 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
 
   return {
     update(bodies: BodyState[], camera: THREE.Camera) {
+      const now = performance.now()
       const physicalEffects = bodies.filter((body) => body.bodyType === 'effect')
       const syntheticEffects = getSyntheticStellarEffects(bodies)
-      const effects = [...physicalEffects, ...syntheticEffects]
-      const currentIds = new Set(effects.map((body) => body.id))
+      const syntheticIds = new Set(syntheticEffects.map((body) => body.id))
+      const physicalIds = new Set(physicalEffects.map((body) => body.id))
+
+      // Synthetic overlap effects are regenerated from the two still-existing stars.
+      // When the solver replaces those stars with a remnant, retain the last preview
+      // briefly instead of deleting it on that exact topology-change frame.
+      previousSyntheticBodies.forEach((body, id) => {
+        if (!syntheticIds.has(id) && !retiringSyntheticBodies.has(id)) {
+          retiringSyntheticBodies.set(id, { body, startedAt: now })
+        }
+      })
+      previousSyntheticBodies.clear()
+      syntheticEffects.forEach((body) => {
+        previousSyntheticBodies.set(body.id, body)
+        retiringSyntheticBodies.delete(body.id)
+      })
+
+      const retiringEffects: Array<{ body: BodyState; opacity: number }> = []
+      retiringSyntheticBodies.forEach((entry, id) => {
+        const progress = clamp((now - entry.startedAt) / SYNTHETIC_RETIRE_MS, 0, 1)
+        if (progress >= 1) {
+          retiringSyntheticBodies.delete(id)
+          return
+        }
+        const smoothProgress = progress * progress * (3 - 2 * progress)
+        retiringEffects.push({ body: entry.body, opacity: 1 - smoothProgress })
+      })
+
+      physicalEffects.forEach((body) => {
+        if (!physicalEffectIntroducedAt.has(body.id)) physicalEffectIntroducedAt.set(body.id, now)
+      })
+      Array.from(physicalEffectIntroducedAt.keys()).forEach((id) => {
+        if (!physicalIds.has(id)) physicalEffectIntroducedAt.delete(id)
+      })
+
+      const currentIds = new Set([
+        ...physicalEffects.map((body) => body.id),
+        ...syntheticEffects.map((body) => body.id),
+        ...retiringEffects.map((entry) => entry.body.id),
+      ])
 
       Array.from(visuals.keys()).forEach((id) => {
         if (!currentIds.has(id)) remove(id)
       })
-      effects.forEach((body) => updateVisual(ensure(body), body, camera))
+
+      physicalEffects.forEach((body) => {
+        const introducedAt = physicalEffectIntroducedAt.get(body.id) ?? now
+        const kind = body.effectVisual?.kind
+        const fadeProgress = clamp((now - introducedAt) / PHYSICAL_EFFECT_FADE_IN_MS, 0, 1)
+        const smoothFade = fadeProgress * fadeProgress * (3 - 2 * fadeProgress)
+        // The contact flash is the actual impulse and should remain immediate. Larger
+        // shear/plasma structures cross-fade in so they do not replace the overlap
+        // preview as a visibly different sprite on one frame.
+        const opacity = kind === 'contactFlash' ? 1 : 0.28 + smoothFade * 0.72
+        updateVisual(ensure(body), body, camera, opacity)
+      })
+      syntheticEffects.forEach((body) => updateVisual(ensure(body), body, camera))
+      retiringEffects.forEach(({ body, opacity }) => {
+        updateVisual(ensure(body), body, camera, opacity)
+      })
     },
     dispose() {
+      previousSyntheticBodies.clear()
+      retiringSyntheticBodies.clear()
+      physicalEffectIntroducedAt.clear()
       Array.from(visuals.keys()).forEach(remove)
       scene.remove(group)
       geometry.dispose()

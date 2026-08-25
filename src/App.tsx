@@ -25,6 +25,7 @@ import {
 } from './physics/collisionPrediction'
 import { stepBodies } from './physics/fragmentAwareEngine'
 import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
+import { findTrackingCandidate } from './trackingSelection'
 import type { BodyCount, BodyState, BodyType, PresetId, SpaceMode, TrailSample, TrailSampleBatch } from './types'
 
 const PHYSICS_DT = 0.0015
@@ -40,8 +41,8 @@ const COLLISION_WATCH_APPROACH_SPEED = 0.1
 const COLLISION_WATCH_IMPACT_SLOW_TIME = 0.06
 const COLLISION_WATCH_IMPACT_SPEED = 0.03
 const COLLISION_WATCH_MUTE_MS = 6000
-const COLLISION_WATCH_POST_IMPACT_LOCK_MS = 2000
-const COLLISION_WATCH_INFO_POST_IMPACT_MS = 2000
+const COLLISION_WATCH_POST_IMPACT_LOCK_MS = 3000
+const COLLISION_WATCH_INFO_POST_IMPACT_MS = 3000
 const TRACKING_MIN_MASS_RATIO = 0.5
 const MIN_BODY_SCALE = 0.25
 const MAX_BODY_SCALE = 4
@@ -238,7 +239,7 @@ export default function App() {
       return
     }
 
-    const target = resolveBodyDescendant(bodiesRef.current, bodyId)
+    const target = findTrackingCandidate(bodiesRef.current, bodyId)
     if (!target) {
       trackingBaselineRef.current = null
       setTrackedBodyId(null)
@@ -286,7 +287,7 @@ export default function App() {
     setTrackedBodyId((current) => {
       if (!current) return null
 
-      const candidate = resolveBodyDescendant(bodies, current)
+      const candidate = findTrackingCandidate(bodies, current)
       if (!candidate) {
         trackingBaselineRef.current = null
         return null
@@ -515,13 +516,6 @@ export default function App() {
 
     beginCollisionWatchInfo(prediction, watchBodies)
 
-    const bodyA = resolveBodyDescendant(watchBodies, prediction.bodyAId)
-    const bodyB = resolveBodyDescendant(watchBodies, prediction.bodyBId)
-    const target = bodyA && bodyB
-      ? (bodyA.mass > bodyB.mass || (bodyA.mass === bodyB.mass && bodyA.radius >= bodyB.radius) ? bodyA : bodyB)
-      : bodyA ?? bodyB
-    if (target) changeTrackedBody(target.id)
-
     applyCollisionWatchSpeed(COLLISION_WATCH_APPROACH_SPEED)
     runningRef.current = true
     setIsRunning(true)
@@ -534,7 +528,7 @@ export default function App() {
     autoCollisionWatchPairRef.current = null
     setCollisionPrediction(null)
     setCollisionReplayReady(false)
-  }, [applyCollisionWatchSpeed, beginCollisionWatchInfo, changeTrackedBody, resetTrailSampling])
+  }, [applyCollisionWatchSpeed, beginCollisionWatchInfo, resetTrailSampling])
 
   useEffect(() => {
     let animationFrame = 0
@@ -607,14 +601,7 @@ export default function App() {
               upcoming.timeToImpact <= COLLISION_CAMERA_LEAD_TIME &&
               autoCollisionWatchPairRef.current !== upcoming.pairKey
             ) {
-              const bodyA = resolveBodyDescendant(bodiesRef.current, upcoming.bodyAId)
-              const bodyB = resolveBodyDescendant(bodiesRef.current, upcoming.bodyBId)
-              const target = bodyA && bodyB
-                ? (bodyA.mass > bodyB.mass || (bodyA.mass === bodyB.mass && bodyA.radius >= bodyB.radius) ? bodyA : bodyB)
-                : bodyA ?? bodyB
-
               beginCollisionWatchInfo(upcoming, bodiesRef.current)
-              if (target) changeTrackedBody(target.id)
               autoCollisionWatchPairRef.current = upcoming.pairKey
             }
 
@@ -689,7 +676,7 @@ export default function App() {
             collisionConfirmationRef.current = null
             collisionReplayRef.current = null
             collisionLastSeenAtRef.current = 0
-            applyCollisionWatchSpeed(COLLISION_WATCH_APPROACH_SPEED)
+            applyCollisionWatchSpeed(COLLISION_WATCH_IMPACT_SPEED)
             setCollisionWatchInfo(impactedWatch)
             setCollisionPrediction(null)
             setCollisionReplayReady(false)
@@ -742,7 +729,7 @@ export default function App() {
 
     animationFrame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(animationFrame)
-  }, [applyCollisionWatchSpeed, beginCollisionWatchInfo, changeTrackedBody])
+  }, [applyCollisionWatchSpeed, beginCollisionWatchInfo])
 
   return (
     <main className="app-shell">

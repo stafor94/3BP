@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { isBodyDescendedFrom, resolveBodyDescendant } from '../collisionWatch'
+import { resolveBodyDescendant } from '../collisionWatch'
 import { FRAGMENT_TRAIL_TIME, getFragmentOpacity } from '../fragmentLifecycle'
+import { findTrackingCandidate } from '../trackingSelection'
 import { getNearestStellarColor } from '../starColors'
 import type { BodyState, TrailSampleBatch } from '../types'
 import {
@@ -110,7 +111,7 @@ const RENDER_TUNING = {
     defaultMinDistance: 0.03,
     maxDistance: 450,
     trackingTransition: 0.16,
-    collisionTransition: 0.12,
+    collisionTransition: 0.075,
     collisionEntryTransition: 0.2,
     focusSettleFrames: 18,
     radiusReframeThreshold: 0.025,
@@ -747,8 +748,6 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
   let observedCollisionMainSourceId: string | null = null
   let observedCollisionPrimaryId: string | null = null
   let observedCollisionPrimaryRadius = 0
-  let collisionCameraSuppressedPairKey: string | null = null
-  let collisionTrackingEstablished = false
   let trackingFocusSettleFrames = 0
   let collisionFocusSettleFrames = 0
   let wasTrackingBody = false
@@ -957,7 +956,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
 
   const getTrackedBody = (current: BodyState[], trackedBodyId: string | null) => {
     if (!trackedBodyId) return undefined
-    return resolveBodyDescendant(current, trackedBodyId)
+    return findTrackingCandidate(current, trackedBodyId) ?? undefined
   }
 
   const getCollisionBody = (current: BodyState[], sourceId: string) => (
@@ -1039,8 +1038,6 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     observedCollisionMainSourceId = null
     observedCollisionPrimaryId = null
     observedCollisionPrimaryRadius = 0
-    collisionCameraSuppressedPairKey = null
-    collisionTrackingEstablished = false
     collisionFocusSettleFrames = 0
   }
 
@@ -1075,28 +1072,11 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
         collisionViewDirection.normalize()
       }
       observedCollisionPairKey = focus.pairKey
-      collisionCameraSuppressedPairKey = null
-      collisionTrackingEstablished = Boolean(
-        state.trackedBodyId && isBodyDescendedFrom(state.trackedBodyId, observedCollisionMainSourceId),
-      )
       collisionFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
     }
 
     const mainSourceId = observedCollisionMainSourceId
     if (!mainSourceId) return false
-
-    const trackedMainBody = Boolean(
-      state.trackedBodyId && isBodyDescendedFrom(state.trackedBodyId, mainSourceId),
-    )
-    if (!collisionTrackingEstablished && trackedMainBody) {
-      collisionTrackingEstablished = true
-    } else if (collisionTrackingEstablished && !trackedMainBody) {
-      collisionCameraSuppressedPairKey = focus.pairKey
-    }
-    if (collisionCameraSuppressedPairKey === focus.pairKey) {
-      resetAutoDistanceLimits()
-      return false
-    }
 
     const primary = getCollisionBody(state.bodies, mainSourceId)
     if (!primary) {
@@ -1113,10 +1093,19 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       ? Math.abs(renderedRadius - observedCollisionPrimaryRadius) / observedCollisionPrimaryRadius
       : Number.POSITIVE_INFINITY
     const primaryChanged = observedCollisionPrimaryId !== primary.id
-    const shouldReframe = pairChanged || primaryChanged ||
-      radiusChangeRatio >= RENDER_TUNING.camera.radiusReframeThreshold
+    const targetLineagesMerged = bodyA.id === bodyB.id
+    const shouldReframe = pairChanged || (!targetLineagesMerged && (
+      primaryChanged || radiusChangeRatio >= RENDER_TUNING.camera.radiusReframeThreshold
+    ))
 
-    if (shouldReframe) {
+    // On the exact merge-resolution frame, keep the camera-to-target offset and
+    // distance unchanged. moveCameraTargetTo() already follows the remnant by
+    // translating camera and target together, so a fresh zoom would read as a cut.
+    if (targetLineagesMerged && primaryChanged) {
+      observedCollisionPrimaryId = primary.id
+      observedCollisionPrimaryRadius = renderedRadius
+      collisionFocusSettleFrames = 0
+    } else if (shouldReframe) {
       observedCollisionPrimaryId = primary.id
       observedCollisionPrimaryRadius = renderedRadius
       collisionFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
@@ -1141,14 +1130,9 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     return true
   }
 
-  const isTrackingSelectionChanged = (nextTrackedBodyId: string | null) => {
-    if (observedTrackedBodyId === nextTrackedBodyId) return false
-    if (!observedTrackedBodyId || !nextTrackedBodyId) return true
-    return !(
-      isBodyDescendedFrom(nextTrackedBodyId, observedTrackedBodyId) ||
-      isBodyDescendedFrom(observedTrackedBodyId, nextTrackedBodyId)
-    )
-  }
+  const isTrackingSelectionChanged = (nextTrackedBodyId: string | null) => (
+    observedTrackedBodyId !== nextTrackedBodyId
+  )
 
   const applyTrackingCameraFocus = (trackedBody: BodyState, selectionChanged: boolean) => {
     targetScratch.set(trackedBody.position.x, trackedBody.position.y, trackedBody.position.z)
