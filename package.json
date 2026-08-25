@@ -1,11 +1,12 @@
 {
   "name": "3bp",
   "private": true,
-  "version": "0.17.11",
+  "version": "0.17.12",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "check:physics": "node scripts/runPhysicsRegression.mjs",
+    "build": "npm run check:physics && tsc -b && vite build",
     "preview": "vite preview",
     "bump:patch": "npm version patch --no-git-tag-version",
     "bump:minor": "npm version minor --no-git-tag-version",
