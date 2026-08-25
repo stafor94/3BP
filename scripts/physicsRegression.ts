@@ -253,6 +253,7 @@ function testStellarMergeDeepensBeforeResolution() {
   let frame = stepFragmentAwareBodies([starA, starB], dt)
   let contactFrames = 0
   let deepestOverlap = 0
+  let plateauFrames = 0
   let resolved = false
 
   for (let step = 0; step < 120; step += 1) {
@@ -262,6 +263,7 @@ function testStellarMergeDeepensBeforeResolution() {
     if (bodyA && bodyB) {
       const overlap = Math.max(0, contactDistance - distance(bodyA, bodyB))
       deepestOverlap = Math.max(deepestOverlap, overlap)
+      if (overlap >= minRadius * 0.35) plateauFrames += 1
       contactFrames += 1
       frame = stepFragmentAwareBodies(frame, dt)
       continue
@@ -273,16 +275,96 @@ function testStellarMergeDeepensBeforeResolution() {
 
   assert(resolved, 'stellar merge must eventually resolve to its physical result')
   assert(
-    contactFrames >= 5 && contactFrames <= 8,
-    'stellar merge staging must preserve a human-readable 5-8 frame impact envelope before topology reveal',
+    contactFrames >= 14 && contactFrames <= 18,
+    'stellar merge staging must preserve a 14-18 step impact envelope before topology reveal',
   )
   assert(
-    deepestOverlap >= minRadius * 0.25,
-    'stellar merge contact bridge must still show visible compression before resolving',
+    deepestOverlap >= minRadius * 0.35,
+    'stellar merge contact bridge must reach the configured compression peak before resolving',
   )
   assert(
     deepestOverlap <= minRadius * 0.361,
     'stellar merge display staging must not exceed the configured 36% overlap target',
+  )
+  assert(
+    plateauFrames >= 5,
+    'stellar merge must hold a compressed contact plateau for multiple steps instead of tunneling until reveal',
+  )
+}
+
+function testStellarImpactWatchTriggersBeforeTopologyResolve() {
+  const starA: BodyState = {
+    id: 'watch-stellar-a',
+    name: 'Watch Stellar A',
+    color: '#fff0cc',
+    mass: 1,
+    radius: 0.3,
+    position: { x: -0.30025, y: 0, z: 0 },
+    velocity: { x: 0.2, y: 0, z: 0 },
+    bodyType: 'star',
+  }
+  const starB: BodyState = {
+    id: 'watch-stellar-b',
+    name: 'Watch Stellar B',
+    color: '#ff9977',
+    mass: 1,
+    radius: 0.3,
+    position: { x: 0.30025, y: 0, z: 0 },
+    velocity: { x: -0.2, y: 0, z: 0 },
+    bodyType: 'star',
+  }
+
+  const dt = 0.0015
+  let previous: BodyState[] = [starA, starB]
+  let impactDetected = false
+  let additionalDualSourceSteps = 0
+  let resolvedFrame: BodyState[] | null = null
+
+  for (let step = 0; step < 48; step += 1) {
+    const next = stepFragmentAwareBodies(previous, dt)
+    const nextA = next.find((body) => body.id === starA.id)
+    const nextB = next.find((body) => body.id === starB.id)
+    const mergedRemnant = next.find((body) =>
+      body.bodyType === 'star' &&
+      body.id !== starA.id &&
+      body.id !== starB.id &&
+      body.id.includes(starA.id) &&
+      body.id.includes(starB.id),
+    )
+
+    const justDetected = !impactDetected && didCollisionWatchTargetImpact(
+      previous,
+      next,
+      starA.id,
+      starB.id,
+      dt,
+    )
+
+    if (justDetected) {
+      impactDetected = true
+      assert(nextA && nextB, 'stellar impact must be detected while both source stars still exist')
+      assert(!mergedRemnant, 'stellar impact detection must precede merged-remnant topology')
+    } else if (impactDetected && nextA && nextB) {
+      additionalDualSourceSteps += 1
+    }
+
+    if (impactDetected && (!nextA || !nextB)) {
+      resolvedFrame = next
+      break
+    }
+
+    previous = next
+  }
+
+  assert(impactDetected, 'stellar collision watch must detect the compression impact peak')
+  assert(
+    additionalDualSourceSteps >= 7,
+    'stellar sources must remain visible for at least seven additional physics steps after impact detection',
+  )
+  assert(resolvedFrame, 'stellar topology must eventually resolve after the masked impact hold')
+  assert(
+    resolvedFrame.some((body) => body.bodyType === 'effect' && body.name === 'Collision flash'),
+    'physical contact flash must exist on the first resolved topology frame',
   )
 }
 
@@ -322,7 +404,7 @@ function testCollisionWatchFollowsDescendantLineage() {
       'Gamma',
       0.0015,
     ),
-    'watch must complete when the two source lineages actually merge',
+    'merged lineage must remain a fallback impact signal for resumed collision-watch state',
   )
 }
 
@@ -401,6 +483,7 @@ const tests = [
   testHitAndRunSurvivorsDoNotOverlap,
   testStagedImpactKeepsCollidersVisibleBeforeResolution,
   testStellarMergeDeepensBeforeResolution,
+  testStellarImpactWatchTriggersBeforeTopologyResolve,
   testCollisionWatchFollowsDescendantLineage,
   testCollisionWatchRequiresTargetHitAndRunResult,
   testPerspectiveCameraFramingMatchesOneTwentiethWidth,
