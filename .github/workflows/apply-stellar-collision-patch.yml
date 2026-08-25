@@ -1,0 +1,42 @@
+name: Apply stellar collision patch
+
+on:
+  push:
+    branches: [fix/stellar-collision-outcomes-vfx]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[stellar-patch-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: fix/stellar-collision-outcomes-vfx
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Apply patch
+        run: python3 .github/scripts/apply-stellar-collision-patch.py
+      - name: Install dependencies
+        run: npm install
+      - name: Physics regression
+        run: npm run check:physics
+      - name: TypeScript compile
+        run: npx tsc -b
+      - name: Vite build
+        run: npx vite build
+      - name: Commit validated patch
+        run: |
+          rm .github/workflows/apply-stellar-collision-patch.yml
+          rm .github/scripts/apply-stellar-collision-patch.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: make stellar collisions physically consequential [stellar-patch-applied]"
+          git push origin HEAD:fix/stellar-collision-outcomes-vfx
