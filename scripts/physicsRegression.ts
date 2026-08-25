@@ -219,8 +219,8 @@ function testStagedImpactKeepsCollidersVisibleBeforeResolution() {
 
   assert(resolved, 'staged collision must resolve within its configured impact window')
   assert(
-    contactFrames >= 25,
-    'contact must remain visible for most of the 0.045 simulated-second impact window',
+    contactFrames >= 2 && contactFrames <= 4,
+    'ordinary impact staging must remain a short contact bridge instead of a long simulated-time hold',
   )
   assert(sawVisibleOverlap, 'merge impact staging must visibly compress the colliders after contact')
 }
@@ -273,16 +273,16 @@ function testStellarMergeDeepensBeforeResolution() {
 
   assert(resolved, 'stellar merge must eventually resolve to its physical result')
   assert(
-    contactFrames >= 72,
-    'stellar merge should preserve both original stars for most of the 0.12 simulated-second absorption window',
+    contactFrames >= 4 && contactFrames <= 6,
+    'stellar merge staging must stay within the short contact bridge before physical resolution',
   )
   assert(
-    deepestOverlap >= minRadius * 1.5,
-    'stellar merge should reach at least 150% of the smaller-star radius before resolving',
+    deepestOverlap >= minRadius * 0.25,
+    'stellar merge contact bridge must still show visible compression before resolving',
   )
   assert(
-    deepestOverlap <= minRadius * 1.601,
-    'stellar merge display staging must not exceed the configured 160% overlap target',
+    deepestOverlap <= minRadius * 0.341,
+    'stellar merge display staging must not exceed the configured 34% overlap target',
   )
 }
 

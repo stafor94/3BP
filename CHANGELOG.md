@@ -6,6 +6,26 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.17.24] - 2026-08-26
+
+### Added
+- 충돌 관찰 속도를 `approach → impact → postImpact → restoring` 실시간 phase 상태 머신으로 분리하고, 충돌 종류별 hold/ramp 값을 순수 계산 모듈과 회귀 체크로 분리했습니다.
+- 항성↔항성 실제 충돌에 강한 white-hot 비등방 섬광, 난류 압축 충격면, 방향성 플라즈마 강화, 속이 비고 가장자리가 끊기는 팽창 afterglow/halo를 추가했습니다.
+
+### Changed
+- 충돌 후 3초 동안 0.03x를 고정하던 정책을 제거하고, 항성 충돌은 약 0.85초 impact 0.03x → 약 1.65초 post-impact 0.08x → 약 0.7초 smooth restore로 변경했습니다. 소형체와 비항성 충돌은 더 짧은 프로파일을 사용합니다.
+- 카메라 유지 시간, 충돌 정보 UI 수명, 속도 제어 수명을 서로 독립시켰으며 restoring 도중 새 충돌이 감지되면 새 collision phase가 우선하도록 했습니다. 사용자가 관찰 중 속도를 직접 바꾸면 이후 자동 속도 복원보다 사용자 입력을 우선합니다.
+- 항성 합체의 display-only 중첩 구간을 짧게 줄여 0.03x에서 수 초간 topology 해석을 지연시키던 흐름을 제거했습니다.
+- physical collision VFX의 시각 age를 real-time으로 계산해 저속 관찰 중 flash/plasma 수명이 과도하게 늘어나지 않도록 했습니다.
+- synthetic stellar overlap retire 260ms와 physical shear/plasma fade-in 140ms의 cross-fade를 유지하며 contact flash는 즉시 표시합니다.
+- 대형 항성 VFX는 opacity/brightness와 world-space 최대 직경을 clamp하고, 기존 동적 천체 상한 안에서 flash/shock/afterglow 슬롯을 먼저 예약하도록 했습니다.
+- collision camera framing은 기존 physical body/remnant 기준을 유지하며 VFX radius는 auto framing에 포함하지 않습니다.
+
+### Fixed
+- 충돌 정보 UI 종료가 곧바로 극저속 해제와 카메라 종료까지 발생시키던 결합을 제거했습니다.
+- 연속 충돌에서 이전 restore ramp가 다음 충돌의 0.03x/0.08x phase를 덮어쓸 수 있는 경로를 차단했습니다.
+- v0.17.23의 일반 tracking/충돌 camera continuity 규칙은 그대로 유지해 merge frame 줌 점프와 합체 후손 자동 일반 추적이 재발하지 않도록 했습니다.
+
 ## [0.17.23] - 2026-08-26
 
 ### Changed

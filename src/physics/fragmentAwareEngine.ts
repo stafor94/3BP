@@ -7,14 +7,13 @@ import { stepBodies as stepPhysicsBodies } from './engine'
 const COLLISION_SPARK_NAME = 'Collision spark'
 const COLLISION_FLASH_NAME = 'Collision flash'
 
-// Ordinary impacts keep the existing ~1.5 real-second contact presentation at
-// collision-watch speed (0.03x). Stellar merges get a longer absorption window:
-// 0.12 simulated seconds is roughly 4 real seconds at 0.03x, matching the
-// increased 160% display-only overlap before the physical remnant replaces both stars.
-const COLLISION_IMPACT_SIM_DURATION = 0.045
-const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.12
-const IMPACT_MAX_OVERLAP_RATIO = 0.18
-const STELLAR_MERGE_MAX_OVERLAP_RATIO = 1.6
+// Keep only a very short display-only contact bridge before topology resolution.
+// Collision-watch slow motion is real-time phase controlled in App.tsx; stretching
+// this simulated overlap would otherwise recreate a multi-second 0.03x stall.
+const COLLISION_IMPACT_SIM_DURATION = 0.006
+const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.009
+const IMPACT_MAX_OVERLAP_RATIO = 0.14
+const STELLAR_MERGE_MAX_OVERLAP_RATIO = 0.34
 const CONTACT_RESOLUTION_OVERLAP = 1e-6
 const CONTACT_RESOLUTION_DT = 1e-8
 const TRACKING_G = 1
