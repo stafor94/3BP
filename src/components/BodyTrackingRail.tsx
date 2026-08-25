@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { translations, type Language } from '../i18n'
+import { findDirectTrackingCandidate } from '../trackingSelection'
 import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
 import '../body-tracking-rail.css'
 
@@ -32,14 +33,6 @@ function cloneTrackingBody(body: BodyState): BodyState {
 
 function isInitialTrackingBody(body: BodyState) {
   return body.bodyType !== 'fragment' && body.bodyType !== 'effect' && !body.id.includes('+')
-}
-
-function isTrackablePhysicalBody(body: BodyState) {
-  return body.bodyType !== 'fragment' && body.bodyType !== 'effect'
-}
-
-export function findDirectTrackingCandidate(bodies: BodyState[], sourceId: string) {
-  return bodies.find((body) => body.id === sourceId && isTrackablePhysicalBody(body)) ?? null
 }
 
 function buildTrackingEntries(bodies: BodyState[], sourceBodies: BodyState[]): TrackingEntry[] {
