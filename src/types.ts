@@ -2,6 +2,27 @@ export type Vec3 = { x: number; y: number; z: number }
 
 export type BodyType = 'star' | 'planet' | 'moon' | 'fragment' | 'effect'
 
+export type EffectVisualKind =
+  | 'contactFlash'
+  | 'compressionShear'
+  | 'stellarPlasma'
+  | 'collisionSpark'
+
+export type EffectVisualState = {
+  kind: EffectVisualKind
+  direction: Vec3
+  normal?: Vec3
+  stretch?: number
+  widthScale?: number
+  tailLength?: number
+  brightness?: number
+  turbulence?: number
+  pulseStrength?: number
+  phaseOffset?: number
+  secondaryColor?: string
+  temperatureBias?: number
+}
+
 export type BodyState = {
   id: string
   name: string
@@ -14,6 +35,7 @@ export type BodyState = {
   age?: number
   lifetime?: number
   collisionCooldown?: number
+  effectVisual?: EffectVisualState
 }
 
 export type TrailSample = {
