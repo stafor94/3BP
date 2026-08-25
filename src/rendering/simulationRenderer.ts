@@ -1194,8 +1194,9 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       applyTrackingCameraFocus(trackedBody, selectionChanged)
       observedTrackedBodyId = state.trackedBodyId
     } else {
-      moveCameraTargetTo(compositionOffset)
+      if (compositionMode === null) moveCameraTargetTo(compositionOffset)
       resetAutoDistanceLimits()
+      trackingFocusSettleFrames = 0
       wasTrackingBody = false
     }
 
@@ -1236,7 +1237,6 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     if (!collisionCameraFocused && trackedBody) {
       applyTrackingCameraFocus(trackedBody, trackingSelectionChanged)
     } else if (!collisionCameraFocused && (wasTrackingBody || trackingSelectionChanged)) {
-      moveCameraTargetTo(compositionOffset)
       resetAutoDistanceLimits()
       trackingFocusSettleFrames = 0
       wasTrackingBody = false
