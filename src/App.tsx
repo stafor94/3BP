@@ -160,7 +160,30 @@ export default function App() {
   const collisionWatchMuteUntilRef = useRef(0)
   const collisionWatchInfoRef = useRef<CollisionWatchDetails | null>(null)
   const collisionWatchImpactSimTimeRef = useRef<number | null>(null)
+  const collisionWatchRestoreSpeedRef = useRef<number | null>(null)
+  const collisionWatchManagedSpeedRef = useRef<number | null>(null)
   const t = translations[language]
+
+  const applyCollisionWatchSpeed = useCallback((nextSpeed: number) => {
+    collisionWatchManagedSpeedRef.current = nextSpeed
+    speedRef.current = nextSpeed
+    setSpeed(nextSpeed)
+  }, [])
+
+  const restoreCollisionWatchSpeed = useCallback(() => {
+    const restoreSpeed = collisionWatchRestoreSpeedRef.current
+    const managedSpeed = collisionWatchManagedSpeedRef.current
+    if (
+      restoreSpeed !== null &&
+      managedSpeed !== null &&
+      Math.abs(speedRef.current - managedSpeed) <= 1e-9
+    ) {
+      speedRef.current = restoreSpeed
+      setSpeed(restoreSpeed)
+    }
+    collisionWatchRestoreSpeedRef.current = null
+    collisionWatchManagedSpeedRef.current = null
+  }, [])
 
   const changeTrackedBody = useCallback((bodyId: string | null) => {
     if (!bodyId) {
@@ -263,11 +286,12 @@ export default function App() {
       collisionWatchImpactSimTimeRef.current = null
       if (autoCollisionWatchPairRef.current === pairKey) autoCollisionWatchPairRef.current = null
       nextCollisionCheckAtRef.current = 0
+      restoreCollisionWatchSpeed()
       setCollisionWatchInfo(null)
     }, remaining)
 
     return () => window.clearTimeout(timer)
-  }, [collisionWatchInfo])
+  }, [collisionWatchInfo, restoreCollisionWatchSpeed])
 
   const resetTrailSampling = useCallback((startTime: number) => {
     simulationTimeRef.current = startTime
@@ -278,6 +302,7 @@ export default function App() {
   }, [])
 
   const clearCollisionWarning = useCallback(() => {
+    restoreCollisionWatchSpeed()
     collisionPredictionRef.current = null
     collisionConfirmationRef.current = null
     collisionReplayRef.current = null
@@ -290,9 +315,14 @@ export default function App() {
     setCollisionPrediction(null)
     setCollisionReplayReady(false)
     setCollisionWatchInfo(null)
-  }, [])
+  }, [restoreCollisionWatchSpeed])
 
   const beginCollisionWatchInfo = useCallback((prediction: CollisionPrediction, sourceBodies: BodyState[]) => {
+    if (collisionWatchRestoreSpeedRef.current === null) {
+      collisionWatchRestoreSpeedRef.current = speedRef.current
+      collisionWatchManagedSpeedRef.current = null
+    }
+
     const bodyA = sourceBodies.find((body) => body.id === prediction.bodyAId)
     const bodyB = sourceBodies.find((body) => body.id === prediction.bodyBId)
     const details: CollisionWatchDetails = {
@@ -468,9 +498,8 @@ export default function App() {
     )
     if (target) changeTrackedBody(target.id)
 
-    speedRef.current = COLLISION_WATCH_APPROACH_SPEED
+    applyCollisionWatchSpeed(COLLISION_WATCH_APPROACH_SPEED)
     runningRef.current = true
-    setSpeed(COLLISION_WATCH_APPROACH_SPEED)
     setIsRunning(true)
 
     collisionWatchMuteUntilRef.current = performance.now() + COLLISION_WATCH_MUTE_MS
@@ -481,7 +510,7 @@ export default function App() {
     autoCollisionWatchPairRef.current = null
     setCollisionPrediction(null)
     setCollisionReplayReady(false)
-  }, [beginCollisionWatchInfo, changeTrackedBody, resetTrailSampling])
+  }, [applyCollisionWatchSpeed, beginCollisionWatchInfo, changeTrackedBody, resetTrailSampling])
 
   useEffect(() => {
     let animationFrame = 0
@@ -513,8 +542,7 @@ export default function App() {
               ? COLLISION_WATCH_APPROACH_SPEED
               : null
           if (watchSpeed !== null && Math.abs(speedRef.current - watchSpeed) > 1e-9) {
-            speedRef.current = watchSpeed
-            setSpeed(watchSpeed)
+            applyCollisionWatchSpeed(watchSpeed)
           }
         }
       }
@@ -631,11 +659,10 @@ export default function App() {
             collisionConfirmationRef.current = null
             collisionReplayRef.current = null
             collisionLastSeenAtRef.current = 0
-            speedRef.current = COLLISION_WATCH_APPROACH_SPEED
+            applyCollisionWatchSpeed(COLLISION_WATCH_APPROACH_SPEED)
             setCollisionWatchInfo(impactedWatch)
             setCollisionPrediction(null)
             setCollisionReplayReady(false)
-            setSpeed(COLLISION_WATCH_APPROACH_SPEED)
           }
         }
 
@@ -681,7 +708,7 @@ export default function App() {
 
     animationFrame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(animationFrame)
-  }, [beginCollisionWatchInfo, changeTrackedBody])
+  }, [applyCollisionWatchSpeed, beginCollisionWatchInfo, changeTrackedBody])
 
   return (
     <main className="app-shell">
