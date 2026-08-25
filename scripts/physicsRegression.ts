@@ -273,12 +273,12 @@ function testStellarMergeDeepensBeforeResolution() {
 
   assert(resolved, 'stellar merge must eventually resolve to its physical result')
   assert(
-    contactFrames >= 5 && contactFrames <= 8,
-    'stellar merge staging must preserve a human-readable 5-8 frame impact envelope before topology reveal',
+    contactFrames >= 14 && contactFrames <= 18,
+    `stellar merge staging must preserve a 14-18 frame topology-mask envelope, got ${contactFrames}`,
   )
   assert(
-    deepestOverlap >= minRadius * 0.25,
-    'stellar merge contact bridge must still show visible compression before resolving',
+    deepestOverlap >= minRadius * 0.34,
+    'stellar merge contact bridge must reach the near-maximum compression plateau before resolving',
   )
   assert(
     deepestOverlap <= minRadius * 0.361,
