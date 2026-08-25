@@ -1,6 +1,7 @@
 import { getEffectiveBodyType } from '../bodyTypes'
 import { FRAGMENT_LIFETIME } from '../fragmentLifecycle'
 import type { BodyState, Vec3 } from '../types'
+import { getCollisionContactDistance } from './collisionContact'
 import { stepBodies as stepPhysicsBodies } from './engine'
 
 const COLLISION_SPARK_NAME = 'Collision spark'
@@ -10,6 +11,7 @@ const COLLISION_FLASH_NAME = 'Collision flash'
 // 1.5 real seconds. Keep the physical result advancing in the background while
 // the renderer receives the two colliders for a short, readable contact phase.
 const COLLISION_TRANSITION_SIM_DURATION = 0.045
+const COLLISION_CONTACT_PROGRESS = 0.58
 
 // Large solid fragments behave as long-lived asteroids. Keep the cap deliberately
 // small so N-body cost remains predictable even after many collisions.
@@ -22,6 +24,11 @@ type CollisionTransition = {
   bodyB: BodyState
   physicalBodies: BodyState[]
   elapsed: number
+}
+
+type CollisionContactPositions = {
+  bodyA: Vec3
+  bodyB: Vec3
 }
 
 // The simulator feeds each returned body array directly into the next physics
@@ -171,6 +178,54 @@ function smoothstep01(value: number) {
   return t * t * (3 - 2 * t)
 }
 
+function getCollisionContactPositions(a: BodyState, b: BodyState): CollisionContactPositions {
+  const delta = {
+    x: b.position.x - a.position.x,
+    y: b.position.y - a.position.y,
+    z: b.position.z - a.position.z,
+  }
+  const distance = Math.hypot(delta.x, delta.y, delta.z)
+  const relativeVelocity = {
+    x: b.velocity.x - a.velocity.x,
+    y: b.velocity.y - a.velocity.y,
+    z: b.velocity.z - a.velocity.z,
+  }
+  const relativeSpeed = Math.hypot(relativeVelocity.x, relativeVelocity.y, relativeVelocity.z)
+  const normal = distance > 1e-10
+    ? {
+        x: delta.x / distance,
+        y: delta.y / distance,
+        z: delta.z / distance,
+      }
+    : relativeSpeed > 1e-10
+      ? {
+          x: relativeVelocity.x / relativeSpeed,
+          y: relativeVelocity.y / relativeSpeed,
+          z: relativeVelocity.z / relativeSpeed,
+        }
+      : { x: 1, y: 0, z: 0 }
+  const totalMass = Math.max(a.mass + b.mass, 1e-9)
+  const center = {
+    x: (a.position.x * a.mass + b.position.x * b.mass) / totalMass,
+    y: (a.position.y * a.mass + b.position.y * b.mass) / totalMass,
+    z: (a.position.z * a.mass + b.position.z * b.mass) / totalMass,
+  }
+  const contactDistance = getCollisionContactDistance(a, b)
+
+  return {
+    bodyA: {
+      x: center.x - normal.x * contactDistance * (b.mass / totalMass),
+      y: center.y - normal.y * contactDistance * (b.mass / totalMass),
+      z: center.z - normal.z * contactDistance * (b.mass / totalMass),
+    },
+    bodyB: {
+      x: center.x + normal.x * contactDistance * (a.mass / totalMass),
+      y: center.y + normal.y * contactDistance * (a.mass / totalMass),
+      z: center.z + normal.z * contactDistance * (a.mass / totalMass),
+    },
+  }
+}
+
 function brightenHex(color: string, amount: number) {
   const normalized = color.trim().replace(/^#/, '')
   if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return color
@@ -186,17 +241,31 @@ function brightenHex(color: string, amount: number) {
   return `#${channel(red)}${channel(green)}${channel(blue)}`
 }
 
-function animateCollider(body: BodyState, target: BodyState | null, progress: number) {
-  const eased = smoothstep01(progress)
+function animateCollider(
+  body: BodyState,
+  contactPosition: Vec3,
+  target: BodyState | null,
+  progress: number,
+) {
+  const approachProgress = smoothstep01(progress / COLLISION_CONTACT_PROGRESS)
+  const departureProgress = smoothstep01(
+    (progress - COLLISION_CONTACT_PROGRESS) / (1 - COLLISION_CONTACT_PROGRESS),
+  )
   const fallbackTarget = {
     position: {
-      x: body.position.x + body.velocity.x * COLLISION_TRANSITION_SIM_DURATION,
-      y: body.position.y + body.velocity.y * COLLISION_TRANSITION_SIM_DURATION,
-      z: body.position.z + body.velocity.z * COLLISION_TRANSITION_SIM_DURATION,
+      x: contactPosition.x + body.velocity.x * COLLISION_TRANSITION_SIM_DURATION,
+      y: contactPosition.y + body.velocity.y * COLLISION_TRANSITION_SIM_DURATION,
+      z: contactPosition.z + body.velocity.z * COLLISION_TRANSITION_SIM_DURATION,
     },
     velocity: body.velocity,
   }
   const destination = target ?? fallbackTarget
+  const position = progress <= COLLISION_CONTACT_PROGRESS
+    ? lerpVec3(body.position, contactPosition, approachProgress)
+    : lerpVec3(contactPosition, destination.position, departureProgress)
+  const velocityProgress = progress <= COLLISION_CONTACT_PROGRESS
+    ? approachProgress * COLLISION_CONTACT_PROGRESS
+    : COLLISION_CONTACT_PROGRESS + departureProgress * (1 - COLLISION_CONTACT_PROGRESS)
   const pulse = 1 + Math.sin(Math.PI * progress) * 0.12
   const whiteMix = Math.sin(Math.PI * progress) * 0.42 + progress * 0.12
 
@@ -204,8 +273,8 @@ function animateCollider(body: BodyState, target: BodyState | null, progress: nu
     ...cloneBody(body),
     color: brightenHex(body.color, whiteMix),
     radius: body.radius * pulse,
-    position: lerpVec3(body.position, destination.position, eased),
-    velocity: lerpVec3(body.velocity, destination.velocity, eased),
+    position,
+    velocity: lerpVec3(body.velocity, destination.velocity, velocityProgress),
     collisionCooldown: 0,
   }
 }
@@ -217,6 +286,7 @@ function buildCollisionTransitionFrame(transition: CollisionTransition) {
   )
   const targetA = largestDescendant(transition.physicalBodies, transition.bodyA.id)
   const targetB = largestDescendant(transition.physicalBodies, transition.bodyB.id)
+  const contactPositions = getCollisionContactPositions(transition.bodyA, transition.bodyB)
 
   // Hide the already-resolved remnant/survivors/debris for the colliding pair
   // while keeping real collision effects (flash/plasma/sparks) and all unrelated
@@ -231,8 +301,8 @@ function buildCollisionTransitionFrame(transition: CollisionTransition) {
 
   return [
     ...backgroundBodies,
-    animateCollider(transition.bodyA, targetA, progress),
-    animateCollider(transition.bodyB, targetB, progress),
+    animateCollider(transition.bodyA, contactPositions.bodyA, targetA, progress),
+    animateCollider(transition.bodyB, contactPositions.bodyB, targetB, progress),
   ]
 }
 

@@ -238,7 +238,9 @@ function classifyCollision(a: BodyState, b: BodyState, geometry: CollisionGeomet
     }
   }
 
-  if (grazing > 0.8 && speedRatio > 0.55 && speedRatio < 2.8) {
+  // A tiny impactor should not survive simply because the contact is grazing.
+  // Extreme mass-ratio impacts fall through to absorb/disrupt/merge handling.
+  if (massRatio >= 0.02 && grazing > 0.8 && speedRatio > 0.55 && speedRatio < 2.8) {
     return {
       mode: 'hitRun',
       ejectaFraction: clamp(0.018 + speedRatio * 0.028 + (grazing - 0.8) * 0.08, 0.025, 0.12),
