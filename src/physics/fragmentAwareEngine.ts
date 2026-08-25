@@ -533,6 +533,15 @@ function buildContactPhysicalFrame(transition: CollisionTransition) {
     .filter((body) => !isExpiredEffect(body))
 }
 
+function isAtOrInsideContact(a: BodyState, b: BodyState) {
+  const distance = Math.hypot(
+    b.position.x - a.position.x,
+    b.position.y - a.position.y,
+    b.position.z - a.position.z,
+  )
+  return distance <= getCollisionContactDistance(a, b) + 1e-9
+}
+
 function resolveTransition(transition: CollisionTransition, overshoot: number) {
   const contactFrame = buildContactPhysicalFrame(transition)
   let resolved = advancePhysicalBodies(contactFrame, CONTACT_RESOLUTION_DT)
@@ -569,10 +578,20 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   const collisionPair = findNewCollisionPair(input, probedPhysicalBodies, dt)
   if (!collisionPair) return probedPhysicalBodies
 
-  // Even if the input frame already starts exactly at or microscopically inside
-  // contact, force the pair through the presentation envelope. The previous
-  // shortcut returned probedPhysicalBodies immediately here, which exposed the
-  // 2→1/2→2 topology result before flash/shear could visually cover it.
+  // Preserve the legacy immediate-resolution path for non-stellar pairs that
+  // already begin at/inside contact. Only star↔star collisions need the forced
+  // presentation envelope; broadening this rule breaks absorption/tracking
+  // continuity for planet-moon and other resumed contact states.
+  if (
+    !isStellarPair(collisionPair.bodyA, collisionPair.bodyB) &&
+    isAtOrInsideContact(collisionPair.bodyA, collisionPair.bodyB)
+  ) {
+    return probedPhysicalBodies
+  }
+
+  // Star↔star collisions always cross the presentation envelope, even when the
+  // input frame starts exactly at or microscopically inside contact. This keeps
+  // the old silhouettes visible until flash/shear can mask the 2→1 / 2→2 reveal.
   const mode = inferCollisionPresentationMode(
     probedPhysicalBodies,
     collisionPair.bodyA,
