@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { applyPresetBodyTypes } from './bodyTypes'
+import { BodyTrackingRail } from './components/BodyTrackingRail'
 import { CollisionAlert } from './components/CollisionAlert'
 import {
   CollisionWatchInfo,
@@ -7,6 +8,7 @@ import {
 } from './components/CollisionWatchInfo'
 import { ControlPanel } from './components/ControlPanel'
 import { SimulationView } from './components/SimulationView'
+import { ViewportSpeedMenu } from './components/ViewportSpeedMenu'
 import { FRAGMENT_TRAIL_TIME } from './fragmentLifecycle'
 import { getOrbital2dPresetOverride } from './orbital2dPresets'
 import { getOrbital3dPresetOverride } from './orbital3dPresets'
@@ -178,6 +180,12 @@ export default function App() {
       initialMass: Math.max(target.mass, 0),
     }
     setTrackedBodyId(target.id)
+  }, [])
+
+  const changeSpeed = useCallback((nextSpeed: number) => {
+    if (!Number.isFinite(nextSpeed) || nextSpeed <= 0) return
+    speedRef.current = nextSpeed
+    setSpeed(nextSpeed)
   }, [])
 
   useEffect(() => { bodiesRef.current = bodies }, [bodies])
@@ -687,6 +695,25 @@ export default function App() {
         </select>
       </label>
 
+      <ViewportSpeedMenu
+        isRunning={isRunning}
+        speed={speed}
+        time={time}
+        language={language}
+        onSpeedChange={changeSpeed}
+      />
+      <BodyTrackingRail
+        bodies={bodies}
+        bodyCount={bodyCount}
+        bodyScale={bodyScale}
+        preset={preset}
+        spaceMode={spaceMode}
+        isRunning={isRunning}
+        language={language}
+        trackedBodyId={trackedBodyId}
+        onTrackedBodyChange={changeTrackedBody}
+      />
+
       <section className="viewport-shell">
         <SimulationView
           bodies={bodies}
@@ -697,12 +724,6 @@ export default function App() {
           trailSampleBatch={trailSampleBatch}
           trackedBodyId={trackedBodyId}
         />
-        <div className="viewport-badge">
-          <span className={isRunning ? 'status-dot running' : 'status-dot'} />
-          <span>{isRunning ? `${speed}× ${t.running}` : t.paused}</span>
-          <span aria-hidden="true">·</span>
-          <span>{t.elapsedTime} {time.toFixed(2)}</span>
-        </div>
         {collisionWatchInfo && (
           <CollisionWatchInfo details={collisionWatchInfo} language={language} />
         )}
@@ -733,7 +754,7 @@ export default function App() {
         onTrackedBodyChange={changeTrackedBody}
         onCollisionWatchEnabledChange={setCollisionWatchEnabled}
         onRunningChange={setIsRunning}
-        onSpeedChange={setSpeed}
+        onSpeedChange={changeSpeed}
         onBodyScaleChange={changeBodyScale}
         onSpaceModeChange={changeSpaceMode}
         onBodyCountChange={changeBodyCount}

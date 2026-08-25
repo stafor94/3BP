@@ -53,13 +53,18 @@ button { cursor: pointer; }
 .viewport-shell { position: relative; min-width: 0; overflow: hidden; }
 .simulation-view { position: absolute; inset: 0; }
 .simulation-view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
-.viewport-badge {
-  position: absolute;
+.viewport-speed-menu {
+  position: fixed;
+  z-index: 30;
   top: 18px;
   left: 18px;
+}
+.viewport-badge {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 40px;
   padding: 8px 11px;
   border: 1px solid rgba(144, 169, 205, 0.17);
   border-radius: 999px;
@@ -69,6 +74,58 @@ button { cursor: pointer; }
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .08em;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.viewport-badge:hover,
+.viewport-badge[aria-expanded="true"] {
+  border-color: rgba(144, 169, 205, 0.36);
+  background: rgba(11, 17, 29, 0.9);
+}
+.viewport-badge:focus-visible {
+  outline: 2px solid rgba(108, 240, 173, 0.72);
+  outline-offset: 2px;
+}
+.viewport-speed-dropdown {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  display: grid;
+  gap: 4px;
+  min-width: 104px;
+  padding: 6px;
+  border: 1px solid rgba(144, 169, 205, 0.22);
+  border-radius: 12px;
+  background: rgba(7, 11, 20, 0.96);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
+}
+.viewport-speed-dropdown button {
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  color: #aab9cf;
+  background: rgba(13, 18, 29, 0.92);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+  touch-action: manipulation;
+}
+.viewport-speed-dropdown button:hover {
+  border-color: #46536d;
+  background: #121927;
+  color: #e8eef9;
+}
+.viewport-speed-dropdown button.active {
+  border-color: #4d7df3;
+  background: #1c3163;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(127, 162, 255, 0.14);
+}
+.viewport-speed-dropdown button:focus-visible {
+  outline: 2px solid rgba(127, 162, 255, 0.72);
+  outline-offset: 1px;
 }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #667188; box-shadow: 0 0 0 3px rgba(102,113,136,.12); }
 .status-dot.running { background: #6cf0ad; box-shadow: 0 0 12px rgba(108,240,173,.8); }
@@ -187,6 +244,10 @@ input[type="color"] { padding: 4px; }
   body { overflow: hidden; }
   .app-shell { display: block; position: relative; }
   .language-picker { top: 14px; right: 14px; width: 32px; height: 32px; }
+  .viewport-speed-menu { top: 14px; left: 14px; }
+  .viewport-badge { min-height: 42px; padding: 8px 10px; }
+  .viewport-speed-dropdown { min-width: 112px; }
+  .viewport-speed-dropdown button { min-height: 44px; padding: 8px 12px; }
   .viewport-shell { height: 100dvh; }
   .control-panel {
     position: absolute;
@@ -236,5 +297,4 @@ input[type="color"] { padding: 4px; }
   .body-list { margin-top: 17px; }
   .body-card summary { gap: 7px; }
   .body-summary-type { padding: 3px 5px; font-size: 8px; }
-  .viewport-badge { top: 14px; left: 14px; }
 }

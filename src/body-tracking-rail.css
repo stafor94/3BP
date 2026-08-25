@@ -103,7 +103,6 @@
 
 @media (max-width: 760px) {
   .body-tracking-rail {
-    left: max(10px, env(safe-area-inset-left, 0px));
     gap: 5px;
     padding: 4px;
     border-radius: 12px;
@@ -115,19 +114,6 @@
     height: 38px;
     min-height: 38px;
     border-radius: 9px;
-  }
-}
-
-@media (min-width: 761px) and (max-width: 1366px) {
-  .control-panel .body-tracking-rail {
-    position: absolute;
-    top: 50%;
-    left: calc(376px - 100vw);
-    transform: translateY(-50%);
-  }
-
-  .control-panel.collapsed .body-tracking-rail {
-    left: calc(80px + env(safe-area-inset-right, 0px) - 100vw);
   }
 }
 
