@@ -32,10 +32,10 @@ function makeBody(
   }
 }
 
-function physicalMass(bodies: BodyState[]) {
-  return bodies
-    .filter((body) => body.bodyType !== 'effect')
-    .reduce((sum, body) => sum + body.mass, 0)
+function totalMass(bodies: BodyState[]) {
+  // Ejecta effects can carry real escaped collision mass even though they are
+  // intentionally non-gravitating. Immediate result accounting must include it.
+  return bodies.reduce((sum, body) => sum + body.mass, 0)
 }
 
 function testPlanetCollisionRemainsSolidAndMassConserving() {
@@ -57,10 +57,10 @@ function testPlanetCollisionRemainsSolidAndMassConserving() {
     'planet-planet collisions must not promote a result to a star or moon',
   )
   assertClose(
-    physicalMass(resolved),
+    totalMass(resolved),
     initialMass,
     1e-10,
-    'planet collision physical mass must be conserved',
+    'planet collision immediate result mass must be conserved',
   )
   assert(resolved.length <= 28, 'planet collision result must stay under the dynamic-body cap')
 }
@@ -84,10 +84,10 @@ function testMoonDisruptionDoesNotBecomeStellar() {
     'moon collision remnants must never be classified as stars',
   )
   assertClose(
-    physicalMass(resolved),
+    totalMass(resolved),
     initialMass,
     1e-10,
-    'moon collision physical mass must be conserved',
+    'moon collision immediate result mass must be conserved',
   )
   assert(resolved.length <= 28, 'moon collision result must stay under the dynamic-body cap')
 }
@@ -97,20 +97,24 @@ function testStellarImpactStillUsesPlasmaLanguage() {
   const planet = makeBody('planet-c', 'planet', 0.1, 0.08, 0.139999, -0.35, '#557d91')
   const initialMass = star.mass + planet.mass
   const resolved = stepCoreBodies([star, planet], 1e-8)
+  const plasmaMass = resolved
+    .filter((body) => body.name === 'Stellar plasma')
+    .reduce((sum, body) => sum + body.mass, 0)
 
   assert(
     resolved.some((body) => body.name === 'Stellar plasma'),
     'star-involved collision should keep the dedicated stellar-plasma ejecta path',
   )
+  assert(plasmaMass > 0, 'stellar plasma ejecta should carry the collision mass removed from the remnant')
   assert(
     !resolved.some((body) => body.bodyType === 'fragment'),
     'star-involved collision must not expose asteroid-like solid fragments',
   )
   assertClose(
-    physicalMass(resolved),
+    totalMass(resolved),
     initialMass,
     1e-10,
-    'stellar impact physical mass must remain conserved across plasma ejecta',
+    'stellar impact immediate result mass must remain conserved across plasma ejecta',
   )
   assert(resolved.length <= 28, 'stellar collision result must stay under the dynamic-body cap')
 }
