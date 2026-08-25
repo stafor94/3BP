@@ -17,6 +17,8 @@ export type CollisionWatchTimingProfile = {
   infoHoldMs: number
 }
 
+// These durations are wall-clock presentation timings. They intentionally do not
+// scale with simulation time, and camera/info lifetimes remain independent from speed phases.
 export function getCollisionWatchTimingProfile(
   bodyAType: BodyType,
   bodyBType: BodyType,
