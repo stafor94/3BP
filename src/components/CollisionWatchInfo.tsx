@@ -3,6 +3,8 @@ import type { BodyType } from '../types'
 import '../collision-watch-info.css'
 
 export type CollisionWatchBodyInfo = {
+  sourceId: string
+  sourceName: string
   id: string
   name: string
   type: BodyType
@@ -39,7 +41,7 @@ export function CollisionWatchInfo({ details, language }: Props) {
       <span className="collision-watch-body-color" style={{ backgroundColor: body.color }} aria-hidden="true" />
       <div className="collision-watch-body-main">
         <span className="collision-watch-body-type">{t[body.type]}</span>
-        <strong>{body.name}</strong>
+        <strong title={body.name}>{body.sourceName}</strong>
       </div>
       <dl className="collision-watch-body-stats">
         <div>
