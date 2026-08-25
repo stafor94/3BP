@@ -17,6 +17,7 @@ const IMPACT_MAX_OVERLAP_RATIO = 0.18
 const STELLAR_MERGE_MAX_OVERLAP_RATIO = 1.6
 const CONTACT_RESOLUTION_OVERLAP = 1e-6
 const CONTACT_RESOLUTION_DT = 1e-8
+const TRACKING_G = 1
 
 // Large solid fragments behave as long-lived asteroids. Keep the cap deliberately
 // small so N-body cost remains predictable even after many collisions.
@@ -39,6 +40,12 @@ type CollisionContactPositions = {
   bodyB: Vec3
 }
 
+type TrackingCollisionGeometry = {
+  speedRatio: number
+  headOn: number
+  grazing: number
+}
+
 // The simulator feeds each returned body array directly into the next physics
 // step. Keep transition state attached to that exact frame chain without leaking
 // across preset changes or resets, which create a different array.
@@ -49,6 +56,9 @@ function cloneBody(body: BodyState): BodyState {
     ...body,
     position: { ...body.position },
     velocity: { ...body.velocity },
+    trackingContinuationIds: body.trackingContinuationIds
+      ? [...body.trackingContinuationIds]
+      : undefined,
   }
 }
 
@@ -128,7 +138,9 @@ function finalizePhysicalBodies(input: BodyState[], stepped: BodyState[], dt: nu
 }
 
 function advancePhysicalBodies(input: BodyState[], dt: number) {
-  return finalizePhysicalBodies(input, stepPhysicsBodies(input, dt), dt)
+  const stepped = stepPhysicsBodies(input, dt)
+  const withTrackingContinuity = attachAbsorptionTrackingContinuity(input, stepped, dt)
+  return finalizePhysicalBodies(input, withTrackingContinuity, dt)
 }
 
 function findNewCollisionPair(input: BodyState[], stepped: BodyState[], dt: number) {
@@ -168,6 +180,117 @@ function inferCollisionPresentationMode(
   const survivorA = stepped.some((body) => body.bodyType !== 'effect' && body.id === bodyA.id)
   const survivorB = stepped.some((body) => body.bodyType !== 'effect' && body.id === bodyB.id)
   return survivorA && survivorB ? 'hitRun' : 'merge'
+}
+
+function getTrackingCollisionGeometry(a: BodyState, b: BodyState): TrackingCollisionGeometry {
+  const delta = {
+    x: b.position.x - a.position.x,
+    y: b.position.y - a.position.y,
+    z: b.position.z - a.position.z,
+  }
+  const distance = Math.hypot(delta.x, delta.y, delta.z)
+  const normal = distance > 1e-10
+    ? { x: delta.x / distance, y: delta.y / distance, z: delta.z / distance }
+    : { x: 1, y: 0, z: 0 }
+  const relativeVelocity = {
+    x: b.velocity.x - a.velocity.x,
+    y: b.velocity.y - a.velocity.y,
+    z: b.velocity.z - a.velocity.z,
+  }
+  const relativeSpeed = Math.hypot(relativeVelocity.x, relativeVelocity.y, relativeVelocity.z)
+  const normalSpeed = relativeVelocity.x * normal.x +
+    relativeVelocity.y * normal.y +
+    relativeVelocity.z * normal.z
+  const headOn = relativeSpeed > 1e-9
+    ? Math.min(1, Math.max(0, Math.abs(normalSpeed) / relativeSpeed))
+    : 1
+  const grazing = Math.sqrt(Math.max(0, 1 - headOn * headOn))
+  const contactDistance = Math.max(getCollisionContactDistance(a, b), 1e-6)
+  const escapeSpeed = Math.sqrt(Math.max(0, (2 * TRACKING_G * (a.mass + b.mass)) / contactDistance))
+
+  return {
+    speedRatio: relativeSpeed / Math.max(escapeSpeed, 1e-6),
+    headOn,
+    grazing,
+  }
+}
+
+function isAbsorptionCollision(
+  a: BodyState,
+  b: BodyState,
+  mode: CollisionPresentationMode,
+) {
+  if (mode !== 'merge') return false
+
+  const typeA = getEffectiveBodyType(a)
+  const typeB = getEffectiveBodyType(b)
+
+  // In the core collision classifier, exactly one fragment plus one physical body
+  // can only resolve as hit-and-run or absorb. Reaching a single-remnant frame
+  // therefore means absorption.
+  if (typeA === 'fragment' || typeB === 'fragment') {
+    return typeA !== typeB
+  }
+
+  const starCount = Number(typeA === 'star') + Number(typeB === 'star')
+  // One star plus one non-star can likewise only hit-and-run or absorb.
+  if (starCount === 1) return true
+  if (starCount === 2) return false
+
+  const hasPlanet = typeA === 'planet' || typeB === 'planet'
+  const hasMoon = typeA === 'moon' || typeB === 'moon'
+  if (!hasPlanet || !hasMoon || typeA === typeB) return false
+
+  const massRatio = Math.min(a.mass, b.mass) / Math.max(a.mass, b.mass, 1e-9)
+  if (massRatio >= 0.28) return false
+
+  // Mirror the planet-moon absorption gate from the core engine so ordinary
+  // tracking never treats an energetic merge/disruption as an absorption.
+  const geometry = getTrackingCollisionGeometry(a, b)
+  return geometry.grazing < 0.72 && geometry.speedRatio < 2.05
+}
+
+function attachAbsorptionTrackingContinuity(
+  input: BodyState[],
+  stepped: BodyState[],
+  dt: number,
+) {
+  const collisionPair = findNewCollisionPair(input, stepped, dt)
+  if (!collisionPair) return stepped
+
+  const { bodyA, bodyB } = collisionPair
+  const mode = inferCollisionPresentationMode(stepped, bodyA, bodyB)
+  if (!isAbsorptionCollision(bodyA, bodyB, mode)) return stepped
+
+  // Equal-mass collisions have no unambiguous larger absorber, so do not transfer
+  // ordinary tracking in that case.
+  const larger = bodyA.mass > bodyB.mass
+    ? bodyA
+    : bodyB.mass > bodyA.mass
+      ? bodyB
+      : null
+  if (!larger) return stepped
+
+  const remnant = stepped.find((body) =>
+    body.bodyType !== 'effect' &&
+    body.bodyType !== 'fragment' &&
+    body.id !== bodyA.id &&
+    body.id !== bodyB.id &&
+    isBodyDescendedFrom(body.id, bodyA.id) &&
+    isBodyDescendedFrom(body.id, bodyB.id),
+  )
+  if (!remnant) return stepped
+
+  const continuationIds = Array.from(new Set([
+    ...(larger.trackingContinuationIds ?? []),
+    larger.id,
+  ]))
+
+  return stepped.map((body) => (
+    body === remnant
+      ? { ...body, trackingContinuationIds: continuationIds }
+      : body
+  ))
 }
 
 function lerp(a: number, b: number, t: number) {
