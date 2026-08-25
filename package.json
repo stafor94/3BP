@@ -1,7 +1,7 @@
 {
   "name": "3bp",
   "private": true,
-  "version": "0.15.20",
+  "version": "0.15.21",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -25,4 +25,3 @@
     "vite": "^8.2.2"
   }
 }
-
