@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react'
-import { FRAGMENT_LIFETIME } from '../fragmentLifecycle'
 import { installBodyLighting, syncBodyLightingState } from '../rendering/bodyLighting'
 import {
   createSimulationRenderer,
   type CollisionCameraFocus,
   type SimulationRenderState,
 } from '../rendering/simulationRenderer'
-import type { BodyState, TrailSampleBatch, Vec3 } from '../types'
+import type { BodyState, TrailSampleBatch } from '../types'
 
 type Props = {
   bodies: BodyState[]
@@ -17,147 +16,6 @@ type Props = {
   trailSampleBatch: TrailSampleBatch
   trackedBodyId: string | null
   collisionCameraFocus: CollisionCameraFocus | null
-}
-
-type CollisionCameraAnchorState = {
-  pairKey: string
-  mainSourceId: string
-  anchorId: string
-  direction: Vec3
-  envelopeRadius: number
-  anchorVelocity: Vec3
-  trackingEstablished: boolean
-}
-
-type TrackingCameraAnchorState = {
-  trackedSourceId: string
-  pairKey: string
-  anchorId: string
-  direction: Vec3
-  envelopeRadius: number
-  anchorVelocity: Vec3
-}
-
-// simulationRenderer frames a focus pair with a 55-degree vertical FOV,
-// collisionBodyMargin=1.65 and collisionFrameFill=0.64. Build an invisible
-// render-only anchor so the selected body's rendered radius lands at about
-// 1/20 of the viewport width, regardless of portrait/landscape aspect ratio.
-const CAMERA_VERTICAL_FOV_DEGREES = 55
-const CAMERA_BODY_MARGIN = 1.65
-const CAMERA_FRAME_FILL = 0.64
-const TARGET_BODY_RADIUS_SCREEN_FRACTION = 1 / 20
-const CAMERA_DIRECTION_EPSILON = 0.0005
-const MIN_RENDER_RADIUS = 0.025
-
-function isBodyDescendedFrom(bodyId: string, sourceId: string) {
-  const bodyParts = new Set(bodyId.split('+'))
-  return sourceId.split('+').every((part) => bodyParts.has(part))
-}
-
-function resolveBody(bodies: BodyState[], sourceId: string) {
-  return bodies.find((body) => body.id === sourceId && body.bodyType !== 'effect') ??
-    bodies.find((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, sourceId))
-}
-
-function vectorLength(vector: Vec3) {
-  return Math.hypot(vector.x, vector.y, vector.z)
-}
-
-function normalizedDirection(from: BodyState, to: BodyState): { direction: Vec3; distance: number } {
-  const delta = {
-    x: to.position.x - from.position.x,
-    y: to.position.y - from.position.y,
-    z: to.position.z - from.position.z,
-  }
-  const distance = vectorLength(delta)
-  if (distance <= 1e-10) return { direction: { x: 1, y: 0, z: 0 }, distance: 0 }
-  return {
-    direction: {
-      x: delta.x / distance,
-      y: delta.y / distance,
-      z: delta.z / distance,
-    },
-    distance,
-  }
-}
-
-function getViewportAspect() {
-  if (typeof window === 'undefined') return 1
-  const width = Math.max(window.innerWidth, 1)
-  const height = Math.max(window.innerHeight, 1)
-  return width / height
-}
-
-function getFixedScreenEnvelopeRadius(body: BodyState) {
-  const renderedRadius = Math.max(body.radius, MIN_RENDER_RADIUS)
-  const verticalHalfFov = CAMERA_VERTICAL_FOV_DEGREES * Math.PI / 360
-  const verticalTan = Math.tan(verticalHalfFov)
-  const horizontalTan = verticalTan * Math.max(getViewportAspect(), 0.1)
-  const limitingTan = Math.min(verticalTan, horizontalTan)
-  const desiredNdcRadius = TARGET_BODY_RADIUS_SCREEN_FRACTION * 2
-
-  // renderer rawDistance = frameRadius / (tan(limitingFov) * frameFill)
-  // and horizontal NDC radius ~= radius / (distance * tan(horizontalFov)).
-  // Solve those equations for frameRadius at a 0.1 NDC radius (= 1/20 width).
-  const desiredFrameRadius = renderedRadius * limitingTan * CAMERA_FRAME_FILL /
-    Math.max(desiredNdcRadius * horizontalTan, 1e-9)
-
-  // The invisible anchor's margin becomes the dominant frame extent. Keep the
-  // primary body itself as a lower bound so unusual ultra-wide viewports remain safe.
-  return Math.max(
-    desiredFrameRadius / CAMERA_BODY_MARGIN,
-    renderedRadius * 1.01,
-  )
-}
-
-function createTrackingCameraAnchorState(
-  bodies: BodyState[],
-  trackedSourceId: string,
-): TrackingCameraAnchorState | null {
-  const trackedBody = resolveBody(bodies, trackedSourceId)
-  if (!trackedBody) return null
-
-  // Tracking no longer searches for a nearby massive/orbiting body. Use a tiny
-  // fixed-direction helper only to establish a deterministic initial camera angle;
-  // zoom comes exclusively from the selected body's own rendered radius.
-  return {
-    trackedSourceId,
-    pairKey: `tracking-camera:${trackedSourceId}`,
-    anchorId: `__tracking-camera-anchor__${trackedSourceId}`,
-    direction: { x: 1, y: 0, z: 0 },
-    envelopeRadius: getFixedScreenEnvelopeRadius(trackedBody),
-    anchorVelocity: {
-      x: trackedBody.velocity.x,
-      y: trackedBody.velocity.y + 1,
-      z: trackedBody.velocity.z,
-    },
-  }
-}
-
-function createRenderOnlyCameraAnchor(
-  mainBody: BodyState,
-  anchorId: string,
-  direction: Vec3,
-  envelopeRadius: number,
-  anchorVelocity: Vec3,
-  name: string,
-): BodyState {
-  return {
-    ...mainBody,
-    id: anchorId,
-    name,
-    mass: 0,
-    radius: envelopeRadius,
-    bodyType: 'fragment',
-    age: FRAGMENT_LIFETIME,
-    lifetime: FRAGMENT_LIFETIME,
-    position: {
-      x: mainBody.position.x + direction.x * CAMERA_DIRECTION_EPSILON,
-      y: mainBody.position.y + direction.y * CAMERA_DIRECTION_EPSILON,
-      z: mainBody.position.z + direction.z * CAMERA_DIRECTION_EPSILON,
-    },
-    velocity: { ...anchorVelocity },
-  }
 }
 
 export function SimulationView({
@@ -171,148 +29,26 @@ export function SimulationView({
   collisionCameraFocus,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
-  const collisionCameraAnchorRef = useRef<CollisionCameraAnchorState | null>(null)
-  const collisionCameraSuppressedPairRef = useRef<string | null>(null)
-  const trackingCameraAnchorRef = useRef<TrackingCameraAnchorState | null>(null)
-
-  let renderBodies = bodies
-  let effectiveCollisionCameraFocus = collisionCameraFocus
-
-  if (!collisionCameraFocus) {
-    collisionCameraAnchorRef.current = null
-    collisionCameraSuppressedPairRef.current = null
-  } else {
-    const previousAnchor = collisionCameraAnchorRef.current
-    if (!previousAnchor || previousAnchor.pairKey !== collisionCameraFocus.pairKey) {
-      collisionCameraSuppressedPairRef.current = null
-      const bodyA = resolveBody(bodies, collisionCameraFocus.bodyAId)
-      const bodyB = resolveBody(bodies, collisionCameraFocus.bodyBId)
-
-      if (bodyA && bodyB) {
-        const mainBody = bodyA.mass > bodyB.mass || (bodyA.mass === bodyB.mass && bodyA.radius >= bodyB.radius)
-          ? bodyA
-          : bodyB
-        const secondaryBody = mainBody === bodyA ? bodyB : bodyA
-        const mainSourceId = mainBody === bodyA
-          ? collisionCameraFocus.bodyAId
-          : collisionCameraFocus.bodyBId
-        const { direction } = normalizedDirection(mainBody, secondaryBody)
-
-        collisionCameraAnchorRef.current = {
-          pairKey: collisionCameraFocus.pairKey,
-          mainSourceId,
-          anchorId: `__collision-camera-anchor__${collisionCameraFocus.pairKey}`,
-          direction,
-          // Collision watch now uses exactly the same screen-size rule as manual
-          // tracking. The other collider affects viewing direction only, never zoom.
-          envelopeRadius: getFixedScreenEnvelopeRadius(mainBody),
-          anchorVelocity: { ...secondaryBody.velocity },
-          trackingEstablished: trackedBodyId !== null && isBodyDescendedFrom(trackedBodyId, mainSourceId),
-        }
-      } else {
-        collisionCameraAnchorRef.current = null
-      }
-    }
-
-    const anchorState = collisionCameraAnchorRef.current
-    if (anchorState) {
-      const trackedMainBody = trackedBodyId !== null &&
-        isBodyDescendedFrom(trackedBodyId, anchorState.mainSourceId)
-
-      if (!anchorState.trackingEstablished && trackedMainBody) {
-        anchorState.trackingEstablished = true
-      } else if (anchorState.trackingEstablished && !trackedMainBody) {
-        collisionCameraSuppressedPairRef.current = anchorState.pairKey
-      }
-
-      if (collisionCameraSuppressedPairRef.current === anchorState.pairKey) {
-        effectiveCollisionCameraFocus = null
-      } else {
-        const mainBody = resolveBody(bodies, anchorState.mainSourceId)
-        if (mainBody) {
-          const cameraAnchor = createRenderOnlyCameraAnchor(
-            mainBody,
-            anchorState.anchorId,
-            anchorState.direction,
-            anchorState.envelopeRadius,
-            anchorState.anchorVelocity,
-            'Collision camera anchor',
-          )
-
-          renderBodies = [...bodies, cameraAnchor]
-          effectiveCollisionCameraFocus = {
-            pairKey: collisionCameraFocus.pairKey,
-            bodyAId: anchorState.mainSourceId,
-            bodyBId: anchorState.anchorId,
-          }
-        } else {
-          effectiveCollisionCameraFocus = null
-        }
-      }
-    } else {
-      effectiveCollisionCameraFocus = null
-    }
-  }
-
-  // Collision watch owns the camera only while its one-shot framing is active.
-  // Otherwise every selected target receives the same body-size-only framing.
-  // The synthetic anchor moves with the selected body, so manual camera changes
-  // remain intact once the initial settle completes.
-  if (effectiveCollisionCameraFocus) {
-    trackingCameraAnchorRef.current = null
-  } else if (trackedBodyId) {
-    const previousTrackingAnchor = trackingCameraAnchorRef.current
-    if (!previousTrackingAnchor || previousTrackingAnchor.trackedSourceId !== trackedBodyId) {
-      trackingCameraAnchorRef.current = createTrackingCameraAnchorState(bodies, trackedBodyId)
-    }
-
-    const trackingAnchor = trackingCameraAnchorRef.current
-    const trackedBody = trackingAnchor
-      ? resolveBody(bodies, trackingAnchor.trackedSourceId)
-      : null
-
-    if (trackingAnchor && trackedBody) {
-      const cameraAnchor = createRenderOnlyCameraAnchor(
-        trackedBody,
-        trackingAnchor.anchorId,
-        trackingAnchor.direction,
-        trackingAnchor.envelopeRadius,
-        trackingAnchor.anchorVelocity,
-        'Tracking camera anchor',
-      )
-      renderBodies = [...bodies, cameraAnchor]
-      effectiveCollisionCameraFocus = {
-        pairKey: trackingAnchor.pairKey,
-        bodyAId: trackingAnchor.trackedSourceId,
-        bodyBId: trackingAnchor.anchorId,
-      }
-    } else {
-      trackingCameraAnchorRef.current = null
-    }
-  } else {
-    trackingCameraAnchorRef.current = null
-  }
-
   const renderStateRef = useRef<SimulationRenderState>({
-    bodies: renderBodies,
+    bodies,
     simulationTime,
     trailVersion,
     trailEnabled,
     trailDuration,
     trailSampleBatch,
     trackedBodyId,
-    collisionCameraFocus: effectiveCollisionCameraFocus,
+    collisionCameraFocus,
   })
 
   renderStateRef.current = {
-    bodies: renderBodies,
+    bodies,
     simulationTime,
     trailVersion,
     trailEnabled,
     trailDuration,
     trailSampleBatch,
     trackedBodyId,
-    collisionCameraFocus: effectiveCollisionCameraFocus,
+    collisionCameraFocus,
   }
   syncBodyLightingState(bodies)
 

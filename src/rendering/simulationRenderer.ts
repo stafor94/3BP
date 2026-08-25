@@ -1,8 +1,13 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { isBodyDescendedFrom, resolveBodyDescendant } from '../collisionWatch'
 import { FRAGMENT_TRAIL_TIME, getFragmentOpacity } from '../fragmentLifecycle'
 import { getNearestStellarColor } from '../starColors'
 import type { BodyState, TrailSampleBatch } from '../types'
+import {
+  calculatePerspectiveBodyDistance,
+  getRenderedBodyRadius,
+} from './cameraFraming'
 import { createFragmentGeometry } from './fragmentGeometry'
 
 export type CollisionCameraFocus = {
@@ -102,16 +107,13 @@ const RENDER_TUNING = {
     lineOpacity: 0.32,
   },
   camera: {
-    defaultMinDistance: 1.2,
-    collisionMinDistance: 0.6,
-    collisionFrameFill: 0.64,
-    collisionFocusBiasDesktop: 0.25,
-    collisionFocusBiasMobile: 0.3,
-    collisionBodyMargin: 1.65,
+    defaultMinDistance: 0.03,
+    maxDistance: 450,
+    trackingTransition: 0.16,
     collisionTransition: 0.12,
     collisionEntryTransition: 0.2,
-    collisionMaxDistance: 18,
     focusSettleFrames: 18,
+    radiusReframeThreshold: 0.025,
   },
 } as const
 
@@ -294,11 +296,6 @@ const trailRibbonFragmentShader = `
     #include <colorspace_fragment>
   }
 `
-
-function isBodyDescendedFrom(bodyId: string, trackedBodyId: string) {
-  const bodyParts = new Set(bodyId.split('+'))
-  return trackedBodyId.split('+').every((part) => bodyParts.has(part))
-}
 
 function getBodySeed(id: string) {
   let hash = 2166136261
@@ -674,7 +671,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
   controls.enableDamping = true
   controls.dampingFactor = 0.055
   controls.minDistance = RENDER_TUNING.camera.defaultMinDistance
-  controls.maxDistance = 30
+  controls.maxDistance = RENDER_TUNING.camera.maxDistance
 
   const sharedBodyGeometry = new THREE.SphereGeometry(
     1,
@@ -745,9 +742,15 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
   let observedTrailVersion = initialState.trailVersion
   let observedTrailEnabled = initialState.trailEnabled
   let observedTrailSampleSequence = initialState.trailSampleBatch.sequence
-  let observedTrackedBodyId = initialState.trackedBodyId
+  let observedTrackedBodyId: string | null = null
   let observedCollisionPairKey: string | null = null
-  let cameraFocusSettleFrames = 0
+  let observedCollisionMainSourceId: string | null = null
+  let observedCollisionPrimaryId: string | null = null
+  let observedCollisionPrimaryRadius = 0
+  let collisionCameraSuppressedPairKey: string | null = null
+  let collisionTrackingEstablished = false
+  let trackingFocusSettleFrames = 0
+  let collisionFocusSettleFrames = 0
   let wasTrackingBody = false
 
   const clearTrail = (visual: VisualBody) => {
@@ -938,10 +941,10 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
   const cameraShift = new THREE.Vector3()
   const targetScratch = new THREE.Vector3()
   const collisionPrimaryPosition = new THREE.Vector3()
-  const collisionSecondaryPosition = new THREE.Vector3()
-  const collisionFocusPoint = new THREE.Vector3()
   const collisionDesiredCameraPosition = new THREE.Vector3()
   const collisionViewDirection = new THREE.Vector3()
+  const trackingDesiredCameraPosition = new THREE.Vector3()
+  const trackingViewDirection = new THREE.Vector3()
 
   const moveCameraTargetTo = (target: THREE.Vector3) => {
     cameraShift.copy(target).sub(controls.target)
@@ -954,16 +957,45 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
 
   const getTrackedBody = (current: BodyState[], trackedBodyId: string | null) => {
     if (!trackedBodyId) return undefined
-    return (
-      current.find((body) => body.id === trackedBodyId) ??
-      current.find((body) => isBodyDescendedFrom(body.id, trackedBodyId))
-    )
+    return resolveBodyDescendant(current, trackedBodyId)
   }
 
   const getCollisionBody = (current: BodyState[], sourceId: string) => (
-    current.find((body) => body.id === sourceId && body.bodyType !== 'effect') ??
-    current.find((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, sourceId))
+    resolveBodyDescendant(current, sourceId)
   )
+
+  const getViewportSize = () => ({
+    width: Math.max(renderer.domElement.clientWidth || host.clientWidth, 1),
+    height: Math.max(renderer.domElement.clientHeight || host.clientHeight, 1),
+  })
+
+  const getAutoCameraDistance = (body: BodyState) => {
+    const { width, height } = getViewportSize()
+    const desiredDistance = calculatePerspectiveBodyDistance({
+      bodyRadius: body.radius,
+      minRenderRadius: RENDER_TUNING.body.minRenderRadius,
+      verticalFovDegrees: camera.fov,
+      viewportWidth: width,
+      viewportHeight: height,
+    })
+    const renderRadius = getRenderedBodyRadius(body.radius, RENDER_TUNING.body.minRenderRadius)
+    return THREE.MathUtils.clamp(
+      desiredDistance,
+      Math.max(camera.near * 2, renderRadius * 1.01),
+      Math.min(RENDER_TUNING.camera.maxDistance, camera.far * 0.9),
+    )
+  }
+
+  const applyAutoDistanceLimits = (body: BodyState) => {
+    const renderRadius = getRenderedBodyRadius(body.radius, RENDER_TUNING.body.minRenderRadius)
+    controls.minDistance = Math.max(camera.near * 2, renderRadius * 1.01)
+    controls.maxDistance = Math.min(RENDER_TUNING.camera.maxDistance, camera.far * 0.9)
+  }
+
+  const resetAutoDistanceLimits = () => {
+    controls.minDistance = RENDER_TUNING.camera.defaultMinDistance
+    controls.maxDistance = RENDER_TUNING.camera.maxDistance
+  }
 
   const updateCollisionViewDirection = (primary: BodyState, secondary: BodyState) => {
     const separation = new THREE.Vector3(
@@ -1002,91 +1034,145 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     }
   }
 
+  const clearCollisionCameraState = () => {
+    observedCollisionPairKey = null
+    observedCollisionMainSourceId = null
+    observedCollisionPrimaryId = null
+    observedCollisionPrimaryRadius = 0
+    collisionCameraSuppressedPairKey = null
+    collisionTrackingEstablished = false
+    collisionFocusSettleFrames = 0
+  }
+
   const applyCollisionCameraFocus = (state: SimulationRenderState) => {
     const focus = state.collisionCameraFocus
     if (!focus) {
-      observedCollisionPairKey = null
-      cameraFocusSettleFrames = 0
-      controls.minDistance = RENDER_TUNING.camera.defaultMinDistance
+      clearCollisionCameraState()
+      resetAutoDistanceLimits()
       return false
     }
 
     const bodyA = getCollisionBody(state.bodies, focus.bodyAId)
     const bodyB = getCollisionBody(state.bodies, focus.bodyBId)
-    if (!bodyA || !bodyB || bodyA.id === bodyB.id) {
-      observedCollisionPairKey = null
-      cameraFocusSettleFrames = 0
-      controls.minDistance = RENDER_TUNING.camera.defaultMinDistance
+    if (!bodyA || !bodyB) {
+      clearCollisionCameraState()
+      resetAutoDistanceLimits()
       return false
     }
 
-    const primary = bodyA.mass > bodyB.mass || (bodyA.mass === bodyB.mass && bodyA.radius >= bodyB.radius)
-      ? bodyA
-      : bodyB
-    const secondary = primary === bodyA ? bodyB : bodyA
     const pairChanged = observedCollisionPairKey !== focus.pairKey
     if (pairChanged) {
-      updateCollisionViewDirection(primary, secondary)
+      const initialPrimary = bodyA.mass > bodyB.mass || (bodyA.mass === bodyB.mass && bodyA.radius >= bodyB.radius)
+        ? bodyA
+        : bodyB
+      observedCollisionMainSourceId = initialPrimary === bodyA ? focus.bodyAId : focus.bodyBId
+      const initialSecondary = initialPrimary === bodyA ? bodyB : bodyA
+      if (initialPrimary.id !== initialSecondary.id) {
+        updateCollisionViewDirection(initialPrimary, initialSecondary)
+      } else {
+        collisionViewDirection.copy(camera.position).sub(controls.target)
+        if (collisionViewDirection.lengthSq() <= 1e-10) collisionViewDirection.set(0, 0, 1)
+        collisionViewDirection.normalize()
+      }
       observedCollisionPairKey = focus.pairKey
-      cameraFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
+      collisionCameraSuppressedPairKey = null
+      collisionTrackingEstablished = Boolean(
+        state.trackedBodyId && isBodyDescendedFrom(state.trackedBodyId, observedCollisionMainSourceId),
+      )
+      collisionFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
+    }
+
+    const mainSourceId = observedCollisionMainSourceId
+    if (!mainSourceId) return false
+
+    const trackedMainBody = Boolean(
+      state.trackedBodyId && isBodyDescendedFrom(state.trackedBodyId, mainSourceId),
+    )
+    if (!collisionTrackingEstablished && trackedMainBody) {
+      collisionTrackingEstablished = true
+    } else if (collisionTrackingEstablished && !trackedMainBody) {
+      collisionCameraSuppressedPairKey = focus.pairKey
+    }
+    if (collisionCameraSuppressedPairKey === focus.pairKey) {
+      resetAutoDistanceLimits()
+      return false
+    }
+
+    const primary = getCollisionBody(state.bodies, mainSourceId)
+    if (!primary) {
+      resetAutoDistanceLimits()
+      return false
     }
 
     collisionPrimaryPosition.set(primary.position.x, primary.position.y, primary.position.z)
-    collisionSecondaryPosition.set(secondary.position.x, secondary.position.y, secondary.position.z)
+    moveCameraTargetTo(collisionPrimaryPosition)
+    applyAutoDistanceLimits(primary)
 
-    const focusBias = host.clientWidth <= 760
-      ? RENDER_TUNING.camera.collisionFocusBiasMobile
-      : RENDER_TUNING.camera.collisionFocusBiasDesktop
-    collisionFocusPoint.copy(collisionPrimaryPosition).lerp(collisionSecondaryPosition, focusBias)
-    moveCameraTargetTo(collisionFocusPoint)
+    const renderedRadius = getRenderedBodyRadius(primary.radius, RENDER_TUNING.body.minRenderRadius)
+    const radiusChangeRatio = observedCollisionPrimaryRadius > 0
+      ? Math.abs(renderedRadius - observedCollisionPrimaryRadius) / observedCollisionPrimaryRadius
+      : Number.POSITIVE_INFINITY
+    const primaryChanged = observedCollisionPrimaryId !== primary.id
+    const shouldReframe = pairChanged || primaryChanged ||
+      radiusChangeRatio >= RENDER_TUNING.camera.radiusReframeThreshold
 
-    const primaryRadius = Math.max(primary.radius, RENDER_TUNING.body.minRenderRadius)
-    const secondaryRadius = Math.max(secondary.radius, RENDER_TUNING.body.minRenderRadius)
-    const primaryExtent = collisionPrimaryPosition.distanceTo(collisionFocusPoint) +
-      primaryRadius * RENDER_TUNING.camera.collisionBodyMargin
-    const secondaryExtent = collisionSecondaryPosition.distanceTo(collisionFocusPoint) +
-      secondaryRadius * RENDER_TUNING.camera.collisionBodyMargin
-    const frameRadius = Math.max(
-      primaryExtent,
-      secondaryExtent,
-      (primaryRadius + secondaryRadius) * 1.1,
-      0.12,
-    )
+    if (shouldReframe) {
+      observedCollisionPrimaryId = primary.id
+      observedCollisionPrimaryRadius = renderedRadius
+      collisionFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
+    }
 
-    const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov * 0.5)
-    const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * Math.max(camera.aspect, 0.1))
-    const limitingHalfFov = Math.max(0.12, Math.min(verticalHalfFov, horizontalHalfFov))
-    const rawDistance = frameRadius /
-      (Math.tan(limitingHalfFov) * RENDER_TUNING.camera.collisionFrameFill)
-    const bodySafeDistance = Math.max(
-      0.42,
-      primaryRadius * 2.8,
-      secondaryRadius * 2.8,
-    )
-    const desiredDistance = THREE.MathUtils.clamp(
-      rawDistance,
-      bodySafeDistance,
-      RENDER_TUNING.camera.collisionMaxDistance,
-    )
-
-    controls.minDistance = RENDER_TUNING.camera.collisionMinDistance
-    collisionDesiredCameraPosition
-      .copy(collisionViewDirection)
-      .multiplyScalar(desiredDistance)
-      .add(collisionFocusPoint)
-
-    if (cameraFocusSettleFrames > 0) {
+    if (collisionFocusSettleFrames > 0) {
+      const desiredDistance = getAutoCameraDistance(primary)
+      collisionDesiredCameraPosition
+        .copy(collisionViewDirection)
+        .multiplyScalar(desiredDistance)
+        .add(collisionPrimaryPosition)
       camera.position.lerp(
         collisionDesiredCameraPosition,
         pairChanged
           ? RENDER_TUNING.camera.collisionEntryTransition
           : RENDER_TUNING.camera.collisionTransition,
       )
-      cameraFocusSettleFrames -= 1
+      collisionFocusSettleFrames -= 1
     }
 
     wasTrackingBody = true
     return true
+  }
+
+  const isTrackingSelectionChanged = (nextTrackedBodyId: string | null) => {
+    if (observedTrackedBodyId === nextTrackedBodyId) return false
+    if (!observedTrackedBodyId || !nextTrackedBodyId) return true
+    return !(
+      isBodyDescendedFrom(nextTrackedBodyId, observedTrackedBodyId) ||
+      isBodyDescendedFrom(observedTrackedBodyId, nextTrackedBodyId)
+    )
+  }
+
+  const applyTrackingCameraFocus = (trackedBody: BodyState, selectionChanged: boolean) => {
+    targetScratch.set(trackedBody.position.x, trackedBody.position.y, trackedBody.position.z)
+    moveCameraTargetTo(targetScratch)
+    applyAutoDistanceLimits(trackedBody)
+
+    if (selectionChanged) {
+      trackingViewDirection.copy(camera.position).sub(controls.target)
+      if (trackingViewDirection.lengthSq() <= 1e-10) trackingViewDirection.set(0, 0, 1)
+      trackingViewDirection.normalize()
+      trackingFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
+    }
+
+    if (trackingFocusSettleFrames > 0) {
+      const desiredDistance = getAutoCameraDistance(trackedBody)
+      trackingDesiredCameraPosition
+        .copy(trackingViewDirection)
+        .multiplyScalar(desiredDistance)
+        .add(targetScratch)
+      camera.position.lerp(trackingDesiredCameraPosition, RENDER_TUNING.camera.trackingTransition)
+      trackingFocusSettleFrames -= 1
+    }
+
+    wasTrackingBody = true
   }
 
   let compositionMode: 'mobile' | 'desktop' | null = null
@@ -1104,13 +1190,12 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
 
     const trackedBody = getTrackedBody(state.bodies, state.trackedBodyId)
     if (trackedBody) {
-      targetScratch
-        .set(trackedBody.position.x, trackedBody.position.y, trackedBody.position.z)
-        .add(compositionOffset)
-      moveCameraTargetTo(targetScratch)
-      wasTrackingBody = true
+      const selectionChanged = isTrackingSelectionChanged(state.trackedBodyId)
+      applyTrackingCameraFocus(trackedBody, selectionChanged)
+      observedTrackedBodyId = state.trackedBodyId
     } else {
       moveCameraTargetTo(compositionOffset)
+      resetAutoDistanceLimits()
       wasTrackingBody = false
     }
 
@@ -1145,17 +1230,15 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     const trailDurationNow = Math.max(1, state.trailDuration)
     const cutoff = simulationTimeNow - trailDurationNow
     const trackedBody = getTrackedBody(current, state.trackedBodyId)
-    const trackingSelectionChanged = observedTrackedBodyId !== state.trackedBodyId
+    const trackingSelectionChanged = isTrackingSelectionChanged(state.trackedBodyId)
     const collisionCameraFocused = applyCollisionCameraFocus(state)
 
     if (!collisionCameraFocused && trackedBody) {
-      targetScratch
-        .set(trackedBody.position.x, trackedBody.position.y, trackedBody.position.z)
-        .add(compositionOffset)
-      moveCameraTargetTo(targetScratch)
-      wasTrackingBody = true
+      applyTrackingCameraFocus(trackedBody, trackingSelectionChanged)
     } else if (!collisionCameraFocused && (wasTrackingBody || trackingSelectionChanged)) {
       moveCameraTargetTo(compositionOffset)
+      resetAutoDistanceLimits()
+      trackingFocusSettleFrames = 0
       wasTrackingBody = false
     }
     observedTrackedBodyId = state.trackedBodyId

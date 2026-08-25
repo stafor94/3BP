@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { applyPresetBodyTypes } from './bodyTypes'
+import {
+  didCollisionWatchTargetImpact,
+  hasTargetPairCollisionResult,
+  resolveBodyDescendant,
+} from './collisionWatch'
 import { BodyTrackingRail } from './components/BodyTrackingRail'
 import { CollisionAlert } from './components/CollisionAlert'
 import {
   CollisionWatchInfo,
+  type CollisionWatchBodyInfo,
   type CollisionWatchDetails,
 } from './components/CollisionWatchInfo'
 import { ControlPanel } from './components/ControlPanel'
@@ -19,7 +25,7 @@ import {
 } from './physics/collisionPrediction'
 import { stepBodies } from './physics/fragmentAwareEngine'
 import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
-import type { BodyCount, BodyState, PresetId, SpaceMode, TrailSample, TrailSampleBatch } from './types'
+import type { BodyCount, BodyState, BodyType, PresetId, SpaceMode, TrailSample, TrailSampleBatch } from './types'
 
 const PHYSICS_DT = 0.0015
 const MAX_STEPS_PER_FRAME = 4000
@@ -114,9 +120,49 @@ function getInitialCollisionWatchEnabled() {
   return localStorage.getItem(COLLISION_WATCH_ENABLED_STORAGE_KEY) === 'true'
 }
 
-function isBodyDescendedFrom(bodyId: string, trackedBodyId: string) {
-  const bodyParts = new Set(bodyId.split('+'))
-  return trackedBodyId.split('+').every((part) => bodyParts.has(part))
+function createCollisionWatchBodyInfo(
+  bodies: BodyState[],
+  sourceId: string,
+  sourceName: string,
+  fallbackType: BodyType,
+): CollisionWatchBodyInfo {
+  const body = resolveBodyDescendant(bodies, sourceId)
+  return {
+    sourceId,
+    sourceName,
+    id: body?.id ?? sourceId,
+    name: body?.name ?? sourceName,
+    type: body?.bodyType ?? fallbackType,
+    color: body?.color ?? '#dce8ff',
+    mass: body?.mass ?? 0,
+    radius: body?.radius ?? 0,
+  }
+}
+
+function refreshCollisionWatchBodyInfo(
+  bodyInfo: CollisionWatchBodyInfo,
+  bodies: BodyState[],
+) {
+  const body = resolveBodyDescendant(bodies, bodyInfo.sourceId)
+  if (!body) return bodyInfo
+
+  return {
+    ...bodyInfo,
+    id: body.id,
+    name: body.name,
+    type: body.bodyType ?? bodyInfo.type,
+    color: body.color,
+    mass: body.mass,
+    radius: body.radius,
+  }
+}
+
+function refreshCollisionWatchDetails(details: CollisionWatchDetails, bodies: BodyState[]) {
+  return {
+    ...details,
+    bodyA: refreshCollisionWatchBodyInfo(details.bodyA, bodies),
+    bodyB: refreshCollisionWatchBodyInfo(details.bodyB, bodies),
+  }
 }
 
 export default function App() {
@@ -192,7 +238,7 @@ export default function App() {
       return
     }
 
-    const target = bodiesRef.current.find((body) => body.id === bodyId && body.bodyType !== 'effect')
+    const target = resolveBodyDescendant(bodiesRef.current, bodyId)
     if (!target) {
       trackingBaselineRef.current = null
       setTrackedBodyId(null)
@@ -240,14 +286,7 @@ export default function App() {
     setTrackedBodyId((current) => {
       if (!current) return null
 
-      const exact = bodies.find((body) => body.id === current && body.bodyType !== 'effect')
-      const candidate = exact ?? bodies
-        .filter((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, current))
-        .reduce<BodyState | null>(
-          (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
-          null,
-        )
-
+      const candidate = resolveBodyDescendant(bodies, current)
       if (!candidate) {
         trackingBaselineRef.current = null
         return null
@@ -323,26 +362,20 @@ export default function App() {
       collisionWatchManagedSpeedRef.current = null
     }
 
-    const bodyA = sourceBodies.find((body) => body.id === prediction.bodyAId)
-    const bodyB = sourceBodies.find((body) => body.id === prediction.bodyBId)
     const details: CollisionWatchDetails = {
       pairKey: prediction.pairKey,
-      bodyA: {
-        id: prediction.bodyAId,
-        name: prediction.bodyAName,
-        type: prediction.bodyAType,
-        color: bodyA?.color ?? '#dce8ff',
-        mass: bodyA?.mass ?? 0,
-        radius: bodyA?.radius ?? 0,
-      },
-      bodyB: {
-        id: prediction.bodyBId,
-        name: prediction.bodyBName,
-        type: prediction.bodyBType,
-        color: bodyB?.color ?? '#dce8ff',
-        mass: bodyB?.mass ?? 0,
-        radius: bodyB?.radius ?? 0,
-      },
+      bodyA: createCollisionWatchBodyInfo(
+        sourceBodies,
+        prediction.bodyAId,
+        prediction.bodyAName,
+        prediction.bodyAType,
+      ),
+      bodyB: createCollisionWatchBodyInfo(
+        sourceBodies,
+        prediction.bodyBId,
+        prediction.bodyBName,
+        prediction.bodyBType,
+      ),
       closingSpeed: prediction.closingSpeed,
       impactObservedAt: null,
     }
@@ -461,13 +494,11 @@ export default function App() {
     const prediction = collisionPredictionRef.current
     if (!prediction) return
 
-    const exactA = bodiesRef.current.find((body) => body.id === prediction.bodyAId)
-    const exactB = bodiesRef.current.find((body) => body.id === prediction.bodyBId)
-    const collisionAlreadyHappened =
-      !exactA ||
-      !exactB ||
-      (exactA.collisionCooldown ?? 0) > 0 ||
-      (exactB.collisionCooldown ?? 0) > 0
+    const collisionAlreadyHappened = hasTargetPairCollisionResult(
+      bodiesRef.current,
+      prediction.bodyAId,
+      prediction.bodyBId,
+    )
     const replay = collisionAlreadyHappened && collisionReplayRef.current?.pairKey === prediction.pairKey
       ? collisionReplayRef.current
       : null
@@ -484,18 +515,11 @@ export default function App() {
 
     beginCollisionWatchInfo(prediction, watchBodies)
 
-    const candidates = watchBodies.filter((body) =>
-      body.bodyType !== 'effect' && (
-        body.id === prediction.bodyAId ||
-        body.id === prediction.bodyBId ||
-        isBodyDescendedFrom(body.id, prediction.bodyAId) ||
-        isBodyDescendedFrom(body.id, prediction.bodyBId)
-      ),
-    )
-    const target = candidates.reduce<BodyState | null>(
-      (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
-      null,
-    )
+    const bodyA = resolveBodyDescendant(watchBodies, prediction.bodyAId)
+    const bodyB = resolveBodyDescendant(watchBodies, prediction.bodyBId)
+    const target = bodyA && bodyB
+      ? (bodyA.mass > bodyB.mass || (bodyA.mass === bodyB.mass && bodyA.radius >= bodyB.radius) ? bodyA : bodyB)
+      : bodyA ?? bodyB
     if (target) changeTrackedBody(target.id)
 
     applyCollisionWatchSpeed(COLLISION_WATCH_APPROACH_SPEED)
@@ -583,10 +607,10 @@ export default function App() {
               upcoming.timeToImpact <= COLLISION_CAMERA_LEAD_TIME &&
               autoCollisionWatchPairRef.current !== upcoming.pairKey
             ) {
-              const bodyA = bodiesRef.current.find((body) => body.id === upcoming.bodyAId)
-              const bodyB = bodiesRef.current.find((body) => body.id === upcoming.bodyBId)
+              const bodyA = resolveBodyDescendant(bodiesRef.current, upcoming.bodyAId)
+              const bodyB = resolveBodyDescendant(bodiesRef.current, upcoming.bodyBId)
               const target = bodyA && bodyB
-                ? (bodyA.mass >= bodyB.mass ? bodyA : bodyB)
+                ? (bodyA.mass > bodyB.mass || (bodyA.mass === bodyB.mass && bodyA.radius >= bodyB.radius) ? bodyA : bodyB)
                 : bodyA ?? bodyB
 
               beginCollisionWatchInfo(upcoming, bodiesRef.current)
@@ -610,9 +634,11 @@ export default function App() {
           collisionConfirmationRef.current = null
           const activePrediction = collisionPredictionRef.current
           if (activePrediction) {
-            const exactAExists = bodiesRef.current.some((body) => body.id === activePrediction.bodyAId)
-            const exactBExists = bodiesRef.current.some((body) => body.id === activePrediction.bodyBId)
-            const pairStillExists = exactAExists && exactBExists
+            const descendantA = resolveBodyDescendant(bodiesRef.current, activePrediction.bodyAId)
+            const descendantB = resolveBodyDescendant(bodiesRef.current, activePrediction.bodyBId)
+            const pairStillExists = Boolean(
+              descendantA && descendantB && descendantA.id !== descendantB.id,
+            )
             const holdMs = pairStillExists ? COLLISION_MISS_GRACE_MS : COLLISION_ALERT_HOLD_MS
 
             if (now - collisionLastSeenAtRef.current > holdMs) {
@@ -635,6 +661,7 @@ export default function App() {
       let simulationTime = simulationTimeRef.current
 
       while (accumulator >= PHYSICS_DT && steps < MAX_STEPS_PER_FRAME) {
+        const previousBodies = nextBodies
         nextBodies = stepBodies(nextBodies, PHYSICS_DT)
         accumulator -= PHYSICS_DT
         advanced += PHYSICS_DT
@@ -643,16 +670,19 @@ export default function App() {
 
         const activeWatch = collisionWatchInfoRef.current
         if (activeWatch && activeWatch.impactObservedAt === null) {
-          const bodyA = nextBodies.find((body) => body.id === activeWatch.bodyA.id)
-          const bodyB = nextBodies.find((body) => body.id === activeWatch.bodyB.id)
-          const impactObserved =
-            !bodyA ||
-            !bodyB ||
-            (bodyA.collisionCooldown ?? 0) > 0 ||
-            (bodyB.collisionCooldown ?? 0) > 0
+          const refreshedWatch = refreshCollisionWatchDetails(activeWatch, nextBodies)
+          collisionWatchInfoRef.current = refreshedWatch
+
+          const impactObserved = didCollisionWatchTargetImpact(
+            previousBodies,
+            nextBodies,
+            activeWatch.bodyA.sourceId,
+            activeWatch.bodyB.sourceId,
+            PHYSICS_DT,
+          )
 
           if (impactObserved) {
-            const impactedWatch = { ...activeWatch, impactObservedAt: now }
+            const impactedWatch = { ...refreshedWatch, impactObservedAt: now }
             collisionWatchInfoRef.current = impactedWatch
             collisionWatchImpactSimTimeRef.current = null
             collisionPredictionRef.current = null
@@ -694,6 +724,10 @@ export default function App() {
 
       if (publishAccumulator >= 1 / 30 && advanced > 0) {
         setBodies(nextBodies)
+        const latestWatch = collisionWatchInfoRef.current
+        if (latestWatch && latestWatch.impactObservedAt === null) {
+          setCollisionWatchInfo(latestWatch)
+        }
         if (trailSampleQueueRef.current.length > 0) {
           trailBatchSequenceRef.current += 1
           setTrailSampleBatch({
@@ -753,8 +787,8 @@ export default function App() {
           trackedBodyId={trackedBodyId}
           collisionCameraFocus={collisionWatchInfo ? {
             pairKey: collisionWatchInfo.pairKey,
-            bodyAId: collisionWatchInfo.bodyA.id,
-            bodyBId: collisionWatchInfo.bodyB.id,
+            bodyAId: collisionWatchInfo.bodyA.sourceId,
+            bodyBId: collisionWatchInfo.bodyB.sourceId,
           } : null}
         />
         {collisionWatchInfo && (
