@@ -4,6 +4,8 @@ import {
 } from '../src/starColors'
 import { stepBodies as stepCoreBodies } from '../src/physics/engine'
 import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
+import { getCollisionEffectProfile } from '../src/rendering/collisionEffectProfile'
+import { getSyntheticStellarEffects } from '../src/rendering/collisionEffectRenderer'
 import type { BodyState } from '../src/types'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -296,6 +298,44 @@ function testExactContactStillUsesImpactEnvelope() {
   )
 }
 
+function testSyntheticImpactBuildsTowardContact() {
+  const makePair = (halfSeparation: number) => [
+    makeStar(
+      'preview-build-a',
+      1,
+      0.3,
+      -halfSeparation,
+      '#7ea7ff',
+      { x: 0.25, y: -0.15, z: 0 },
+    ),
+    makeStar(
+      'preview-build-b',
+      1,
+      0.3,
+      halfSeparation,
+      '#ffaf5f',
+      { x: -0.25, y: 0.15, z: 0 },
+    ),
+  ] as BodyState[]
+
+  const shallowEffects = getSyntheticStellarEffects(makePair(0.297))
+  const deepEffects = getSyntheticStellarEffects(makePair(0.273))
+  const shallowFlash = shallowEffects.find((body) => body.effectVisual?.kind === 'contactFlash')
+  const deepFlash = deepEffects.find((body) => body.effectVisual?.kind === 'contactFlash')
+  assert(shallowFlash && deepFlash, 'staged stellar overlap should synthesize a contact flash')
+
+  const shallowProfile = getCollisionEffectProfile(shallowFlash)
+  const deepProfile = getCollisionEffectProfile(deepFlash)
+  assert(
+    deepProfile.fadeAlpha > shallowProfile.fadeAlpha + 0.2,
+    'synthetic contact flash must build with compression instead of decaying toward impact',
+  )
+  assert(
+    deepEffects.some((body) => body.effectVisual?.kind === 'stellarPlasma'),
+    'normal staged stellar overlap must enter synthetic plasma buildup before topology reveal',
+  )
+}
+
 testMassTemperatureModel()
 testGrazingHitAndRunHasConsequences()
 testSubEscapeGrazingContactCapturesInsteadOfBouncing()
@@ -304,5 +344,6 @@ testHeadOnMergeUsesRemnantMassColor()
 testPartialDisruptionStripsSmallerStar()
 testImpactBridgeDoesNotRewriteStellarHue()
 testExactContactStillUsesImpactEnvelope()
+testSyntheticImpactBuildsTowardContact()
 
 console.log('stellar collision regression checks passed')
