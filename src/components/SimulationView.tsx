@@ -37,12 +37,11 @@ function getCollisionRenderBodies(
   )
   if (!mergedStar) return bodies
 
-  // The collision renderer normally resolves each source id to a descendant.
-  // After a stellar merge both ids resolve to the same remnant, which makes the
-  // collision camera fall back to normal mobile tracking and can push the very
-  // close remnant outside the viewport. Add an invisible render-only anchor for
-  // one source id so the collision camera keeps framing the merged star through
-  // the post-impact observation period without changing the physics state.
+  // After a stellar merge both collision source ids resolve to the same remnant.
+  // The renderer would then drop collision framing and immediately fall back to
+  // the normal mobile tracking offset, which can push a close-up remnant outside
+  // the viewport. Keep one invisible render-only source anchor at the remnant so
+  // collision framing remains active through the post-impact observation phase.
   const anchorId = !bodies.some((body) => body.id === collisionCameraFocus.bodyBId)
     ? collisionCameraFocus.bodyBId
     : !bodies.some((body) => body.id === collisionCameraFocus.bodyAId)
@@ -105,7 +104,7 @@ export function SimulationView({
     const host = hostRef.current
     if (!host) return
     installBodyLighting()
-    syncBodyLightingState(bodies)
+    syncBodyLightingState(renderStateRef.current.bodies)
     return createSimulationRenderer(host, () => renderStateRef.current)
   }, [])
 
