@@ -1,11 +1,19 @@
 import {
+  didCollisionWatchTargetImpact,
+  getCollisionCompressionRatio,
+  STELLAR_IMPACT_PEAK_COMPRESSION_RATIO,
+} from '../src/collisionWatch'
+import {
   getEquilibriumStellarDisplayColor,
   getStellarTemperatureKelvin,
 } from '../src/starColors'
 import { stepBodies as stepCoreBodies } from '../src/physics/engine'
 import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
 import { getCollisionEffectProfile } from '../src/rendering/collisionEffectProfile'
-import { getSyntheticStellarEffects } from '../src/rendering/collisionEffectRenderer'
+import {
+  getSyntheticStellarEffects,
+  SYNTHETIC_RETIRE_MS,
+} from '../src/rendering/collisionEffectRenderer'
 import type { BodyState } from '../src/types'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -245,7 +253,7 @@ function testImpactBridgeDoesNotRewriteStellarHue() {
 
   let frame = stepFragmentAwareBodies([a, b], 0.0015)
   let sawBridge = false
-  for (let index = 0; index < 8; index += 1) {
+  for (let index = 0; index < 18; index += 1) {
     const bodyA = frame.find((body) => body.id === a.id)
     const bodyB = frame.find((body) => body.id === b.id)
     if (bodyA && bodyB) {
@@ -280,7 +288,7 @@ function testExactContactStillUsesImpactEnvelope() {
 
   let frame = stepFragmentAwareBodies([a, b], 0.0015)
   let bridgeFrames = 0
-  for (let index = 0; index < 12; index += 1) {
+  for (let index = 0; index < 24; index += 1) {
     const bodyA = frame.find((body) => body.id === a.id)
     const bodyB = frame.find((body) => body.id === b.id)
     if (!bodyA || !bodyB) break
@@ -289,8 +297,8 @@ function testExactContactStillUsesImpactEnvelope() {
   }
 
   assert(
-    bridgeFrames >= 5,
-    'exact-contact stellar collision must keep both silhouettes visible through several impact-envelope frames',
+    bridgeFrames >= 14 && bridgeFrames <= 18,
+    'exact-contact stellar collision must keep both silhouettes visible for the full 14-18 step impact envelope',
   )
   assert(
     frame.some((body) => body.bodyType === 'star' && body.id.includes(a.id) && body.id.includes(b.id)),
@@ -336,6 +344,118 @@ function testSyntheticImpactBuildsTowardContact() {
   )
 }
 
+function testTopologyRevealIsCoveredByPeakSyntheticAndPhysicalFlash() {
+  const a = makeStar(
+    'stellar-mask-a',
+    1,
+    0.3,
+    -0.30025,
+    '#7ea7ff',
+    { x: 0.2, y: 0, z: 0 },
+  )
+  const b = makeStar(
+    'stellar-mask-b',
+    1,
+    0.3,
+    0.30025,
+    '#ff6b5e',
+    { x: -0.2, y: 0, z: 0 },
+  )
+  const dt = 0.0015
+
+  let previous: BodyState[] = [a, b]
+  let impactDetected = false
+  let additionalDualSourceSteps = 0
+  let lastDualSourceFrame: BodyState[] | null = null
+  let resolvedFrame: BodyState[] | null = null
+
+  for (let step = 0; step < 48; step += 1) {
+    const next = stepFragmentAwareBodies(previous, dt)
+    const nextA = next.find((body) => body.id === a.id)
+    const nextB = next.find((body) => body.id === b.id)
+    const mergedRemnant = next.find((body) =>
+      body.bodyType === 'star' &&
+      body.id !== a.id &&
+      body.id !== b.id &&
+      body.id.includes(a.id) &&
+      body.id.includes(b.id),
+    )
+
+    const detectedNow = !impactDetected && didCollisionWatchTargetImpact(
+      previous,
+      next,
+      a.id,
+      b.id,
+      dt,
+    )
+
+    if (detectedNow) {
+      impactDetected = true
+      assert(nextA && nextB, 'impact peak must be observed while both source stars still exist')
+      assert(!mergedRemnant, 'impact peak must be observed before a merged remnant exists')
+      assert(
+        getCollisionCompressionRatio(nextA, nextB) >= STELLAR_IMPACT_PEAK_COMPRESSION_RATIO,
+        'impact peak detection must coincide with the configured compression crossing',
+      )
+    } else if (impactDetected && nextA && nextB) {
+      additionalDualSourceSteps += 1
+    }
+
+    if (nextA && nextB) lastDualSourceFrame = next
+
+    if (impactDetected && (!nextA || !nextB)) {
+      resolvedFrame = next
+      break
+    }
+
+    previous = next
+  }
+
+  assert(impactDetected, 'stellar impact peak must occur before topology handoff')
+  assert(
+    additionalDualSourceSteps >= 7,
+    'impact peak must be followed by at least seven additional dual-source physics steps',
+  )
+  assert(lastDualSourceFrame, 'a dual-source topology-mask frame must exist immediately before resolution')
+  assert(resolvedFrame, 'stellar merge must eventually hand off to the physical topology')
+
+  const lastA = lastDualSourceFrame.find((body) => body.id === a.id)
+  const lastB = lastDualSourceFrame.find((body) => body.id === b.id)
+  assert(lastA && lastB, 'last topology-mask frame must still contain both sources')
+  assert(
+    getCollisionCompressionRatio(lastA, lastB) >= 0.35,
+    'topology handoff must occur from a near-maximum compressed plateau instead of a shallow overlap',
+  )
+
+  const previewEffects = getSyntheticStellarEffects(lastDualSourceFrame)
+  const previewFlash = previewEffects.find((body) => body.effectVisual?.kind === 'contactFlash')
+  assert(previewFlash, 'topology-mask frame must contain a synthetic contact flash')
+  assert(
+    getCollisionEffectProfile(previewFlash).fadeAlpha >= 0.95,
+    'synthetic contact flash must be at peak opacity immediately before topology reveal',
+  )
+  assert(
+    previewEffects.some((body) => body.effectVisual?.kind === 'compressionShear'),
+    'topology-mask frame must contain the compression/shock sheet',
+  )
+  assert(
+    previewEffects.some((body) => body.effectVisual?.kind === 'stellarPlasma'),
+    'topology-mask frame must contain directional stellar plasma',
+  )
+  assert(
+    SYNTHETIC_RETIRE_MS >= 400 && SYNTHETIC_RETIRE_MS <= 450,
+    'synthetic topology mask must retire over a 400-450ms crossfade window',
+  )
+  assert(
+    resolvedFrame.some((body) =>
+      body.bodyType === 'effect' &&
+      body.name === 'Collision flash' &&
+      body.effectVisual?.kind === 'contactFlash',
+    ),
+    'first physical topology frame must introduce the physical contact flash while synthetic VFX is retiring',
+  )
+}
+
 testMassTemperatureModel()
 testGrazingHitAndRunHasConsequences()
 testSubEscapeGrazingContactCapturesInsteadOfBouncing()
@@ -345,5 +465,6 @@ testPartialDisruptionStripsSmallerStar()
 testImpactBridgeDoesNotRewriteStellarHue()
 testExactContactStillUsesImpactEnvelope()
 testSyntheticImpactBuildsTowardContact()
+testTopologyRevealIsCoveredByPeakSyntheticAndPhysicalFlash()
 
 console.log('stellar collision regression checks passed')
