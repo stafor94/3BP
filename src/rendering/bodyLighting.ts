@@ -4,6 +4,7 @@ import {
   getNearestStellarColor,
   getStellarDisplayColorFromTemperature,
   getStellarTemperatureKelvin,
+  mixStellarDisplayColors,
 } from '../starColors'
 import type { BodyState } from '../types'
 import { createCollisionEffectsLayer } from './collisionEffectRenderer'
@@ -52,7 +53,21 @@ function getResolvedStellarColor(body: BodyState) {
 
   const equilibriumTemperature = body.stellarTemperatureK ?? getStellarTemperatureKelvin(body.mass)
   const heatedTemperature = equilibriumTemperature + (body.shockTemperatureBiasK ?? 0) * heatStrength
-  return getStellarDisplayColorFromTemperature(heatedTemperature)
+  const heatedColor = getStellarDisplayColorFromTemperature(heatedTemperature)
+  const globalSurfaceHeatShare = body.stellarCollisionOutcome === 'merge'
+    ? 0.28
+    : body.stellarCollisionOutcome === 'partialDisruption'
+      ? 0.16
+      : 0.08
+
+  // White-hot temperatures belong primarily to the local contact sheet/plasma.
+  // The whole stellar photosphere only receives a limited global tint, so an
+  // M/K star cannot turn into an A-type white disc for a grazing encounter.
+  return mixStellarDisplayColors(
+    equilibriumColor,
+    heatedColor,
+    heatStrength * globalSurfaceHeatShare,
+  )
 }
 
 type CollisionEffectsLayer = ReturnType<typeof createCollisionEffectsLayer>

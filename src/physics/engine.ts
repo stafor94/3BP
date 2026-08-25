@@ -49,6 +49,8 @@ type CollisionGeometry = {
   speedRatio: number
   headOn: number
   grazing: number
+  impactParameter: number
+  compressionSeverity: number
 }
 
 type StellarEjectaBias = {
@@ -249,10 +251,19 @@ function getCollisionGeometry(a: BodyState, b: BodyState): CollisionGeometry {
     Math.max(0, (2 * G * (a.mass + b.mass)) / Math.max(contactDistance, 1e-6)),
   )
   const speedRatio = relativeSpeed / Math.max(escapeSpeed, 1e-6)
-  const headOn = relativeSpeed > 1e-9
-    ? clamp(Math.abs(dot(relativeVelocity, normal)) / relativeSpeed, 0, 1)
-    : 1
-  const grazing = Math.sqrt(Math.max(0, 1 - headOn * headOn))
+  const impactParameter = relativeSpeed > 1e-9
+    ? clamp(magnitude(cross(delta, relativeVelocity)) / Math.max(relativeSpeed * contactDistance, 1e-9), 0, 1)
+    : 0
+  // Use the trajectory impact parameter rather than the instantaneous velocity/radius
+  // angle after bodies have already numerically overlapped. This remains stable through
+  // the contact step and does not turn a deep encounter into a fake grazing bounce.
+  const grazing = impactParameter
+  const headOn = Math.sqrt(Math.max(0, 1 - grazing * grazing))
+  const compressionSeverity = clamp(
+    (contactDistance - distance) / Math.max(Math.min(a.radius, b.radius), 1e-6),
+    0,
+    1,
+  )
 
   return {
     normal,
@@ -264,6 +275,8 @@ function getCollisionGeometry(a: BodyState, b: BodyState): CollisionGeometry {
     speedRatio,
     headOn,
     grazing,
+    impactParameter,
+    compressionSeverity,
   }
 }
 
@@ -273,7 +286,7 @@ function classifyCollision(a: BodyState, b: BodyState, geometry: CollisionGeomet
   const totalMass = a.mass + b.mass
   const smallerMassFraction = Math.min(a.mass, b.mass) / Math.max(totalMass, 1e-9)
   const massRatio = Math.min(a.mass, b.mass) / Math.max(a.mass, b.mass, 1e-9)
-  const { speedRatio, headOn, grazing } = geometry
+  const { speedRatio, headOn, grazing, compressionSeverity } = geometry
 
   if (typeA === 'fragment' || typeB === 'fragment') {
     if (typeA === 'star' || typeB === 'star') {
@@ -319,24 +332,34 @@ function classifyCollision(a: BodyState, b: BodyState, geometry: CollisionGeomet
   }
 
   if (starCount === 2) {
-    const partialSeverity =
-      clamp((speedRatio - 0.82) / 1.25, 0, 1) *
-      (0.55 + headOn * 0.45) *
-      (0.75 + (1 - massRatio) * 0.45)
+    const shallowGrazingPass =
+      grazing > 0.86 &&
+      compressionSeverity < 0.16 &&
+      speedRatio > 1.02 &&
+      speedRatio < 2.8
+    const partialSeverity = clamp(
+      clamp((speedRatio - 0.82) / 1.25, 0, 1) * 0.5 +
+        headOn * 0.18 +
+        compressionSeverity * 0.72 +
+        (1 - massRatio) * 0.16,
+      0,
+      1,
+    )
 
-    // Unequal stellar encounters with meaningful compression strip the smaller
-    // star instead of collapsing every non-hit-and-run outcome into a merge.
+    // Unequal-mass, strongly coupled impacts can strip the smaller star even
+    // when contact is first detected near the photospheric boundary. Preserve
+    // this physical partial-disruption branch before evaluating a true graze.
     if (
       massRatio < 0.82 &&
-      speedRatio > 0.92 &&
+      speedRatio > 0.95 &&
       speedRatio < 2.3 &&
       headOn > 0.34 &&
-      grazing < 0.88 &&
+      grazing < 0.86 &&
       partialSeverity > 0.16
     ) {
       const strippedFractionOfSmaller = clamp(
-        0.05 + partialSeverity * 0.13 + (1 - massRatio) * 0.035,
-        0.05,
+        0.055 + partialSeverity * 0.14 + (1 - massRatio) * 0.03,
+        0.055,
         0.2,
       )
       return {
@@ -346,36 +369,77 @@ function classifyCollision(a: BodyState, b: BodyState, geometry: CollisionGeomet
       }
     }
 
-    if (grazing > 0.82 && speedRatio > 0.65 && speedRatio < 2.8) {
+    // A stellar hit-and-run must actually have enough relative energy to escape
+    // and must remain a shallow surface-skimming encounter. Sub-escape contacts
+    // are capture/merge events; deeper overlaps are fluid compression/stripping,
+    // not rigid-body bounces.
+    if (shallowGrazingPass) {
       const strippedFractionOfSmaller = clamp(
-        0.015 + speedRatio * 0.014 + (grazing - 0.82) * 0.08,
-        0.015,
-        0.075,
+        0.03 + (speedRatio - 1.02) * 0.035 + (grazing - 0.86) * 0.11,
+        0.025,
+        0.09,
       )
       return {
         mode: 'hitRun',
         ejectaFraction: smallerMassFraction * strippedFractionOfSmaller,
         stellarOutcome: 'hitAndRun',
+      }
+    }
+
+    // High-energy contacts that penetrate substantially through either photosphere
+    // remain two remnants only as a stripping/disruption event. Never teleport
+    // them apart as an elastic hit-and-run.
+    if (
+      speedRatio > 1.08 &&
+      compressionSeverity >= 0.14 &&
+      (compressionSeverity >= 0.22 || headOn > 0.42 || massRatio < 0.9)
+    ) {
+      const strippedFractionOfSmaller = clamp(
+        0.055 + partialSeverity * 0.145,
+        0.055,
+        0.2,
+      )
+      return {
+        mode: 'disrupt',
+        ejectaFraction: smallerMassFraction * strippedFractionOfSmaller,
+        stellarOutcome: 'partialDisruption',
       }
     }
 
     const stellarFlyThroughThreshold = 2.25 - headOn * 0.2
     if (speedRatio > stellarFlyThroughThreshold) {
+      if (grazing > 0.8 && compressionSeverity < 0.12) {
+        const strippedFractionOfSmaller = clamp(
+          0.05 + (speedRatio - stellarFlyThroughThreshold) * 0.06,
+          0.05,
+          0.11,
+        )
+        return {
+          mode: 'hitRun',
+          ejectaFraction: smallerMassFraction * strippedFractionOfSmaller,
+          stellarOutcome: 'hitAndRun',
+        }
+      }
+
       const strippedFractionOfSmaller = clamp(
-        0.045 + (speedRatio - stellarFlyThroughThreshold) * 0.055,
-        0.045,
-        0.1,
+        0.07 + partialSeverity * 0.13,
+        0.07,
+        0.2,
       )
       return {
-        mode: 'hitRun',
+        mode: 'disrupt',
         ejectaFraction: smallerMassFraction * strippedFractionOfSmaller,
-        stellarOutcome: 'hitAndRun',
+        stellarOutcome: 'partialDisruption',
       }
     }
 
     return {
       mode: 'merge',
-      ejectaFraction: clamp(0.008 + speedRatio * 0.018 + headOn * 0.008, 0.008, 0.07),
+      ejectaFraction: clamp(
+        0.01 + speedRatio * 0.018 + headOn * 0.01 + compressionSeverity * 0.025,
+        0.01,
+        0.075,
+      ),
       stellarOutcome: 'merge',
     }
   }
@@ -1123,6 +1187,23 @@ function resolveStellarSeparatedCollision(
     : 0
   let velocityA = sub(a.velocity, scale(geometry.normal, impulseMagnitude / a.mass))
   let velocityB = add(b.velocity, scale(geometry.normal, impulseMagnitude / b.mass))
+
+  const relativeAfterNormalImpulse = sub(velocityB, velocityA)
+  const normalAfterImpulse = scale(
+    geometry.normal,
+    dot(relativeAfterNormalImpulse, geometry.normal),
+  )
+  const tangentAfterImpulse = sub(relativeAfterNormalImpulse, normalAfterImpulse)
+  const tangentRetention = outcome === 'partialDisruption'
+    ? clamp(0.42 + geometry.grazing * 0.12 - geometry.compressionSeverity * 0.2, 0.32, 0.56)
+    : clamp(0.72 + geometry.grazing * 0.1 - geometry.compressionSeverity * 0.24, 0.62, 0.82)
+  const tangentToDissipate = scale(tangentAfterImpulse, 1 - tangentRetention)
+  const tangentialImpulse = scale(
+    tangentToDissipate,
+    1 / Math.max(1 / a.mass + 1 / b.mass, 1e-9),
+  )
+  velocityA = add(velocityA, scale(tangentialImpulse, 1 / a.mass))
+  velocityB = sub(velocityB, scale(tangentialImpulse, 1 / b.mass))
 
   const center = centerOfMassPosition(a, b)
   const separationScale = outcome === 'partialDisruption' ? 1.035 : 1 + geometry.grazing * 0.08
