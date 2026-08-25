@@ -1,0 +1,32 @@
+name: Apply collision regression update
+
+on:
+  push:
+    branches: [collision-watch-stellar-vfx-0.17.24]
+    paths:
+      - scripts/applyCollisionRegressionUpdate.mjs
+      - .github/workflows/apply-collision-regression-update.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: collision-watch-stellar-vfx-0.17.24
+      - name: Update regression
+        run: node scripts/applyCollisionRegressionUpdate.mjs
+      - name: Remove one-shot tooling
+        run: rm scripts/applyCollisionRegressionUpdate.mjs .github/workflows/apply-collision-regression-update.yml
+      - name: Commit regression update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "test: align collision bridge regression with phased watch"
+          git push origin HEAD:collision-watch-stellar-vfx-0.17.24
