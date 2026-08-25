@@ -1,49 +1,43 @@
-import { rmSync, writeFileSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { build } from 'vite'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const outDir = resolve(root, '.tmp-physics-regression')
-const tsc = resolve(
-  root,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'tsc.cmd' : 'tsc',
-)
+const outputFile = resolve(outDir, 'physicsRegression.mjs')
 
 rmSync(outDir, { recursive: true, force: true })
 
-const compile = spawnSync(
-  tsc,
-  [
-    resolve(root, 'scripts/physicsRegression.ts'),
-    '--ignoreConfig',
-    '--target', 'ES2022',
-    '--module', 'CommonJS',
-    '--moduleResolution', 'Node',
-    '--ignoreDeprecations', '6.0',
-    '--rootDir', root,
-    '--outDir', outDir,
-    '--strict',
-    '--esModuleInterop',
-    '--skipLibCheck',
-  ],
-  { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' },
-)
+try {
+  await build({
+    root,
+    logLevel: 'error',
+    build: {
+      ssr: resolve(root, 'scripts/physicsRegression.ts'),
+      outDir,
+      emptyOutDir: true,
+      minify: false,
+      rollupOptions: {
+        output: {
+          entryFileNames: 'physicsRegression.mjs',
+          format: 'es',
+        },
+      },
+    },
+  })
 
-if (compile.status !== 0) {
+  const run = spawnSync(
+    process.execPath,
+    [outputFile],
+    { cwd: root, stdio: 'inherit' },
+  )
+
+  process.exitCode = run.status ?? 1
+} catch (error) {
+  console.error(error)
+  process.exitCode = 1
+} finally {
   rmSync(outDir, { recursive: true, force: true })
-  process.exit(compile.status ?? 1)
 }
-
-writeFileSync(resolve(outDir, 'package.json'), '{"type":"commonjs"}\n')
-
-const run = spawnSync(
-  process.execPath,
-  [resolve(outDir, 'scripts/physicsRegression.js')],
-  { cwd: root, stdio: 'inherit' },
-)
-
-rmSync(outDir, { recursive: true, force: true })
-process.exit(run.status ?? 1)
