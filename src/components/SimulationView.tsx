@@ -6,7 +6,7 @@ import {
   type CollisionCameraFocus,
   type SimulationRenderState,
 } from '../rendering/simulationRenderer'
-import type { BodyState, TrailSampleBatch } from '../types'
+import type { BodyState, TrailSampleBatch, Vec3 } from '../types'
 
 type Props = {
   bodies: BodyState[]
@@ -19,50 +19,50 @@ type Props = {
   collisionCameraFocus: CollisionCameraFocus | null
 }
 
+type CollisionCameraAnchorState = {
+  pairKey: string
+  mainSourceId: string
+  anchorId: string
+  direction: Vec3
+  envelopeRadius: number
+  anchorVelocity: Vec3
+  trackingEstablished: boolean
+}
+
+const COLLISION_CAMERA_BODY_MARGIN = 1.65
+const COLLISION_CAMERA_ENVELOPE_DISTANCE_FACTOR = 0.72
+const COLLISION_CAMERA_DIRECTION_EPSILON = 0.0005
+
 function isBodyDescendedFrom(bodyId: string, sourceId: string) {
   const bodyParts = new Set(bodyId.split('+'))
   return sourceId.split('+').every((part) => bodyParts.has(part))
 }
 
-function getCollisionRenderBodies(
-  bodies: BodyState[],
-  collisionCameraFocus: CollisionCameraFocus | null,
-) {
-  if (!collisionCameraFocus) return bodies
+function resolveBody(bodies: BodyState[], sourceId: string) {
+  return bodies.find((body) => body.id === sourceId && body.bodyType !== 'effect') ??
+    bodies.find((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, sourceId))
+}
 
-  const mergedStar = bodies.find((body) =>
-    body.bodyType === 'star' &&
-    isBodyDescendedFrom(body.id, collisionCameraFocus.bodyAId) &&
-    isBodyDescendedFrom(body.id, collisionCameraFocus.bodyBId),
-  )
-  if (!mergedStar) return bodies
+function vectorLength(vector: Vec3) {
+  return Math.hypot(vector.x, vector.y, vector.z)
+}
 
-  // After a stellar merge both collision source ids resolve to the same remnant.
-  // The renderer would then drop collision framing and immediately fall back to
-  // the normal mobile tracking offset, which can push a close-up remnant outside
-  // the viewport. Keep one invisible render-only source anchor at the remnant so
-  // collision framing remains active through the post-impact observation phase.
-  const anchorId = !bodies.some((body) => body.id === collisionCameraFocus.bodyBId)
-    ? collisionCameraFocus.bodyBId
-    : !bodies.some((body) => body.id === collisionCameraFocus.bodyAId)
-      ? collisionCameraFocus.bodyAId
-      : null
-  if (!anchorId) return bodies
-
-  const cameraAnchor: BodyState = {
-    ...mergedStar,
-    id: anchorId,
-    name: 'Collision camera anchor',
-    mass: 0,
-    radius: 0,
-    bodyType: 'fragment',
-    age: FRAGMENT_LIFETIME,
-    lifetime: FRAGMENT_LIFETIME,
-    position: { ...mergedStar.position },
-    velocity: { ...mergedStar.velocity },
+function normalizedDirection(from: BodyState, to: BodyState): { direction: Vec3; distance: number } {
+  const delta = {
+    x: to.position.x - from.position.x,
+    y: to.position.y - from.position.y,
+    z: to.position.z - from.position.z,
   }
-
-  return [...bodies, cameraAnchor]
+  const distance = vectorLength(delta)
+  if (distance <= 1e-10) return { direction: { x: 0, y: 0, z: 1 }, distance: 0 }
+  return {
+    direction: {
+      x: delta.x / distance,
+      y: delta.y / distance,
+      z: delta.z / distance,
+    },
+    distance,
+  }
 }
 
 export function SimulationView({
@@ -76,7 +76,98 @@ export function SimulationView({
   collisionCameraFocus,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
-  const renderBodies = getCollisionRenderBodies(bodies, collisionCameraFocus)
+  const collisionCameraAnchorRef = useRef<CollisionCameraAnchorState | null>(null)
+  const collisionCameraSuppressedPairRef = useRef<string | null>(null)
+
+  let renderBodies = bodies
+  let effectiveCollisionCameraFocus = collisionCameraFocus
+
+  if (!collisionCameraFocus) {
+    collisionCameraAnchorRef.current = null
+    collisionCameraSuppressedPairRef.current = null
+  } else {
+    const previousAnchor = collisionCameraAnchorRef.current
+    if (!previousAnchor || previousAnchor.pairKey !== collisionCameraFocus.pairKey) {
+      collisionCameraSuppressedPairRef.current = null
+      const bodyA = resolveBody(bodies, collisionCameraFocus.bodyAId)
+      const bodyB = resolveBody(bodies, collisionCameraFocus.bodyBId)
+
+      if (bodyA && bodyB) {
+        const mainBody = bodyA.mass > bodyB.mass || (bodyA.mass === bodyB.mass && bodyA.radius >= bodyB.radius)
+          ? bodyA
+          : bodyB
+        const secondaryBody = mainBody === bodyA ? bodyB : bodyA
+        const mainSourceId = mainBody === bodyA
+          ? collisionCameraFocus.bodyAId
+          : collisionCameraFocus.bodyBId
+        const { direction, distance } = normalizedDirection(mainBody, secondaryBody)
+
+        collisionCameraAnchorRef.current = {
+          pairKey: collisionCameraFocus.pairKey,
+          mainSourceId,
+          anchorId: `__collision-camera-anchor__${collisionCameraFocus.pairKey}`,
+          direction,
+          envelopeRadius: Math.max(
+            secondaryBody.radius +
+              distance * COLLISION_CAMERA_ENVELOPE_DISTANCE_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
+            0.001,
+          ),
+          anchorVelocity: { ...secondaryBody.velocity },
+          trackingEstablished: trackedBodyId !== null && isBodyDescendedFrom(trackedBodyId, mainSourceId),
+        }
+      } else {
+        collisionCameraAnchorRef.current = null
+      }
+    }
+
+    const anchorState = collisionCameraAnchorRef.current
+    if (anchorState) {
+      const trackedMainBody = trackedBodyId !== null &&
+        isBodyDescendedFrom(trackedBodyId, anchorState.mainSourceId)
+
+      if (!anchorState.trackingEstablished && trackedMainBody) {
+        anchorState.trackingEstablished = true
+      } else if (anchorState.trackingEstablished && !trackedMainBody) {
+        collisionCameraSuppressedPairRef.current = anchorState.pairKey
+      }
+
+      if (collisionCameraSuppressedPairRef.current === anchorState.pairKey) {
+        effectiveCollisionCameraFocus = null
+      } else {
+        const mainBody = resolveBody(bodies, anchorState.mainSourceId)
+        if (mainBody) {
+          const cameraAnchor: BodyState = {
+            ...mainBody,
+            id: anchorState.anchorId,
+            name: 'Collision camera anchor',
+            mass: 0,
+            radius: anchorState.envelopeRadius,
+            bodyType: 'fragment',
+            age: FRAGMENT_LIFETIME,
+            lifetime: FRAGMENT_LIFETIME,
+            position: {
+              x: mainBody.position.x + anchorState.direction.x * COLLISION_CAMERA_DIRECTION_EPSILON,
+              y: mainBody.position.y + anchorState.direction.y * COLLISION_CAMERA_DIRECTION_EPSILON,
+              z: mainBody.position.z + anchorState.direction.z * COLLISION_CAMERA_DIRECTION_EPSILON,
+            },
+            velocity: { ...anchorState.anchorVelocity },
+          }
+
+          renderBodies = [...bodies, cameraAnchor]
+          effectiveCollisionCameraFocus = {
+            pairKey: collisionCameraFocus.pairKey,
+            bodyAId: anchorState.mainSourceId,
+            bodyBId: anchorState.anchorId,
+          }
+        } else {
+          effectiveCollisionCameraFocus = null
+        }
+      }
+    } else {
+      effectiveCollisionCameraFocus = null
+    }
+  }
+
   const renderStateRef = useRef<SimulationRenderState>({
     bodies: renderBodies,
     simulationTime,
@@ -85,7 +176,7 @@ export function SimulationView({
     trailDuration,
     trailSampleBatch,
     trackedBodyId,
-    collisionCameraFocus,
+    collisionCameraFocus: effectiveCollisionCameraFocus,
   })
 
   renderStateRef.current = {
@@ -96,7 +187,7 @@ export function SimulationView({
     trailDuration,
     trailSampleBatch,
     trackedBodyId,
-    collisionCameraFocus,
+    collisionCameraFocus: effectiveCollisionCameraFocus,
   }
   syncBodyLightingState(bodies)
 
