@@ -1,12 +1,18 @@
 import * as THREE from 'three'
+import { getEffectiveBodyType } from '../bodyTypes'
 import { getNearestStellarColor } from '../starColors'
 import type { BodyState, EffectVisualKind, Vec3 } from '../types'
-import { getCollisionEffectProfile } from './bodyLighting'
+import { getCollisionEffectProfile } from './collisionEffectProfile'
 
 type CollisionEffectVisual = {
   mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>
   material: THREE.ShaderMaterial
 }
+
+const MAX_SYNTHETIC_STELLAR_PAIRS = 2
+const PREVIEW_FLASH_LIFETIME = 0.72
+const PREVIEW_SHEAR_LIFETIME = 0.82
+const PREVIEW_PLASMA_LIFETIME = 1.55
 
 const effectVertexShader = `
   varying vec2 vUv;
@@ -64,7 +70,7 @@ const effectFragmentShader = `
     float noise = plasmaNoise(p + vec2(uProgress * 0.7, -uProgress * 0.23));
 
     if (uKind < 0.5) {
-      // Contact flash: a compressed luminous layer centered on the impact plane.
+      // Contact flash: compressed impact sheet rather than a spherical glow.
       float warpedY = p.y + (noise - 0.5) * 0.16 * uTurbulence;
       float lens = length(vec2(p.x * 0.72, warpedY * 3.35));
       float halo = 1.0 - smoothstep(0.35, 1.0, lens);
@@ -75,7 +81,7 @@ const effectFragmentShader = `
       body = hotBand * 0.7 + halo * 0.35;
       edge = halo;
     } else if (uKind < 1.5) {
-      // Compression/shear: thin turbulent band with uneven hot knots.
+      // Compression/shear: uneven turbulent sheet with hot knots and filaments.
       float wave = sin((p.x * 5.4 + uSeed * 0.11) + noise * 3.4) * 0.08 * uTurbulence;
       float distanceToBand = abs(p.y - wave);
       float envelope = 1.0 - smoothstep(0.72, 1.0, abs(p.x));
@@ -87,7 +93,7 @@ const effectFragmentShader = `
       body = band;
       edge = band * (1.0 - filament);
     } else if (uKind < 2.5) {
-      // Stellar plasma: bright head plus torn, cooling tail and turbulent filaments.
+      // Stellar plasma: hot head, torn tail, cooling edge and turbulent filaments.
       float headDistance = length(vec2((p.x - 0.28) * 1.08, p.y * 1.22));
       float head = 1.0 - smoothstep(0.24, 0.92, headDistance);
       float tailT = clamp((0.34 - p.x) / max(0.55, 1.1 + uTail * 0.28), 0.0, 1.0);
@@ -110,7 +116,7 @@ const effectFragmentShader = `
       body = max(head * 0.72, tail * 0.75);
       edge = max(head, tail) * (1.0 - clamp(core, 0.0, 1.0));
     } else {
-      // Small collision spark: still directional, never a perfect circular point.
+      // Small sparks remain directional so even tiny effects do not become dots.
       float headDistance = length(vec2((p.x - 0.2) * 1.15, p.y * 1.6));
       float head = 1.0 - smoothstep(0.18, 0.82, headDistance);
       float tail = exp(-abs(p.y) * 8.0) *
@@ -136,6 +142,45 @@ const effectFragmentShader = `
     #include <colorspace_fragment>
   }
 `
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function dot(a: Vec3, b: Vec3) {
+  return a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+function magnitude(value: Vec3) {
+  return Math.hypot(value.x, value.y, value.z)
+}
+
+function scale(value: Vec3, scalar: number): Vec3 {
+  return { x: value.x * scalar, y: value.y * scalar, z: value.z * scalar }
+}
+
+function add(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }
+}
+
+function sub(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
+}
+
+function cross(a: Vec3, b: Vec3): Vec3 {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  }
+}
+
+function normalize(value: Vec3, fallback: Vec3): Vec3 {
+  const length = magnitude(value)
+  if (length > 1e-10) return scale(value, 1 / length)
+  const fallbackLength = magnitude(fallback)
+  return fallbackLength > 1e-10 ? scale(fallback, 1 / fallbackLength) : { x: 1, y: 0, z: 0 }
+}
 
 function getBodySeed(id: string) {
   let hash = 2166136261
@@ -181,6 +226,163 @@ function createEffectMaterial() {
     toneMapped: false,
     side: THREE.DoubleSide,
   })
+}
+
+function getSyntheticStellarEffects(bodies: BodyState[]) {
+  const stars = bodies.filter((body) => getEffectiveBodyType(body) === 'star')
+  const effects: BodyState[] = []
+  let pairCount = 0
+
+  for (let i = 0; i < stars.length && pairCount < MAX_SYNTHETIC_STELLAR_PAIRS; i += 1) {
+    for (let j = i + 1; j < stars.length && pairCount < MAX_SYNTHETIC_STELLAR_PAIRS; j += 1) {
+      const a = stars[i]
+      const b = stars[j]
+      const delta = sub(b.position, a.position)
+      const distance = magnitude(delta)
+      const contactDistance = a.radius + b.radius
+      const overlap = contactDistance - distance
+      if (overlap <= Math.max(1e-7, Math.min(a.radius, b.radius) * 0.002)) continue
+
+      const normal = normalize(delta, sub(b.velocity, a.velocity))
+      const relativeVelocity = sub(b.velocity, a.velocity)
+      const relativeSpeed = magnitude(relativeVelocity)
+      const normalVelocity = scale(normal, dot(relativeVelocity, normal))
+      const tangentialVelocity = sub(relativeVelocity, normalVelocity)
+      const referenceAxis: Vec3 = Math.abs(normal.z) < 0.86
+        ? { x: 0, y: 0, z: 1 }
+        : { x: 0, y: 1, z: 0 }
+      const tangent = normalize(tangentialVelocity, cross(referenceAxis, normal))
+      const headOn = relativeSpeed > 1e-9
+        ? clamp(Math.abs(dot(relativeVelocity, normal)) / relativeSpeed, 0, 1)
+        : 1
+      const grazing = Math.sqrt(Math.max(0, 1 - headOn * headOn))
+      const minRadius = Math.max(Math.min(a.radius, b.radius), 1e-6)
+      const overlapRatio = overlap / minRadius
+      const dominant = a.mass >= b.mass ? a : b
+      const smaller = dominant === a ? b : a
+      const totalMass = Math.max(a.mass + b.mass, 1e-9)
+      const centerVelocity = {
+        x: (a.velocity.x * a.mass + b.velocity.x * b.mass) / totalMass,
+        y: (a.velocity.y * a.mass + b.velocity.y * b.mass) / totalMass,
+        z: (a.velocity.z * a.mass + b.velocity.z * b.mass) / totalMass,
+      }
+      const pointA = add(a.position, scale(normal, a.radius))
+      const pointB = sub(b.position, scale(normal, b.radius))
+      const contactPoint = scale(add(pointA, pointB), 0.5)
+      const pairKey = [a.id, b.id].sort().join('~')
+      const massRatio = Math.min(a.mass, b.mass) / Math.max(a.mass, b.mass, 1e-9)
+      const massAsymmetry = 1 - massRatio
+      const relativeDirection = normalize(relativeVelocity, tangent)
+      const strippedDirection = smaller === a ? scale(relativeDirection, -1) : relativeDirection
+      const dominantTangentSign = dot(strippedDirection, tangent) < 0 ? -1 : 1
+      const flashProgress = clamp(overlapRatio / 0.24, 0, 1)
+      const shearProgress = clamp(overlapRatio / 1.85, 0, 0.72)
+
+      effects.push({
+        id: `preview:${pairKey}:flash`,
+        name: 'Collision flash',
+        color: dominant.color,
+        mass: 0,
+        radius: Math.max(0.055, Math.min(0.13, contactDistance * 0.38)),
+        position: contactPoint,
+        velocity: centerVelocity,
+        bodyType: 'effect',
+        age: PREVIEW_FLASH_LIFETIME * flashProgress,
+        lifetime: PREVIEW_FLASH_LIFETIME,
+        effectVisual: {
+          kind: 'contactFlash',
+          direction: tangent,
+          normal,
+          stretch: 2.7 + headOn * 0.95 + grazing * 0.2,
+          widthScale: clamp(0.42 - headOn * 0.13 + grazing * 0.04, 0.25, 0.44),
+          brightness: 1.42 + headOn * 0.35 + clamp(relativeSpeed, 0, 2) * 0.08,
+          turbulence: 0.14 + grazing * 0.34,
+          pulseStrength: 0.18 + headOn * 0.08,
+          phaseOffset: getBodySeed(pairKey),
+          secondaryColor: smaller.color,
+        },
+      })
+
+      effects.push({
+        id: `preview:${pairKey}:shear`,
+        name: 'Collision shear',
+        color: dominant.color,
+        mass: 0,
+        radius: Math.max(0.06, Math.min(0.16, contactDistance * 0.34)),
+        position: contactPoint,
+        velocity: centerVelocity,
+        bodyType: 'effect',
+        age: PREVIEW_SHEAR_LIFETIME * shearProgress,
+        lifetime: PREVIEW_SHEAR_LIFETIME,
+        effectVisual: {
+          kind: 'compressionShear',
+          direction: tangent,
+          normal,
+          stretch: 3.25 + grazing * 1.45 + headOn * 0.3,
+          widthScale: clamp(0.34 - grazing * 0.07 + headOn * 0.04, 0.25, 0.4),
+          tailLength: 0.18 + grazing * 0.28,
+          brightness: 1.08 + headOn * 0.24 + grazing * 0.08,
+          turbulence: 0.42 + grazing * 0.3,
+          pulseStrength: 0.08,
+          phaseOffset: getBodySeed(`${pairKey}:shear`),
+          secondaryColor: smaller.color,
+        },
+      })
+
+      const plasmaPhase = clamp((overlapRatio - 0.42) / 0.82, 0, 1)
+      if (plasmaPhase > 0) {
+        const previewCount = grazing > 0.55 ? 3 : 2
+        for (let index = 0; index < previewCount; index += 1) {
+          const counterStream = index === previewCount - 1
+          const sign = counterStream ? -dominantTangentSign : dominantTangentSign
+          const tangentWeight = headOn > 0.7 ? 0.72 : 0.66 + grazing * 0.2
+          const direction = normalize(
+            add(
+              scale(tangent, sign * tangentWeight),
+              add(
+                scale(strippedDirection, 0.12 + massAsymmetry * 0.2),
+                scale(normal, index % 2 === 0 ? 0.04 : -0.04),
+              ),
+            ),
+            scale(tangent, sign),
+          )
+          const strength = counterStream ? 0.58 : 1 - index * 0.12
+          const travel = minRadius * (0.08 + plasmaPhase * 0.62 * strength)
+          const source = index === 0 || massAsymmetry > 0.3 ? smaller : dominant
+
+          effects.push({
+            id: `preview:${pairKey}:plasma-${index}`,
+            name: 'Stellar plasma',
+            color: source.color,
+            mass: 0,
+            radius: minRadius * (index === 0 ? 0.2 : 0.13),
+            position: add(contactPoint, scale(direction, travel)),
+            velocity: add(centerVelocity, scale(direction, Math.max(relativeSpeed * 0.48, 0.08))),
+            bodyType: 'effect',
+            age: PREVIEW_PLASMA_LIFETIME * plasmaPhase * 0.34,
+            lifetime: PREVIEW_PLASMA_LIFETIME,
+            effectVisual: {
+              kind: 'stellarPlasma',
+              direction,
+              normal,
+              stretch: clamp(2.0 + grazing * 2.4 + plasmaPhase * 0.8 + index * 0.24, 1.9, 5.4),
+              widthScale: clamp(0.9 - grazing * 0.36 - index * 0.06, 0.45, 1.02),
+              tailLength: 0.42 + grazing * 0.72 + plasmaPhase * 0.28 + index * 0.1,
+              brightness: 1.12 + (index === 0 ? 0.18 : 0.04),
+              turbulence: 0.48 + grazing * 0.3 + index * 0.06,
+              pulseStrength: 0.05,
+              phaseOffset: getBodySeed(`${pairKey}:plasma:${index}`),
+              secondaryColor: dominant.color,
+            },
+          })
+        }
+      }
+
+      pairCount += 1
+    }
+  }
+
+  return effects
 }
 
 export function createCollisionEffectsLayer(scene: THREE.Scene) {
@@ -283,12 +485,14 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
 
   return {
     update(bodies: BodyState[], camera: THREE.Camera) {
-      const effects = bodies.filter((body) => body.bodyType === 'effect')
+      const physicalEffects = bodies.filter((body) => body.bodyType === 'effect')
+      const syntheticEffects = getSyntheticStellarEffects(bodies)
+      const effects = [...physicalEffects, ...syntheticEffects]
       const currentIds = new Set(effects.map((body) => body.id))
+
       Array.from(visuals.keys()).forEach((id) => {
         if (!currentIds.has(id)) remove(id)
       })
-
       effects.forEach((body) => updateVisual(ensure(body), body, camera))
     },
     dispose() {
