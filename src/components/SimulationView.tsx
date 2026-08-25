@@ -39,13 +39,11 @@ type TrackingCameraAnchorState = {
 }
 
 const COLLISION_CAMERA_BODY_MARGIN = 1.65
-const TRACKING_CAMERA_ENVELOPE_DISTANCE_FACTOR = 1.25
 const COLLISION_CAMERA_TRACKING_ZOOM_RATIO = 0.8
-const COLLISION_CAMERA_ENVELOPE_DISTANCE_FACTOR =
-  TRACKING_CAMERA_ENVELOPE_DISTANCE_FACTOR * COLLISION_CAMERA_TRACKING_ZOOM_RATIO
+const COLLISION_CAMERA_PAIR_DISTANCE_FACTOR = 1
 const COLLISION_CAMERA_DIRECTION_EPSILON = 0.0005
 const TRACKING_CAMERA_MIN_ENVELOPE_RADIUS = 0.18
-const TRACKING_CAMERA_BODY_RADIUS_FACTOR = 4
+const TRACKING_CAMERA_BODY_RADIUS_FACTOR = 5.2
 
 function isBodyDescendedFrom(bodyId: string, sourceId: string) {
   const bodyParts = new Set(bodyId.split('+'))
@@ -96,9 +94,10 @@ function findOrbitReference(bodies: BodyState[], trackedBody: BodyState): BodySt
     const distanceSquared = dx * dx + dy * dy + dz * dz
     if (distanceSquared <= 1e-12) continue
 
-    // Pick the body exerting the strongest instantaneous gravitational pull.
-    // This naturally chooses a nearby planet for a moon, while a star wins for
-    // a planet or wide multi-body orbit.
+    // The strongest instantaneous pull is still useful for choosing a readable
+    // viewing direction, but it must not control zoom. Otherwise selecting the
+    // same body at a different orbital phase can produce a completely different
+    // camera scale.
     const influence = Math.max(body.mass, 0) / distanceSquared
     if (influence > bestInfluence) {
       bestInfluence = influence
@@ -107,6 +106,13 @@ function findOrbitReference(bodies: BodyState[], trackedBody: BodyState): BodySt
   }
 
   return bestBody
+}
+
+function getStableTrackingEnvelopeRadius(trackedBody: BodyState) {
+  return Math.max(
+    trackedBody.radius * TRACKING_CAMERA_BODY_RADIUS_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
+    TRACKING_CAMERA_MIN_ENVELOPE_RADIUS,
+  )
 }
 
 function createTrackingCameraAnchorState(
@@ -118,34 +124,26 @@ function createTrackingCameraAnchorState(
 
   const orbitReference = findOrbitReference(bodies, trackedBody)
   if (orbitReference) {
-    const { direction, distance } = normalizedDirection(trackedBody, orbitReference)
+    const { direction } = normalizedDirection(trackedBody, orbitReference)
     return {
       trackedSourceId,
       pairKey: `tracking-camera:${trackedSourceId}`,
       anchorId: `__tracking-camera-anchor__${trackedSourceId}`,
       direction,
-      envelopeRadius: Math.max(
-        orbitReference.radius +
-          distance * TRACKING_CAMERA_ENVELOPE_DISTANCE_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
-        trackedBody.radius * TRACKING_CAMERA_BODY_RADIUS_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
-        TRACKING_CAMERA_MIN_ENVELOPE_RADIUS,
-      ),
+      envelopeRadius: getStableTrackingEnvelopeRadius(trackedBody),
       anchorVelocity: { ...orbitReference.velocity },
     }
   }
 
   // A single/free body has no meaningful orbital partner. Give it a stable
-  // top-like view and enough room for its recent trajectory instead of leaving
-  // whatever arbitrary zoom was used for the previously tracked body.
+  // top-like view. Zoom uses the same body-size rule as every other target so
+  // reselecting a body never depends on an instantaneous neighbor distance.
   return {
     trackedSourceId,
     pairKey: `tracking-camera:${trackedSourceId}`,
     anchorId: `__tracking-camera-anchor__${trackedSourceId}`,
     direction: { x: 1, y: 0, z: 0 },
-    envelopeRadius: Math.max(
-      trackedBody.radius * TRACKING_CAMERA_BODY_RADIUS_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
-      TRACKING_CAMERA_MIN_ENVELOPE_RADIUS,
-    ),
+    envelopeRadius: getStableTrackingEnvelopeRadius(trackedBody),
     anchorVelocity: {
       x: trackedBody.velocity.x,
       y: trackedBody.velocity.y + 1,
@@ -217,15 +215,21 @@ export function SimulationView({
           ? collisionCameraFocus.bodyAId
           : collisionCameraFocus.bodyBId
         const { direction, distance } = normalizedDirection(mainBody, secondaryBody)
+        const stableTrackingEnvelope = getStableTrackingEnvelopeRadius(mainBody)
+        const pairEnvelope = secondaryBody.radius +
+          distance * COLLISION_CAMERA_PAIR_DISTANCE_FACTOR / COLLISION_CAMERA_BODY_MARGIN
 
         collisionCameraAnchorRef.current = {
           pairKey: collisionCameraFocus.pairKey,
           mainSourceId,
           anchorId: `__collision-camera-anchor__${collisionCameraFocus.pairKey}`,
           direction,
+          // Never let collision watch zoom closer than roughly 20% beyond the
+          // normal tracking framing. If the secondary body needs more room, zoom
+          // out instead so both colliders remain visible.
           envelopeRadius: Math.max(
-            secondaryBody.radius +
-              distance * COLLISION_CAMERA_ENVELOPE_DISTANCE_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
+            stableTrackingEnvelope * COLLISION_CAMERA_TRACKING_ZOOM_RATIO,
+            pairEnvelope,
             0.001,
           ),
           anchorVelocity: { ...secondaryBody.velocity },
@@ -278,8 +282,8 @@ export function SimulationView({
 
   // Collision watch owns the camera only while its one-shot framing is active.
   // Otherwise every newly selected tracking target receives its own orbit-aware
-  // one-shot framing. The synthetic anchor moves with the selected body, so the
-  // renderer keeps the initial angle and zoom while following that body.
+  // viewing direction but a body-size-based stable zoom. The synthetic anchor
+  // moves with the selected body, so manual camera changes remain intact later.
   if (effectiveCollisionCameraFocus) {
     trackingCameraAnchorRef.current = null
   } else if (trackedBodyId) {
