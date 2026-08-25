@@ -257,13 +257,11 @@ function isExpiredEffect(body: BodyState) {
 
 function animateCollider(body: BodyState, contactPosition: Vec3, progress: number) {
   const eased = smoothstep01(progress)
-  const pulse = 1 + Math.sin(Math.PI * eased) * 0.06
   const whiteMix = Math.sin(Math.PI * eased) * 0.28
 
   return {
     ...cloneBody(body),
     color: brightenHex(body.color, whiteMix),
-    radius: body.radius * pulse,
     position: lerpVec3(body.position, contactPosition, eased),
   }
 }
