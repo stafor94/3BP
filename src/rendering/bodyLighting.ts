@@ -5,12 +5,12 @@ import type { BodyState } from '../types'
 
 const MAX_STAR_LIGHTS = 6
 const FRAGMENT_VISUAL_MIN_RADIUS = 0.04
-const COLLISION_FLASH_VISUAL_MIN_RADIUS = 0.03
-const COLLISION_FLASH_VISUAL_MAX_RADIUS = 0.045
-const STELLAR_PLASMA_VISUAL_MIN_RADIUS = 0.014
-const STELLAR_PLASMA_VISUAL_MAX_RADIUS = 0.022
+const COLLISION_FLASH_VISUAL_MIN_RADIUS = 0.04
+const COLLISION_FLASH_VISUAL_MAX_RADIUS = 0.07
+const STELLAR_PLASMA_VISUAL_MIN_RADIUS = 0.018
+const STELLAR_PLASMA_VISUAL_MAX_RADIUS = 0.032
 const COLLISION_SPARK_VISUAL_MIN_RADIUS = 0.012
-const COLLISION_FLASH_VISUAL_DURATION = 0.55
+const COLLISION_FLASH_VISUAL_DURATION = 0.9
 const STELLAR_PLASMA_VISUAL_DURATION = 1.35
 const COLLISION_SPARK_VISUAL_DURATION = 0.9
 const EFFECT_MESH_EPSILON = 0.0001
@@ -186,10 +186,10 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
     visualRadius = Math.max(body.radius, FRAGMENT_VISUAL_MIN_RADIUS)
     object.scale.setScalar(visualRadius)
   } else if (isCollisionFlash) {
-    const fade = fadeOut(age, COLLISION_FLASH_VISUAL_DURATION, 2.2)
-    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.18
+    const fade = fadeOut(age, COLLISION_FLASH_VISUAL_DURATION, 1.8)
+    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.22
     const baseRadius = THREE.MathUtils.clamp(
-      body.radius * 0.28,
+      body.radius * 0.24,
       COLLISION_FLASH_VISUAL_MIN_RADIUS,
       COLLISION_FLASH_VISUAL_MAX_RADIUS,
     )
@@ -198,16 +198,16 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
     // render only the additive glow sprites below.
     emissionStrength = 0
     effectOpacity = 0
-    glowInnerScale = 4.0
-    glowOuterScale = 7.0
-    glowInnerOpacity = 0.58 * fade.alpha
-    glowOuterOpacity = 0.14 * Math.pow(1 - fade.progress, 2.2)
+    glowInnerScale = 5.0
+    glowOuterScale = 9.0
+    glowInnerOpacity = 0.72 * fade.alpha
+    glowOuterOpacity = 0.22 * Math.pow(1 - fade.progress, 1.9)
     object.scale.setScalar(EFFECT_MESH_EPSILON)
   } else if (isStellarPlasma) {
-    const fade = fadeOut(age, STELLAR_PLASMA_VISUAL_DURATION, 1.45)
-    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.08
+    const fade = fadeOut(age, STELLAR_PLASMA_VISUAL_DURATION, 1.3)
+    const pulse = 1 + Math.sin(fade.progress * Math.PI) * 0.10
     const baseRadius = THREE.MathUtils.clamp(
-      body.radius * 0.16,
+      body.radius * 0.18,
       STELLAR_PLASMA_VISUAL_MIN_RADIUS,
       STELLAR_PLASMA_VISUAL_MAX_RADIUS,
     )
@@ -215,10 +215,10 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
     // Stellar ejecta must read as diffuse plasma knots, never asteroid-sized balls.
     emissionStrength = 0
     effectOpacity = 0
-    glowInnerScale = 3.0
-    glowOuterScale = 4.6
-    glowInnerOpacity = 0.28 * fade.alpha
-    glowOuterOpacity = 0.055 * Math.pow(1 - fade.progress, 1.7)
+    glowInnerScale = 4.2
+    glowOuterScale = 7.2
+    glowInnerOpacity = 0.42 * fade.alpha
+    glowOuterOpacity = 0.11 * Math.pow(1 - fade.progress, 1.5)
     object.scale.setScalar(EFFECT_MESH_EPSILON)
   } else if (isCollisionSpark || isEffect) {
     const fade = fadeOut(age, COLLISION_SPARK_VISUAL_DURATION, 1.8)
