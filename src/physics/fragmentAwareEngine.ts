@@ -7,11 +7,12 @@ import { stepBodies as stepPhysicsBodies } from './engine'
 const COLLISION_SPARK_NAME = 'Collision spark'
 const COLLISION_FLASH_NAME = 'Collision flash'
 
-// At the collision-watch impact speed (0.03x), 0.045 simulated seconds takes
-// 1.5 real seconds. Keep the physical result advancing in the background while
-// the renderer receives the two colliders for a short, readable contact phase.
-const COLLISION_TRANSITION_SIM_DURATION = 0.045
-const COLLISION_CONTACT_PROGRESS = 0.58
+// At collision-watch impact speed (0.03x), 0.045 simulated seconds is roughly
+// 1.5 real seconds. Only the pre-contact approach is stretched. The collision
+// result itself is not allowed to advance in a hidden future timeline.
+const COLLISION_APPROACH_SIM_DURATION = 0.045
+const CONTACT_RESOLUTION_OVERLAP = 1e-6
+const CONTACT_RESOLUTION_DT = 1e-8
 
 // Large solid fragments behave as long-lived asteroids. Keep the cap deliberately
 // small so N-body cost remains predictable even after many collisions.
@@ -20,9 +21,9 @@ const ASTEROID_MIN_MASS = 0.0003
 const MAX_PERSISTENT_ASTEROIDS = 10
 
 type CollisionTransition = {
-  bodyA: BodyState
-  bodyB: BodyState
-  physicalBodies: BodyState[]
+  bodyAId: string
+  bodyBId: string
+  sourceBodies: BodyState[]
   elapsed: number
 }
 
@@ -32,8 +33,8 @@ type CollisionContactPositions = {
 }
 
 // The simulator feeds each returned body array directly into the next physics
-// step. A WeakMap lets a staged collision follow that exact array chain without
-// leaking state across preset changes or resets, which create a different array.
+// step. Keep transition state attached to that exact frame chain without leaking
+// across preset changes or resets, which create a different array.
 const collisionTransitionByFrame = new WeakMap<BodyState[], CollisionTransition>()
 
 function cloneBody(body: BodyState): BodyState {
@@ -143,22 +144,13 @@ function findNewCollisionPair(input: BodyState[], stepped: BodyState[], dt: numb
           flash.id.startsWith(`${bodyA.id}+${bodyB.id}+flash`) ||
           flash.id.startsWith(`${bodyB.id}+${bodyA.id}+flash`)
         ) {
-          return { bodyA: cloneBody(bodyA), bodyB: cloneBody(bodyB) }
+          return { bodyA, bodyB }
         }
       }
     }
   }
 
   return null
-}
-
-function largestDescendant(bodies: BodyState[], ancestorId: string) {
-  return bodies
-    .filter((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, ancestorId))
-    .reduce<BodyState | null>(
-      (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
-      null,
-    )
 }
 
 function lerp(a: number, b: number, t: number) {
@@ -178,7 +170,11 @@ function smoothstep01(value: number) {
   return t * t * (3 - 2 * t)
 }
 
-function getCollisionContactPositions(a: BodyState, b: BodyState): CollisionContactPositions {
+function getCollisionContactPositions(
+  a: BodyState,
+  b: BodyState,
+  overlap = 0,
+): CollisionContactPositions {
   const delta = {
     x: b.position.x - a.position.x,
     y: b.position.y - a.position.y,
@@ -210,7 +206,7 @@ function getCollisionContactPositions(a: BodyState, b: BodyState): CollisionCont
     y: (a.position.y * a.mass + b.position.y * b.mass) / totalMass,
     z: (a.position.z * a.mass + b.position.z * b.mass) / totalMass,
   }
-  const contactDistance = getCollisionContactDistance(a, b)
+  const contactDistance = Math.max(0, getCollisionContactDistance(a, b) - overlap)
 
   return {
     bodyA: {
@@ -241,101 +237,143 @@ function brightenHex(color: string, amount: number) {
   return `#${channel(red)}${channel(green)}${channel(blue)}`
 }
 
-function animateCollider(
-  body: BodyState,
-  contactPosition: Vec3,
-  target: BodyState | null,
-  progress: number,
-) {
-  const approachProgress = smoothstep01(progress / COLLISION_CONTACT_PROGRESS)
-  const departureProgress = smoothstep01(
-    (progress - COLLISION_CONTACT_PROGRESS) / (1 - COLLISION_CONTACT_PROGRESS),
-  )
-  const fallbackTarget = {
-    position: {
-      x: contactPosition.x + body.velocity.x * COLLISION_TRANSITION_SIM_DURATION,
-      y: contactPosition.y + body.velocity.y * COLLISION_TRANSITION_SIM_DURATION,
-      z: contactPosition.z + body.velocity.z * COLLISION_TRANSITION_SIM_DURATION,
-    },
-    velocity: body.velocity,
+function advanceDisplayBody(body: BodyState, elapsed: number): BodyState {
+  const next = cloneBody(body)
+  next.position = {
+    x: body.position.x + body.velocity.x * elapsed,
+    y: body.position.y + body.velocity.y * elapsed,
+    z: body.position.z + body.velocity.z * elapsed,
   }
-  const destination = target ?? fallbackTarget
-  const position = progress <= COLLISION_CONTACT_PROGRESS
-    ? lerpVec3(body.position, contactPosition, approachProgress)
-    : lerpVec3(contactPosition, destination.position, departureProgress)
-  const velocityProgress = progress <= COLLISION_CONTACT_PROGRESS
-    ? approachProgress * COLLISION_CONTACT_PROGRESS
-    : COLLISION_CONTACT_PROGRESS + departureProgress * (1 - COLLISION_CONTACT_PROGRESS)
-  const pulse = 1 + Math.sin(Math.PI * progress) * 0.12
-  const whiteMix = Math.sin(Math.PI * progress) * 0.42 + progress * 0.12
+  if (body.collisionCooldown !== undefined) {
+    next.collisionCooldown = Math.max(0, body.collisionCooldown - elapsed)
+  }
+  if (body.bodyType === 'effect') next.age = (body.age ?? 0) + elapsed
+  return next
+}
+
+function isExpiredEffect(body: BodyState) {
+  return body.bodyType === 'effect' && (body.age ?? 0) >= (body.lifetime ?? 2)
+}
+
+function animateCollider(body: BodyState, contactPosition: Vec3, progress: number) {
+  const eased = smoothstep01(progress)
+  const pulse = 1 + Math.sin(Math.PI * eased) * 0.06
+  const whiteMix = Math.sin(Math.PI * eased) * 0.28
 
   return {
     ...cloneBody(body),
     color: brightenHex(body.color, whiteMix),
     radius: body.radius * pulse,
-    position,
-    velocity: lerpVec3(body.velocity, destination.velocity, velocityProgress),
-    collisionCooldown: 0,
+    position: lerpVec3(body.position, contactPosition, eased),
   }
 }
 
-function buildCollisionTransitionFrame(transition: CollisionTransition) {
-  const progress = Math.min(
-    1,
-    Math.max(0, transition.elapsed / COLLISION_TRANSITION_SIM_DURATION),
+function getTransitionBodies(transition: CollisionTransition) {
+  const bodyA = transition.sourceBodies.find((body) => body.id === transition.bodyAId)
+  const bodyB = transition.sourceBodies.find((body) => body.id === transition.bodyBId)
+  if (!bodyA || !bodyB) return null
+  return { bodyA, bodyB }
+}
+
+function buildCollisionApproachFrame(transition: CollisionTransition) {
+  const pair = getTransitionBodies(transition)
+  if (!pair) return transition.sourceBodies.map(cloneBody)
+
+  const progress = Math.min(1, Math.max(0, transition.elapsed / COLLISION_APPROACH_SIM_DURATION))
+  const contactPositions = getCollisionContactPositions(pair.bodyA, pair.bodyB)
+
+  return transition.sourceBodies
+    .map((body) => {
+      if (body.id === pair.bodyA.id) return animateCollider(body, contactPositions.bodyA, progress)
+      if (body.id === pair.bodyB.id) return animateCollider(body, contactPositions.bodyB, progress)
+      return advanceDisplayBody(body, transition.elapsed)
+    })
+    .filter((body) => !isExpiredEffect(body))
+}
+
+function buildContactPhysicalFrame(transition: CollisionTransition) {
+  const pair = getTransitionBodies(transition)
+  if (!pair) return transition.sourceBodies.map(cloneBody)
+
+  // Resolve a microscopic amount inside the mathematical surface so the engine
+  // cannot miss contact because of floating-point drift or an outward substep.
+  const contactPositions = getCollisionContactPositions(
+    pair.bodyA,
+    pair.bodyB,
+    CONTACT_RESOLUTION_OVERLAP,
   )
-  const targetA = largestDescendant(transition.physicalBodies, transition.bodyA.id)
-  const targetB = largestDescendant(transition.physicalBodies, transition.bodyB.id)
-  const contactPositions = getCollisionContactPositions(transition.bodyA, transition.bodyB)
 
-  // Hide the already-resolved remnant/survivors/debris for the colliding pair
-  // while keeping real collision effects (flash/plasma/sparks) and all unrelated
-  // bodies moving according to the physical solution in the background.
-  const backgroundBodies = transition.physicalBodies.filter((body) => {
-    if (body.bodyType === 'effect') return true
-    return !(
-      isBodyDescendedFrom(body.id, transition.bodyA.id) ||
-      isBodyDescendedFrom(body.id, transition.bodyB.id)
-    )
-  })
+  return transition.sourceBodies
+    .map((body) => {
+      const advanced = advanceDisplayBody(body, COLLISION_APPROACH_SIM_DURATION)
+      if (body.id === pair.bodyA.id) return { ...advanced, position: contactPositions.bodyA }
+      if (body.id === pair.bodyB.id) return { ...advanced, position: contactPositions.bodyB }
+      return advanced
+    })
+    .filter((body) => !isExpiredEffect(body))
+}
 
-  return [
-    ...backgroundBodies,
-    animateCollider(transition.bodyA, contactPositions.bodyA, targetA, progress),
-    animateCollider(transition.bodyB, contactPositions.bodyB, targetB, progress),
-  ]
+function isAtOrInsideContact(a: BodyState, b: BodyState) {
+  const distance = Math.hypot(
+    b.position.x - a.position.x,
+    b.position.y - a.position.y,
+    b.position.z - a.position.z,
+  )
+  return distance <= getCollisionContactDistance(a, b) + 1e-9
+}
+
+function resolveTransition(transition: CollisionTransition, overshoot: number) {
+  const contactFrame = buildContactPhysicalFrame(transition)
+  let resolved = advancePhysicalBodies(contactFrame, CONTACT_RESOLUTION_DT)
+  if (overshoot > 0) resolved = advancePhysicalBodies(resolved, overshoot)
+  return resolved
 }
 
 export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   const activeTransition = collisionTransitionByFrame.get(input)
   if (activeTransition) {
-    const nextPhysicalBodies = advancePhysicalBodies(activeTransition.physicalBodies, dt)
     const elapsed = activeTransition.elapsed + dt
-
-    if (elapsed + 1e-12 >= COLLISION_TRANSITION_SIM_DURATION) {
-      return nextPhysicalBodies
+    if (elapsed + 1e-12 >= COLLISION_APPROACH_SIM_DURATION) {
+      return resolveTransition(
+        activeTransition,
+        Math.max(0, elapsed - COLLISION_APPROACH_SIM_DURATION),
+      )
     }
 
     const nextTransition: CollisionTransition = {
       ...activeTransition,
-      physicalBodies: nextPhysicalBodies,
       elapsed,
     }
-    const frame = buildCollisionTransitionFrame(nextTransition)
+    const frame = buildCollisionApproachFrame(nextTransition)
     collisionTransitionByFrame.set(frame, nextTransition)
     return frame
   }
 
-  const physicalBodies = advancePhysicalBodies(input, dt)
-  const collisionPair = findNewCollisionPair(input, physicalBodies, dt)
-  if (!collisionPair) return physicalBodies
+  // Probe one normal physics step only to discover whether this frame would cross
+  // a collision surface. If so, discard that already-resolved future state and
+  // stage the approach from the current state. Nothing after impact exists yet.
+  const probedPhysicalBodies = advancePhysicalBodies(input, dt)
+  const collisionPair = findNewCollisionPair(input, probedPhysicalBodies, dt)
+  if (!collisionPair) return probedPhysicalBodies
+
+  // If the frame already starts at/inside contact, do not animate bodies outward.
+  // Accept the physical result immediately; this also handles resumed old states.
+  if (isAtOrInsideContact(collisionPair.bodyA, collisionPair.bodyB)) {
+    return probedPhysicalBodies
+  }
 
   const transition: CollisionTransition = {
-    ...collisionPair,
-    physicalBodies,
-    elapsed: 0,
+    bodyAId: collisionPair.bodyA.id,
+    bodyBId: collisionPair.bodyB.id,
+    sourceBodies: input.map(cloneBody),
+    elapsed: Math.min(dt, COLLISION_APPROACH_SIM_DURATION),
   }
-  const frame = buildCollisionTransitionFrame(transition)
+
+  if (transition.elapsed + 1e-12 >= COLLISION_APPROACH_SIM_DURATION) {
+    return resolveTransition(transition, 0)
+  }
+
+  const frame = buildCollisionApproachFrame(transition)
   collisionTransitionByFrame.set(frame, transition)
   return frame
 }
