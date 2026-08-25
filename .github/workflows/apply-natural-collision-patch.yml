@@ -1,0 +1,29 @@
+name: Apply natural collision patch
+
+on:
+  push:
+    branches:
+      - fix/natural-collision-camera-v01723
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: fix/natural-collision-camera-v01723
+          fetch-depth: 0
+      - name: Apply source patch
+        run: node scripts/applyNaturalCollisionPatch.mjs
+      - name: Commit patched sources
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/applyNaturalCollisionPatch.mjs .github/workflows/apply-natural-collision-patch.yml
+          git add src/App.tsx src/rendering/simulationRenderer.ts src/trackingSelection.ts scripts/trackingRegression.ts package.json CHANGELOG.md
+          git commit -m "fix: preserve natural collision camera continuity"
+          git push origin HEAD:fix/natural-collision-camera-v01723
