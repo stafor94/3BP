@@ -1,8 +1,10 @@
+import { getEffectiveBodyType } from './bodyTypes'
 import { getCollisionContactDistance } from './physics/collisionContact'
 import type { BodyState } from './types'
 
 const CONTACT_EPSILON = 1e-8
 const COLLISION_RESULT_AGE_EPSILON = 1e-9
+export const STELLAR_IMPACT_PEAK_COMPRESSION_RATIO = 0.075
 
 export function isBodyDescendedFrom(bodyId: string, sourceId: string) {
   const bodyParts = new Set(bodyId.split('+'))
@@ -48,6 +50,21 @@ function isAtOrInsideContact(a: BodyState, b: BodyState) {
   return distance <= getCollisionContactDistance(a, b) + CONTACT_EPSILON
 }
 
+function isStellarPair(a: BodyState, b: BodyState) {
+  return getEffectiveBodyType(a) === 'star' && getEffectiveBodyType(b) === 'star'
+}
+
+export function getCollisionCompressionRatio(a: BodyState, b: BodyState) {
+  const contactDistance = getCollisionContactDistance(a, b)
+  const distance = Math.hypot(
+    b.position.x - a.position.x,
+    b.position.y - a.position.y,
+    b.position.z - a.position.z,
+  )
+  const overlap = Math.max(0, contactDistance - distance)
+  return overlap / Math.max(Math.min(a.radius, b.radius), 1e-9)
+}
+
 function hasCollisionFlashForPair(
   bodies: BodyState[],
   bodyAId: string,
@@ -88,15 +105,41 @@ export function didCollisionWatchTargetImpact(
   sourceBId: string,
   stepDt: number,
 ) {
-  if (areSourceLineagesMerged(nextBodies, sourceAId, sourceBId)) return true
-
+  const merged = areSourceLineagesMerged(nextBodies, sourceAId, sourceBId)
   const previousA = resolveBodyDescendant(previousBodies, sourceAId)
   const previousB = resolveBodyDescendant(previousBodies, sourceBId)
-  if (!previousA || !previousB || previousA.id === previousB.id) return false
-  if (!isAtOrInsideContact(previousA, previousB)) return false
+  if (!previousA || !previousB || previousA.id === previousB.id) return merged
 
   const nextA = resolveBodyDescendant(nextBodies, sourceAId)
   const nextB = resolveBodyDescendant(nextBodies, sourceBId)
+
+  // Star↔star collision watch must enter impact while both source silhouettes still
+  // exist. The display bridge compresses the stars before the physical solver is
+  // allowed to resolve topology, so crossing this threshold is the visual impact
+  // peak. This deliberately precedes the 2→1 / 2→2 physical outcome.
+  if (
+    nextA &&
+    nextB &&
+    nextA.id !== nextB.id &&
+    isStellarPair(previousA, previousB) &&
+    isStellarPair(nextA, nextB)
+  ) {
+    const previousCompression = getCollisionCompressionRatio(previousA, previousB)
+    const nextCompression = getCollisionCompressionRatio(nextA, nextB)
+    if (
+      previousCompression < STELLAR_IMPACT_PEAK_COMPRESSION_RATIO &&
+      nextCompression >= STELLAR_IMPACT_PEAK_COMPRESSION_RATIO
+    ) {
+      return true
+    }
+  }
+
+  // Keep lineage merge as a defensive fallback for resumed/replayed states that
+  // entered after the compression crossing. It must no longer be the primary
+  // stellar impact signal because this point is already after topology changed.
+  if (merged) return true
+
+  if (!isAtOrInsideContact(previousA, previousB)) return false
   if (!nextA || !nextB || nextA.id === nextB.id) return false
   if ((nextA.collisionCooldown ?? 0) <= 0 || (nextB.collisionCooldown ?? 0) <= 0) return false
 
