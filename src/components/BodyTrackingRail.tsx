@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { translations, type Language } from '../i18n'
-import { findDirectTrackingCandidate } from '../trackingSelection'
+import { findTrackingCandidate } from '../trackingSelection'
 import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
 import '../body-tracking-rail.css'
 
@@ -28,6 +28,9 @@ function cloneTrackingBody(body: BodyState): BodyState {
     ...body,
     position: { ...body.position },
     velocity: { ...body.velocity },
+    trackingContinuationIds: body.trackingContinuationIds
+      ? [...body.trackingContinuationIds]
+      : undefined,
   }
 }
 
@@ -38,7 +41,7 @@ function isInitialTrackingBody(body: BodyState) {
 function buildTrackingEntries(bodies: BodyState[], sourceBodies: BodyState[]): TrackingEntry[] {
   return sourceBodies.map((source) => ({
     source,
-    candidate: findDirectTrackingCandidate(bodies, source.id),
+    candidate: findTrackingCandidate(bodies, source.id),
   }))
 }
 
@@ -53,16 +56,22 @@ function resolveTrackingSourceId(
   if (preferredSourceId) {
     const preferredSource = sourceBodies.find((body) => body.id === preferredSourceId)
     const preferredCandidate = preferredSource
-      ? findDirectTrackingCandidate(bodies, preferredSource.id)
+      ? findTrackingCandidate(bodies, preferredSource.id)
       : null
-    if (preferredCandidate?.id === trackedBodyId) return preferredSourceId
+    if (
+      preferredCandidate &&
+      (preferredCandidate.id === trackedBodyId || preferredSourceId === trackedBodyId)
+    ) {
+      return preferredSourceId
+    }
   }
 
   const exactSource = sourceBodies.find((body) => body.id === trackedBodyId)
-  const exactCandidate = exactSource
-    ? findDirectTrackingCandidate(bodies, exactSource.id)
-    : null
-  return exactCandidate?.id === trackedBodyId ? exactSource?.id ?? null : null
+  if (exactSource && findTrackingCandidate(bodies, exactSource.id)) return exactSource.id
+
+  return sourceBodies.find((source) =>
+    findTrackingCandidate(bodies, source.id)?.id === trackedBodyId,
+  )?.id ?? null
 }
 
 export function BodyTrackingRail({
@@ -113,7 +122,7 @@ export function BodyTrackingRail({
   }, [bodies, trackedBodyId, sourceBodies])
 
   const getTrackingState = (source: BodyState, candidate?: BodyState | null) => {
-    const resolvedCandidate = candidate ?? findDirectTrackingCandidate(bodies, source.id)
+    const resolvedCandidate = candidate ?? findTrackingCandidate(bodies, source.id)
     const scaleRatio = bodyScale / Math.max(sourceScaleRef.current, 1e-9)
     const initialMassAtCurrentScale = source.mass * scaleRatio
     const canTrack = Boolean(
@@ -123,7 +132,10 @@ export function BodyTrackingRail({
     return { candidate: resolvedCandidate, canTrack }
   }
 
-  useEffect(() => {
+  // Validate before paint. App still resolves collision lineage for collision-watch
+  // purposes, so this guard prevents an ordinary selection from visibly hopping to
+  // a disallowed descendant for even one frame.
+  useLayoutEffect(() => {
     if (!trackedBodyId) return
 
     if (!resolvedTrackingSourceId) {
