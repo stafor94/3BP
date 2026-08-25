@@ -28,6 +28,7 @@ const COLLISION_CHECK_INTERVAL_MS = 60
 const COLLISION_ALERT_HOLD_MS = 4200
 const COLLISION_MISS_GRACE_MS = 180
 const COLLISION_CONFIRMATION_COUNT = 2
+const COLLISION_CAMERA_LEAD_TIME = 3
 const COLLISION_REPLAY_LEAD_TIME = 0.6
 const COLLISION_WATCH_APPROACH_SPEED = 0.1
 const COLLISION_WATCH_IMPACT_SLOW_TIME = 0.06
@@ -508,8 +509,10 @@ export default function App() {
           const timeToImpact = expectedImpactAt - simulationTimeRef.current
           const watchSpeed = timeToImpact <= COLLISION_WATCH_IMPACT_SLOW_TIME
             ? COLLISION_WATCH_IMPACT_SPEED
-            : COLLISION_WATCH_APPROACH_SPEED
-          if (Math.abs(speedRef.current - watchSpeed) > 1e-9) {
+            : timeToImpact <= COLLISION_REPLAY_LEAD_TIME
+              ? COLLISION_WATCH_APPROACH_SPEED
+              : null
+          if (watchSpeed !== null && Math.abs(speedRef.current - watchSpeed) > 1e-9) {
             speedRef.current = watchSpeed
             setSpeed(watchSpeed)
           }
@@ -522,7 +525,7 @@ export default function App() {
         now >= collisionWatchMuteUntilRef.current
       ) {
         nextCollisionCheckAtRef.current = now + COLLISION_CHECK_INTERVAL_MS
-        const minimumHorizon = collisionWatchEnabledRef.current ? COLLISION_REPLAY_LEAD_TIME : 0.8
+        const minimumHorizon = collisionWatchEnabledRef.current ? COLLISION_CAMERA_LEAD_TIME : 0.8
         const horizon = Math.min(6, Math.max(minimumHorizon, speedRef.current * 1.2))
         const upcoming = predictUpcomingCollision(bodiesRef.current, horizon)
 
@@ -549,7 +552,7 @@ export default function App() {
 
             if (
               collisionWatchEnabledRef.current &&
-              upcoming.timeToImpact <= COLLISION_REPLAY_LEAD_TIME &&
+              upcoming.timeToImpact <= COLLISION_CAMERA_LEAD_TIME &&
               autoCollisionWatchPairRef.current !== upcoming.pairKey
             ) {
               const bodyA = bodiesRef.current.find((body) => body.id === upcoming.bodyAId)
@@ -560,8 +563,6 @@ export default function App() {
 
               beginCollisionWatchInfo(upcoming, bodiesRef.current)
               if (target) changeTrackedBody(target.id)
-              speedRef.current = COLLISION_WATCH_APPROACH_SPEED
-              setSpeed(COLLISION_WATCH_APPROACH_SPEED)
               autoCollisionWatchPairRef.current = upcoming.pairKey
             }
 
