@@ -13,7 +13,7 @@ const MAX_SYNTHETIC_STELLAR_PAIRS = 2
 const PREVIEW_FLASH_LIFETIME = 0.72
 const PREVIEW_SHEAR_LIFETIME = 0.82
 const PREVIEW_PLASMA_LIFETIME = 1.55
-const SYNTHETIC_RETIRE_MS = 260
+const SYNTHETIC_RETIRE_MS = 420
 const PHYSICAL_EFFECT_FADE_IN_MS = 140
 
 const effectVertexShader = `
@@ -87,12 +87,12 @@ const effectFragmentShader = `
       edge = halo;
 
       if (uSynthetic > 0.5) {
-        // Keep overlap preview concentrated around the compression boundary. A
-        // full-opacity additive center reads as if the stellar disc itself changed hue.
-        float centerRelief = 0.66 + 0.34 * smoothstep(0.08, 0.52, abs(p.x));
-        alpha *= centerRelief * 0.82;
-        core *= 0.76;
-        body *= 0.72;
+        // Keep the topology mask ridge-shaped rather than turning it into a white
+        // stellar disc, but let peak compression genuinely obscure the handoff.
+        float centerRelief = 0.74 + 0.26 * smoothstep(0.08, 0.52, abs(p.x));
+        alpha *= centerRelief * 0.90;
+        core *= 0.86;
+        body *= 0.78;
       }
     } else if (uKind < 1.5) {
       // Compression/shear: uneven turbulent sheet with hot knots and filaments.
@@ -162,7 +162,7 @@ const effectFragmentShader = `
       float auraRadius = length(vec2(p.x * 0.72, p.y * 1.28));
       float innerAura = 1.0 - smoothstep(0.08, 0.56, auraRadius);
       float outerAura = 1.0 - smoothstep(0.36, 1.0, auraRadius);
-      float syntheticAuraScale = uSynthetic > 0.5 ? 0.55 : 1.0;
+      float syntheticAuraScale = uSynthetic > 0.5 ? 0.68 : 1.0;
       alpha = max(alpha, innerAura * 0.34 * uInnerGlow * syntheticAuraScale);
       alpha = max(alpha, outerAura * 0.24 * uOuterGlow * syntheticAuraScale);
       core += innerAura * 0.22 * uInnerGlow * syntheticAuraScale;
@@ -353,7 +353,7 @@ export function getSyntheticStellarEffects(bodies: BodyState[]) {
           normal,
           stretch: 2.8 + headOn * 1.0 + grazing * 0.24,
           widthScale: clamp(0.42 - headOn * 0.13 + grazing * 0.04, 0.25, 0.44),
-          brightness: 1.44 + headOn * 0.36 + clamp(relativeSpeed, 0, 2) * 0.08,
+          brightness: 1.58 + headOn * 0.42 + clamp(relativeSpeed, 0, 2) * 0.08,
           turbulence: 0.14 + grazing * 0.34,
           pulseStrength: 0.18 + headOn * 0.08,
           phaseOffset: getBodySeed(pairKey),
@@ -570,10 +570,10 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     ;(uniforms.uMidColor.value as THREE.Color).copy(midColor)
     ;(uniforms.uEdgeColor.value as THREE.Color).copy(edgeColor)
     const syntheticOpacityCap = profile.kind === 'contactFlash'
-      ? 0.56
+      ? 0.72
       : profile.kind === 'compressionShear'
-        ? 0.52
-        : 0.62
+        ? 0.60
+        : 0.70
     uniforms.uOpacity.value = clamp(
       profile.baseOpacity * profile.fadeAlpha * clamp(opacityScale, 0, 1),
       0,
@@ -589,14 +589,18 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     uniforms.uTail.value = profile.tailLength
     uniforms.uTurbulence.value = profile.turbulence
     const brightnessCap = synthetic
-      ? 1.6
+      ? profile.kind === 'contactFlash'
+        ? 2.08
+        : profile.kind === 'compressionShear'
+          ? 1.78
+          : 1.82
       : stellarEffect
         ? profile.kind === 'contactFlash'
           ? 3.45
           : 3.05
         : 2.82
     uniforms.uBrightness.value = clamp(
-      profile.brightness * (synthetic ? 0.9 : 1),
+      profile.brightness,
       0,
       brightnessCap,
     )
@@ -615,8 +619,8 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
       const physicalIds = new Set(physicalEffects.map((body) => body.id))
 
       // Synthetic overlap effects are regenerated from the two still-existing stars.
-      // When the solver replaces those stars with a remnant, retain the last preview
-      // briefly instead of deleting it on that exact topology-change frame.
+      // When the solver replaces those stars with a remnant, retain the last peak
+      // preview while the physical contact flash appears on the same render update.
       previousSyntheticBodies.forEach((body, id) => {
         if (!syntheticIds.has(id) && !retiringSyntheticBodies.has(id)) {
           retiringSyntheticBodies.set(id, { body, startedAt: now })
@@ -661,9 +665,8 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
         const kind = body.effectVisual?.kind
         const fadeProgress = clamp((now - introducedAt) / PHYSICAL_EFFECT_FADE_IN_MS, 0, 1)
         const smoothFade = fadeProgress * fadeProgress * (3 - 2 * fadeProgress)
-        // The contact flash is the actual impulse and should remain immediate. Larger
-        // shear/plasma structures cross-fade in so they do not replace the overlap
-        // preview as a visibly different sprite on one frame.
+        // The physical contact flash starts immediately while the synthetic peak is
+        // still retiring. Larger shear/plasma structures then complete the crossfade.
         const opacity = kind === 'contactFlash' ? 1 : 0.22 + smoothFade * 0.78
         // Physical collision VFX age in real time so 0.03x/0.08x observation does
         // not stretch a 0.5-2s visual effect into many seconds of wall-clock time.

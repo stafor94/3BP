@@ -2,6 +2,7 @@ import {
   getEquilibriumStellarDisplayColor,
   getStellarTemperatureKelvin,
 } from '../src/starColors'
+import { didCollisionWatchTargetImpact } from '../src/collisionWatch'
 import { stepBodies as stepCoreBodies } from '../src/physics/engine'
 import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
 import { getCollisionEffectProfile } from '../src/rendering/collisionEffectProfile'
@@ -30,6 +31,16 @@ function makeStar(
     velocity,
     bodyType: 'star',
   }
+}
+
+function getCompressionRatio(a: BodyState, b: BodyState) {
+  const distance = Math.hypot(
+    b.position.x - a.position.x,
+    b.position.y - a.position.y,
+    b.position.z - a.position.z,
+  )
+  const contactDistance = a.radius + b.radius
+  return Math.max(0, contactDistance - distance) / Math.max(Math.min(a.radius, b.radius), 1e-9)
 }
 
 function testMassTemperatureModel() {
@@ -245,7 +256,7 @@ function testImpactBridgeDoesNotRewriteStellarHue() {
 
   let frame = stepFragmentAwareBodies([a, b], 0.0015)
   let sawBridge = false
-  for (let index = 0; index < 8; index += 1) {
+  for (let index = 0; index < 18; index += 1) {
     const bodyA = frame.find((body) => body.id === a.id)
     const bodyB = frame.find((body) => body.id === b.id)
     if (bodyA && bodyB) {
@@ -280,7 +291,7 @@ function testExactContactStillUsesImpactEnvelope() {
 
   let frame = stepFragmentAwareBodies([a, b], 0.0015)
   let bridgeFrames = 0
-  for (let index = 0; index < 12; index += 1) {
+  for (let index = 0; index < 24; index += 1) {
     const bodyA = frame.find((body) => body.id === a.id)
     const bodyB = frame.find((body) => body.id === b.id)
     if (!bodyA || !bodyB) break
@@ -289,13 +300,121 @@ function testExactContactStillUsesImpactEnvelope() {
   }
 
   assert(
-    bridgeFrames >= 5,
-    'exact-contact stellar collision must keep both silhouettes visible through several impact-envelope frames',
+    bridgeFrames >= 14 && bridgeFrames <= 18,
+    `exact-contact stellar merge should preserve both silhouettes for 14-18 physics frames, got ${bridgeFrames}`,
   )
   assert(
     frame.some((body) => body.bodyType === 'star' && body.id.includes(a.id) && body.id.includes(b.id)),
     'impact envelope must eventually reveal the merged stellar remnant',
   )
+}
+
+function testMergeImpactPrecedesTopologyReveal() {
+  const stepDt = 0.0015
+  const a = makeStar(
+    'stellar-order-a',
+    1,
+    0.3,
+    -0.3,
+    '#7ea7ff',
+    { x: 0.3, y: 0, z: 0 },
+  )
+  const b = makeStar(
+    'stellar-order-b',
+    1,
+    0.3,
+    0.3,
+    '#ffaf5f',
+    { x: -0.3, y: 0, z: 0 },
+  )
+
+  let frame: BodyState[] = [a, b]
+  let impactStep: number | null = null
+  let resolveStep: number | null = null
+  let sourceFrames = 0
+  let lastBridgeFrame: BodyState[] | null = null
+
+  for (let step = 1; step <= 24; step += 1) {
+    const previous = frame
+    const next = stepFragmentAwareBodies(previous, stepDt)
+    const impactDetected = didCollisionWatchTargetImpact(
+      previous,
+      next,
+      a.id,
+      b.id,
+      stepDt,
+    )
+    const sourceA = next.find((body) => body.id === a.id)
+    const sourceB = next.find((body) => body.id === b.id)
+    const remnant = next.find((body) =>
+      body.bodyType === 'star' && body.id.includes(a.id) && body.id.includes(b.id),
+    )
+
+    if (sourceA && sourceB) {
+      sourceFrames += 1
+      lastBridgeFrame = next
+    }
+
+    if (impactDetected && impactStep === null) {
+      impactStep = step
+      assert(sourceA && sourceB, 'impact must be detected while both source stars still exist')
+      assert(!remnant, 'merged remnant must not exist on the impact-detection frame')
+    }
+
+    if (remnant) {
+      resolveStep = step
+      assert(impactStep !== null, 'stellar merge topology must not resolve before impact is observed')
+      assert(
+        step - impactStep >= 7,
+        `both source stars must survive for at least 7 additional steps after impact detection, got ${step - impactStep}`,
+      )
+      assert(lastBridgeFrame, 'merge resolve must have a preceding two-source topology-mask frame')
+
+      const lastA = lastBridgeFrame.find((body) => body.id === a.id)
+      const lastB = lastBridgeFrame.find((body) => body.id === b.id)
+      assert(lastA && lastB, 'topology-mask frame must still contain both source stars')
+      assert(
+        getCompressionRatio(lastA, lastB) >= 0.34,
+        'topology resolve must be preceded by the plateaued near-maximum stellar compression state',
+      )
+
+      const synthetic = getSyntheticStellarEffects(lastBridgeFrame)
+      const syntheticFlash = synthetic.find((body) => body.effectVisual?.kind === 'contactFlash')
+      assert(syntheticFlash, 'topology resolve must be preceded by a synthetic contact flash')
+      assert(
+        getCollisionEffectProfile(syntheticFlash).fadeAlpha >= 0.9,
+        'synthetic contact flash must be at peak strength immediately before topology resolve',
+      )
+      assert(
+        synthetic.some((body) => body.effectVisual?.kind === 'compressionShear'),
+        'topology-mask frame must contain compression shear',
+      )
+      assert(
+        synthetic.some((body) => body.effectVisual?.kind === 'stellarPlasma'),
+        'topology-mask frame must contain stellar plasma',
+      )
+      assert(
+        next.some((body) =>
+          body.bodyType === 'effect' &&
+          body.name === 'Collision flash' &&
+          body.effectVisual?.stellarCollision === true,
+        ),
+        'physical contact flash must exist on the first resolved-remnant frame',
+      )
+      frame = next
+      break
+    }
+
+    frame = next
+  }
+
+  assert(impactStep !== null, 'stellar merge must detect impact during the two-source bridge')
+  assert(resolveStep !== null, 'stellar merge must eventually resolve topology')
+  assert(
+    sourceFrames >= 14 && sourceFrames <= 18,
+    `stellar merge source silhouettes should survive 14-18 physics frames, got ${sourceFrames}`,
+  )
+  assert(impactStep < resolveStep, 'impactObserved ordering must strictly precede topologyResolved')
 }
 
 function testSyntheticImpactBuildsTowardContact() {
@@ -344,6 +463,7 @@ testHeadOnMergeUsesRemnantMassColor()
 testPartialDisruptionStripsSmallerStar()
 testImpactBridgeDoesNotRewriteStellarHue()
 testExactContactStillUsesImpactEnvelope()
+testMergeImpactPrecedesTopologyReveal()
 testSyntheticImpactBuildsTowardContact()
 
 console.log('stellar collision regression checks passed')
