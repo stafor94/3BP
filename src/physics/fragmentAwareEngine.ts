@@ -180,7 +180,12 @@ function inferCollisionPresentationMode(
 ): CollisionPresentationMode {
   const stellarOutcome = stepped.find((body) => (
     body.bodyType === 'effect' &&
-    body.effectVisual?.stellarOutcome
+    body.name === COLLISION_FLASH_NAME &&
+    body.effectVisual?.stellarOutcome &&
+    (
+      body.id.startsWith(`${bodyA.id}+${bodyB.id}+flash`) ||
+      body.id.startsWith(`${bodyB.id}+${bodyA.id}+flash`)
+    )
   ))?.effectVisual?.stellarOutcome
   if (stellarOutcome === 'partialDisruption') return 'partialDisruption'
 
