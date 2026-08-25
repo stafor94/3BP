@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { translations, type Language } from '../i18n'
+import { findDirectTrackingCandidate } from '../trackingSelection'
 import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
 import '../body-tracking-rail.css'
 
@@ -17,7 +18,7 @@ type Props = {
 
 type TrackingEntry = {
   source: BodyState
-  candidate: BodyState
+  candidate: BodyState | null
 }
 
 const TRACKING_MIN_MASS_RATIO = 0.5
@@ -34,56 +35,11 @@ function isInitialTrackingBody(body: BodyState) {
   return body.bodyType !== 'fragment' && body.bodyType !== 'effect' && !body.id.includes('+')
 }
 
-function isTrackablePhysicalBody(body: BodyState) {
-  return body.bodyType !== 'fragment' && body.bodyType !== 'effect'
-}
-
-function isBodyDescendedFrom(bodyId: string, sourceId: string) {
-  const bodyParts = new Set(bodyId.split('+'))
-  return sourceId.split('+').every((part) => bodyParts.has(part))
-}
-
-function findTrackingCandidate(bodies: BodyState[], sourceId: string) {
-  const exact = bodies.find((body) => body.id === sourceId && isTrackablePhysicalBody(body))
-  if (exact) return exact
-
-  return bodies
-    .filter((body) => isTrackablePhysicalBody(body) && isBodyDescendedFrom(body.id, sourceId))
-    .reduce<BodyState | null>(
-      (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
-      null,
-    )
-}
-
-function shouldUseSourceForCandidate(
-  currentSource: BodyState,
-  nextSource: BodyState,
-  candidate: BodyState,
-) {
-  if (currentSource.id === candidate.id) return false
-  if (nextSource.id === candidate.id) return true
-
-  const currentColorMatches = currentSource.color.toLowerCase() === candidate.color.toLowerCase()
-  const nextColorMatches = nextSource.color.toLowerCase() === candidate.color.toLowerCase()
-  if (currentColorMatches !== nextColorMatches) return nextColorMatches
-
-  return nextSource.mass > currentSource.mass
-}
-
-function buildTrackingEntries(bodies: BodyState[], sourceBodies: BodyState[]) {
-  const entriesByCandidateId = new Map<string, TrackingEntry>()
-
-  for (const source of sourceBodies) {
-    const candidate = findTrackingCandidate(bodies, source.id)
-    if (!candidate) continue
-
-    const existing = entriesByCandidateId.get(candidate.id)
-    if (!existing || shouldUseSourceForCandidate(existing.source, source, candidate)) {
-      entriesByCandidateId.set(candidate.id, { source, candidate })
-    }
-  }
-
-  return Array.from(entriesByCandidateId.values())
+function buildTrackingEntries(bodies: BodyState[], sourceBodies: BodyState[]): TrackingEntry[] {
+  return sourceBodies.map((source) => ({
+    source,
+    candidate: findDirectTrackingCandidate(bodies, source.id),
+  }))
 }
 
 function resolveTrackingSourceId(
@@ -97,15 +53,16 @@ function resolveTrackingSourceId(
   if (preferredSourceId) {
     const preferredSource = sourceBodies.find((body) => body.id === preferredSourceId)
     const preferredCandidate = preferredSource
-      ? findTrackingCandidate(bodies, preferredSource.id)
+      ? findDirectTrackingCandidate(bodies, preferredSource.id)
       : null
     if (preferredCandidate?.id === trackedBodyId) return preferredSourceId
   }
 
   const exactSource = sourceBodies.find((body) => body.id === trackedBodyId)
-  if (exactSource) return exactSource.id
-
-  return sourceBodies.find((body) => isBodyDescendedFrom(trackedBodyId, body.id))?.id ?? null
+  const exactCandidate = exactSource
+    ? findDirectTrackingCandidate(bodies, exactSource.id)
+    : null
+  return exactCandidate?.id === trackedBodyId ? exactSource?.id ?? null : null
 }
 
 export function BodyTrackingRail({
@@ -142,22 +99,21 @@ export function BodyTrackingRail({
   }, [bodies, bodyCount, bodyScale, isRunning, preset, spaceMode])
 
   const trackingEntries = buildTrackingEntries(bodies, sourceBodies)
-  const visibleSourceBodies = trackingEntries.map((entry) => entry.source)
   const resolvedTrackingSourceId = resolveTrackingSourceId(
     bodies,
-    visibleSourceBodies,
+    sourceBodies,
     trackedBodyId,
     trackingSourceId,
   )
 
   useEffect(() => {
     setTrackingSourceId((current) =>
-      resolveTrackingSourceId(bodies, visibleSourceBodies, trackedBodyId, current),
+      resolveTrackingSourceId(bodies, sourceBodies, trackedBodyId, current),
     )
   }, [bodies, trackedBodyId, sourceBodies])
 
   const getTrackingState = (source: BodyState, candidate?: BodyState | null) => {
-    const resolvedCandidate = candidate ?? findTrackingCandidate(bodies, source.id)
+    const resolvedCandidate = candidate ?? findDirectTrackingCandidate(bodies, source.id)
     const scaleRatio = bodyScale / Math.max(sourceScaleRef.current, 1e-9)
     const initialMassAtCurrentScale = source.mass * scaleRatio
     const canTrack = Boolean(
@@ -168,7 +124,13 @@ export function BodyTrackingRail({
   }
 
   useEffect(() => {
-    if (!resolvedTrackingSourceId || !trackedBodyId) return
+    if (!trackedBodyId) return
+
+    if (!resolvedTrackingSourceId) {
+      setTrackingSourceId(null)
+      onTrackedBodyChange(null)
+      return
+    }
 
     const entry = trackingEntries.find((item) => item.source.id === resolvedTrackingSourceId)
     if (!entry || !getTrackingState(entry.source, entry.candidate).canTrack) {
@@ -184,25 +146,26 @@ export function BodyTrackingRail({
       {trackingEntries.map(({ source, candidate }) => {
         const { canTrack } = getTrackingState(source, candidate)
         const isTracked = resolvedTrackingSourceId === source.id && trackedBodyId !== null
-        const bodyType = candidate.bodyType ?? source.bodyType ?? 'planet'
+        const displayBody = candidate ?? source
+        const bodyType = displayBody.bodyType ?? source.bodyType ?? 'planet'
         return (
           <button
-            key={candidate.id}
+            key={source.id}
             type="button"
             className={`body-tracking-button${isTracked ? ' active' : ''}`}
             disabled={!canTrack}
-            aria-label={`${candidate.name} ${t.trackBody}`}
+            aria-label={`${source.name} ${t.trackBody}`}
             aria-pressed={isTracked}
-            title={candidate.name}
+            title={source.name}
             onClick={() => {
-              if (!canTrack) return
+              if (!candidate || !canTrack) return
               setTrackingSourceId(source.id)
               onTrackedBodyChange(candidate.id)
             }}
           >
             <span
               className={`body-tracking-glyph ${bodyType}`}
-              style={{ backgroundColor: candidate.color, color: candidate.color }}
+              style={{ backgroundColor: displayBody.color, color: displayBody.color }}
               aria-hidden="true"
             />
           </button>
