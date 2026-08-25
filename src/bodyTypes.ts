@@ -5,10 +5,7 @@ export type UserBodyType = Extract<BodyType, 'star' | 'planet' | 'moon'>
 export const USER_BODY_TYPES: UserBodyType[] = ['star', 'planet', 'moon']
 
 const PRESET_BODY_TYPES: Record<PresetId, UserBodyType[]> = {
-  singleStill: ['star'],
   singleDrift: ['star'],
-  singleFast: ['star'],
-  single3d: ['star'],
   binaryOrbit: ['star', 'star'],
   binaryEllipse: ['star', 'star'],
   binaryUnequal: ['star', 'star'],
