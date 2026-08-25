@@ -6,7 +6,6 @@ import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
 import { APP_VERSION } from '../version'
 import { BodyTypeSelector } from './BodyTypeSelector'
 import '../body-scale-controls.css'
-import '../body-tracking-rail.css'
 import '../mobile-controls.css'
 import '../version.css'
 import '../collision-watch-controls.css'
@@ -260,34 +259,6 @@ export function ControlPanel({
 
   return (
     <aside className={`control-panel${isCollapsed ? ' collapsed' : ''}`}>
-      {panelBodies.length > 0 && (
-        <div className="body-tracking-rail" role="group" aria-label={t.trackBody}>
-          {panelBodies.map((body) => {
-            const { canTrack } = getTrackingState(body)
-            const isTracked = trackingSourceId === body.id && trackedBodyId !== null
-            const bodyType = body.bodyType ?? 'planet'
-            return (
-              <button
-                key={body.id}
-                type="button"
-                className={`body-tracking-button${isTracked ? ' active' : ''}`}
-                disabled={!canTrack}
-                aria-label={`${body.name} ${t.trackBody}`}
-                aria-pressed={isTracked}
-                title={body.name}
-                onClick={() => selectTrackingSource(body)}
-              >
-                <span
-                  className={`body-tracking-glyph ${bodyType}`}
-                  style={{ backgroundColor: body.color, color: body.color }}
-                  aria-hidden="true"
-                />
-              </button>
-            )
-          })}
-        </div>
-      )}
-
       <button
         type="button"
         className="panel-toggle"
