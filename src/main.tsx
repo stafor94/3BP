@@ -1,15 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
-import { configurePresetCatalog } from './presetCatalog'
 import { APP_VERSION } from './version'
 import './styles.css'
 import './camera-controls.css'
 import './time-speed-controls.css'
 import './tablet-panel-controls.css'
 import './version.css'
-
-configurePresetCatalog()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
