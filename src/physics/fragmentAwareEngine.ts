@@ -7,19 +7,19 @@ import { stepBodies as stepPhysicsBodies } from './engine'
 const COLLISION_SPARK_NAME = 'Collision spark'
 const COLLISION_FLASH_NAME = 'Collision flash'
 
-// Collision-watch slow motion is real-time phase controlled in App.tsx. Keep the
-// display-only bridge short in simulated time, but long enough at the 0.03x impact
-// speed for the compression/flash envelope to own several visible frames before
-// topology changes. Stellar outcomes use separate durations so grazing encounters
-// cannot read as a one-frame bounce while merges still avoid a multi-second stall.
+// Collision-watch slow motion is real-time phase controlled in App.tsx. Stellar
+// collisions deliberately keep both source silhouettes alive long enough for the
+// pre-impact/compression/peak/mask envelope to become visible before topology is
+// handed back to the physical solver.
 const COLLISION_IMPACT_SIM_DURATION = 0.006
-const STELLAR_HIT_RUN_IMPACT_SIM_DURATION = 0.0075
-const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.0105
-const STELLAR_PARTIAL_IMPACT_SIM_DURATION = 0.009
+const STELLAR_HIT_RUN_IMPACT_SIM_DURATION = 0.018
+const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.024
+const STELLAR_PARTIAL_IMPACT_SIM_DURATION = 0.021
 const IMPACT_MAX_OVERLAP_RATIO = 0.14
 const STELLAR_HIT_RUN_MAX_OVERLAP_RATIO = 0.18
 const STELLAR_MERGE_MAX_OVERLAP_RATIO = 0.36
 const STELLAR_PARTIAL_MAX_OVERLAP_RATIO = 0.24
+const STELLAR_MERGE_COMPRESSION_PLATEAU_PROGRESS = 0.55
 const CONTACT_RESOLUTION_OVERLAP = 1e-6
 const CONTACT_RESOLUTION_DT = 1e-8
 const TRACKING_G = 1
@@ -451,7 +451,14 @@ function getImpactOverlap(
     : IMPACT_MAX_OVERLAP_RATIO
   const maxOverlap = Math.min(a.radius, b.radius) * overlapRatio
   if (mode !== 'merge') return maxOverlap * Math.sin(Math.PI * progress)
-  return maxOverlap * smoothstep01(progress)
+
+  // Merge compression reaches its full contact depth early, then deliberately
+  // plateaus. The topology mask therefore owns the last ~45% of the presentation
+  // without the two stellar discs continuing to tunnel through one another.
+  const compressionProgress = smoothstep01(
+    progress / STELLAR_MERGE_COMPRESSION_PLATEAU_PROGRESS,
+  )
+  return maxOverlap * compressionProgress
 }
 
 function animateCollider(
