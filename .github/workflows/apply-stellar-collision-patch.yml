@@ -21,6 +21,26 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+      - name: Fix applicator target
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/apply-stellar-collision-patch.py')
+          source = path.read_text(encoding='utf-8')
+          old = '''replace_once(
+              'src/rendering/simulationRenderer.ts',
+              "  const stellarColor = getNearestStellarColor(body.color).hex",
+              "  const stellarColor = body.stellarTemperatureK !== undefined\\n    ? body.color\\n    : getNearestStellarColor(body.color).hex",
+          )'''
+          new = '''replace_once(
+              'src/rendering/simulationRenderer.ts',
+              "function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTime: number) {\\n  const renderRadius = Math.max(body.radius, RENDER_TUNING.body.minRenderRadius)\\n  const stellarColor = getNearestStellarColor(body.color).hex",
+              "function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTime: number) {\\n  const renderRadius = Math.max(body.radius, RENDER_TUNING.body.minRenderRadius)\\n  const stellarColor = body.stellarTemperatureK !== undefined\\n    ? body.color\\n    : getNearestStellarColor(body.color).hex",
+          )'''
+          if source.count(old) != 1:
+              raise RuntimeError(f'expected one applicator target, found {source.count(old)}')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Apply patch
         run: python3 .github/scripts/apply-stellar-collision-patch.py
       - name: Install dependencies
