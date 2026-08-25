@@ -6,6 +6,7 @@ import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
 import { APP_VERSION } from '../version'
 import { BodyTypeSelector } from './BodyTypeSelector'
 import '../body-scale-controls.css'
+import '../body-tracking-rail.css'
 import '../mobile-controls.css'
 import '../version.css'
 import '../collision-watch-controls.css'
@@ -40,6 +41,7 @@ type Props = {
 const SPEEDS = [0.1, 0.5, 1, 2, 3, 5, 10]
 const BODY_COUNTS: BodyCount[] = [1, 2, 3, 4, 5, 6]
 const SPACE_MODES: SpaceMode[] = ['2d', '3d']
+const TRACKING_MIN_MASS_RATIO = 0.5
 const vectorKeys = ['x', 'y', 'z'] as const
 
 function formatNumberValue(value: number) {
@@ -56,6 +58,23 @@ function clonePanelBody(body: BodyState): BodyState {
 
 function isInitialPanelBody(body: BodyState) {
   return body.bodyType !== 'fragment' && body.bodyType !== 'effect' && !body.id.includes('+')
+}
+
+function isBodyDescendedFrom(bodyId: string, sourceId: string) {
+  const bodyParts = new Set(bodyId.split('+'))
+  return sourceId.split('+').every((part) => bodyParts.has(part))
+}
+
+function findTrackingCandidate(bodies: BodyState[], sourceId: string) {
+  const exact = bodies.find((body) => body.id === sourceId && body.bodyType !== 'effect')
+  if (exact) return exact
+
+  return bodies
+    .filter((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, sourceId))
+    .reduce<BodyState | null>(
+      (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
+      null,
+    )
 }
 
 function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange: (n: number) => void; step?: number }) {
@@ -133,10 +152,12 @@ export function ControlPanel({
   const [panelBodies, setPanelBodies] = useState<BodyState[]>(() =>
     bodies.filter(isInitialPanelBody).map(clonePanelBody),
   )
+  const [trackingSourceId, setTrackingSourceId] = useState<string | null>(null)
   const previousRunningRef = useRef(isRunning)
   const setupKeyRef = useRef(`${preset}:${bodyCount}:${spaceMode}`)
   const hasStartedRef = useRef(false)
   const resetRequestedRef = useRef(false)
+  const panelBodyScaleRef = useRef(bodyScale)
   const availablePresets = PRESETS_BY_BODY_COUNT[bodyCount]
 
   useEffect(() => {
@@ -157,25 +178,116 @@ export function ControlPanel({
     }
 
     if (isCleanInitialSet && (setupChanged || startedNow || !hasStartedRef.current)) {
+      panelBodyScaleRef.current = bodyScale
       setPanelBodies(initialBodies.map(clonePanelBody))
     }
 
     if (startedNow) hasStartedRef.current = true
     previousRunningRef.current = isRunning
-  }, [bodies, bodyCount, isRunning, preset, spaceMode])
+  }, [bodies, bodyCount, bodyScale, isRunning, preset, spaceMode])
+
+  useEffect(() => {
+    setTrackingSourceId((current) => {
+      if (!trackedBodyId) return null
+
+      if (current) {
+        const currentSource = panelBodies.find((body) => body.id === current)
+        const currentCandidate = currentSource
+          ? findTrackingCandidate(bodies, currentSource.id)
+          : null
+        if (currentCandidate?.id === trackedBodyId) return current
+      }
+
+      const exactSource = panelBodies.find((body) => body.id === trackedBodyId)
+      if (exactSource) return exactSource.id
+
+      return panelBodies.find((body) => isBodyDescendedFrom(trackedBodyId, body.id))?.id ?? null
+    })
+  }, [bodies, panelBodies, trackedBodyId])
+
+  useEffect(() => {
+    if (!trackingSourceId || !trackedBodyId) return
+
+    const source = panelBodies.find((body) => body.id === trackingSourceId)
+    if (!source) {
+      setTrackingSourceId(null)
+      onTrackedBodyChange(null)
+      return
+    }
+
+    const candidate = findTrackingCandidate(bodies, source.id)
+    const scaleRatio = bodyScale / Math.max(panelBodyScaleRef.current, 1e-9)
+    const initialMassAtCurrentScale = source.mass * scaleRatio
+    const canTrack = Boolean(
+      candidate && candidate.mass > initialMassAtCurrentScale * TRACKING_MIN_MASS_RATIO + 1e-12,
+    )
+
+    if (!canTrack) {
+      setTrackingSourceId(null)
+      onTrackedBodyChange(null)
+    }
+  }, [bodies, bodyScale, onTrackedBodyChange, panelBodies, trackedBodyId, trackingSourceId])
 
   const handleReset = () => {
     resetRequestedRef.current = true
+    setTrackingSourceId(null)
     onReset()
   }
 
   const handleBodyChange = (id: string, next: BodyState) => {
+    panelBodyScaleRef.current = bodyScale
     setPanelBodies((current) => current.map((body) => (body.id === id ? clonePanelBody(next) : body)))
     onBodyChange(id, next)
   }
 
+  const getTrackingState = (source: BodyState) => {
+    const candidate = findTrackingCandidate(bodies, source.id)
+    const scaleRatio = bodyScale / Math.max(panelBodyScaleRef.current, 1e-9)
+    const initialMassAtCurrentScale = source.mass * scaleRatio
+    const canTrack = Boolean(
+      candidate && candidate.mass > initialMassAtCurrentScale * TRACKING_MIN_MASS_RATIO + 1e-12,
+    )
+    return { candidate, canTrack }
+  }
+
+  const selectTrackingSource = (source: BodyState) => {
+    const { candidate, canTrack } = getTrackingState(source)
+    if (!candidate || !canTrack) return
+
+    setTrackingSourceId(source.id)
+    onTrackedBodyChange(candidate.id)
+  }
+
   return (
     <aside className={`control-panel${isCollapsed ? ' collapsed' : ''}`}>
+      {panelBodies.length > 0 && (
+        <div className="body-tracking-rail" role="group" aria-label={t.trackBody}>
+          {panelBodies.map((body) => {
+            const { canTrack } = getTrackingState(body)
+            const isTracked = trackingSourceId === body.id && trackedBodyId !== null
+            const bodyType = body.bodyType ?? 'planet'
+            return (
+              <button
+                key={body.id}
+                type="button"
+                className={`body-tracking-button${isTracked ? ' active' : ''}`}
+                disabled={!canTrack}
+                aria-label={`${body.name} ${t.trackBody}`}
+                aria-pressed={isTracked}
+                title={body.name}
+                onClick={() => selectTrackingSource(body)}
+              >
+                <span
+                  className={`body-tracking-glyph ${bodyType}`}
+                  style={{ backgroundColor: body.color, color: body.color }}
+                  aria-hidden="true"
+                />
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <button
         type="button"
         className="panel-toggle"
@@ -329,7 +441,8 @@ export function ControlPanel({
 
         <div className="body-list">
           {panelBodies.map((body) => {
-            const isTracked = trackedBodyId === body.id
+            const { candidate, canTrack } = getTrackingState(body)
+            const isTracked = trackingSourceId === body.id && trackedBodyId !== null
             const stellarColor = getNearestStellarColor(body.color)
             const bodyType = body.bodyType ?? 'planet'
             return (
@@ -350,8 +463,16 @@ export function ControlPanel({
                     <input
                       type="checkbox"
                       checked={isTracked}
+                      disabled={!canTrack}
                       aria-label={`${body.name} ${t.trackBody}`}
-                      onChange={(event) => onTrackedBodyChange(event.target.checked ? body.id : null)}
+                      onChange={(event) => {
+                        if (!event.target.checked) {
+                          setTrackingSourceId(null)
+                          onTrackedBodyChange(null)
+                          return
+                        }
+                        if (candidate) selectTrackingSource(body)
+                      }}
                     />
                     <span aria-hidden="true" />
                   </label>

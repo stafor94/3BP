@@ -1,0 +1,138 @@
+.body-tracking-rail {
+  position: fixed;
+  z-index: 28;
+  top: 50%;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  transform: translateY(-50%);
+  border: 1px solid rgba(119, 143, 181, 0.16);
+  border-radius: 13px;
+  background: rgba(4, 8, 15, 0.48);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.body-tracking-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: 1px solid rgba(120, 143, 180, 0.24);
+  border-radius: 10px;
+  background: rgba(8, 13, 23, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+  touch-action: manipulation;
+  transition: border-color .15s ease, background-color .15s ease, box-shadow .15s ease, opacity .15s ease, filter .15s ease;
+}
+
+.body-tracking-button:hover:not(:disabled) {
+  border-color: rgba(132, 157, 199, 0.48);
+  background: rgba(14, 21, 35, 0.94);
+}
+
+.body-tracking-button.active {
+  border-color: #6cf0ad;
+  background: rgba(11, 28, 25, 0.9);
+  box-shadow: 0 0 0 1px rgba(108, 240, 173, 0.18), 0 0 13px rgba(108, 240, 173, 0.25);
+}
+
+.body-tracking-button:focus-visible {
+  outline: 2px solid rgba(108, 240, 173, 0.74);
+  outline-offset: 2px;
+}
+
+.body-tracking-button:disabled {
+  cursor: not-allowed;
+  opacity: .3;
+  filter: grayscale(1) saturate(0);
+}
+
+.body-tracking-glyph {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.body-tracking-glyph.star {
+  width: 19px;
+  height: 19px;
+  box-shadow: 0 0 7px currentColor, 0 0 14px currentColor;
+}
+
+.body-tracking-glyph.star::before,
+.body-tracking-glyph.star::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: .4;
+  transform: translate(-50%, -50%);
+}
+
+.body-tracking-glyph.star::before {
+  width: 27px;
+  height: 1px;
+}
+
+.body-tracking-glyph.star::after {
+  width: 1px;
+  height: 27px;
+}
+
+.body-tracking-glyph.planet {
+  width: 17px;
+  height: 17px;
+  box-shadow: inset -4px -2px 5px rgba(0, 0, 0, .38), 0 0 5px currentColor;
+}
+
+.body-tracking-glyph.moon {
+  width: 13px;
+  height: 13px;
+  box-shadow: inset -3px -1px 4px rgba(0, 0, 0, .42), 0 0 4px currentColor;
+}
+
+@media (max-width: 760px) {
+  .body-tracking-rail {
+    left: max(10px, env(safe-area-inset-left, 0px));
+    gap: 5px;
+    padding: 4px;
+    border-radius: 12px;
+  }
+
+  .body-tracking-button {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+    border-radius: 9px;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1366px) {
+  .control-panel .body-tracking-rail {
+    position: absolute;
+    top: 50%;
+    left: calc(376px - 100vw);
+    transform: translateY(-50%);
+  }
+
+  .control-panel.collapsed .body-tracking-rail {
+    left: calc(80px + env(safe-area-inset-right, 0px) - 100vw);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .body-tracking-button {
+    transition: none;
+  }
+}
