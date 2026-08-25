@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { installBodyLighting, syncBodyLightingState } from '../rendering/bodyLighting'
-import { createSimulationRenderer, type SimulationRenderState } from '../rendering/simulationRenderer'
+import {
+  createSimulationRenderer,
+  type CollisionCameraFocus,
+  type SimulationRenderState,
+} from '../rendering/simulationRenderer'
 import type { BodyState, TrailSampleBatch } from '../types'
 
 type Props = {
@@ -11,6 +15,7 @@ type Props = {
   trailDuration: number
   trailSampleBatch: TrailSampleBatch
   trackedBodyId: string | null
+  collisionCameraFocus: CollisionCameraFocus | null
 }
 
 export function SimulationView({
@@ -21,6 +26,7 @@ export function SimulationView({
   trailDuration,
   trailSampleBatch,
   trackedBodyId,
+  collisionCameraFocus,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const renderStateRef = useRef<SimulationRenderState>({
@@ -31,6 +37,7 @@ export function SimulationView({
     trailDuration,
     trailSampleBatch,
     trackedBodyId,
+    collisionCameraFocus,
   })
 
   renderStateRef.current = {
@@ -41,6 +48,7 @@ export function SimulationView({
     trailDuration,
     trailSampleBatch,
     trackedBodyId,
+    collisionCameraFocus,
   }
   syncBodyLightingState(bodies)
 

@@ -723,6 +723,11 @@ export default function App() {
           trailDuration={trailDuration}
           trailSampleBatch={trailSampleBatch}
           trackedBodyId={trackedBodyId}
+          collisionCameraFocus={collisionWatchInfo ? {
+            pairKey: collisionWatchInfo.pairKey,
+            bodyAId: collisionWatchInfo.bodyA.id,
+            bodyBId: collisionWatchInfo.bodyB.id,
+          } : null}
         />
         {collisionWatchInfo && (
           <CollisionWatchInfo details={collisionWatchInfo} language={language} />
