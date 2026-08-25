@@ -1,10 +1,10 @@
 {
   "name": "3bp",
   "private": true,
-  "version": "0.17.9",
+  "version": "0.17.10",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "bump:patch": "npm version patch --no-git-tag-version",
