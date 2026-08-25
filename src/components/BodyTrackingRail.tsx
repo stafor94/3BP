@@ -46,6 +46,28 @@ function findTrackingCandidate(bodies: BodyState[], sourceId: string) {
     )
 }
 
+function resolveTrackingSourceId(
+  bodies: BodyState[],
+  sourceBodies: BodyState[],
+  trackedBodyId: string | null,
+  preferredSourceId: string | null,
+) {
+  if (!trackedBodyId) return null
+
+  if (preferredSourceId) {
+    const preferredSource = sourceBodies.find((body) => body.id === preferredSourceId)
+    const preferredCandidate = preferredSource
+      ? findTrackingCandidate(bodies, preferredSource.id)
+      : null
+    if (preferredCandidate?.id === trackedBodyId) return preferredSourceId
+  }
+
+  const exactSource = sourceBodies.find((body) => body.id === trackedBodyId)
+  if (exactSource) return exactSource.id
+
+  return sourceBodies.find((body) => isBodyDescendedFrom(trackedBodyId, body.id))?.id ?? null
+}
+
 export function BodyTrackingRail({
   bodies,
   bodyCount,
@@ -79,23 +101,17 @@ export function BodyTrackingRail({
     }
   }, [bodies, bodyCount, bodyScale, isRunning, preset, spaceMode])
 
+  const resolvedTrackingSourceId = resolveTrackingSourceId(
+    bodies,
+    sourceBodies,
+    trackedBodyId,
+    trackingSourceId,
+  )
+
   useEffect(() => {
-    setTrackingSourceId((current) => {
-      if (!trackedBodyId) return null
-
-      if (current) {
-        const currentSource = sourceBodies.find((body) => body.id === current)
-        const currentCandidate = currentSource
-          ? findTrackingCandidate(bodies, currentSource.id)
-          : null
-        if (currentCandidate?.id === trackedBodyId) return current
-      }
-
-      const exactSource = sourceBodies.find((body) => body.id === trackedBodyId)
-      if (exactSource) return exactSource.id
-
-      return sourceBodies.find((body) => isBodyDescendedFrom(trackedBodyId, body.id))?.id ?? null
-    })
+    setTrackingSourceId((current) =>
+      resolveTrackingSourceId(bodies, sourceBodies, trackedBodyId, current),
+    )
   }, [bodies, sourceBodies, trackedBodyId])
 
   const getTrackingState = (source: BodyState) => {
@@ -109,14 +125,14 @@ export function BodyTrackingRail({
   }
 
   useEffect(() => {
-    if (!trackingSourceId || !trackedBodyId) return
+    if (!resolvedTrackingSourceId || !trackedBodyId) return
 
-    const source = sourceBodies.find((body) => body.id === trackingSourceId)
+    const source = sourceBodies.find((body) => body.id === resolvedTrackingSourceId)
     if (!source || !getTrackingState(source).canTrack) {
       setTrackingSourceId(null)
       onTrackedBodyChange(null)
     }
-  }, [bodies, bodyScale, onTrackedBodyChange, sourceBodies, trackedBodyId, trackingSourceId])
+  }, [bodies, bodyScale, onTrackedBodyChange, resolvedTrackingSourceId, sourceBodies, trackedBodyId])
 
   if (sourceBodies.length === 0) return null
 
@@ -124,7 +140,7 @@ export function BodyTrackingRail({
     <div className="body-tracking-rail" role="group" aria-label={t.trackBody}>
       {sourceBodies.map((body) => {
         const { candidate, canTrack } = getTrackingState(body)
-        const isTracked = trackingSourceId === body.id && trackedBodyId !== null
+        const isTracked = resolvedTrackingSourceId === body.id && trackedBodyId !== null
         const bodyType = body.bodyType ?? 'planet'
         return (
           <button
