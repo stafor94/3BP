@@ -10,6 +10,9 @@ export type { CollisionEffectProfile } from './collisionEffectProfile'
 const MAX_STAR_LIGHTS = 6
 const FRAGMENT_VISUAL_MIN_RADIUS = 0.022
 const EFFECT_MESH_EPSILON = 0.0001
+const MOON_NEUTRAL_COLOR = new THREE.Color('#9f9b92')
+const FRAGMENT_NEUTRAL_COLOR = new THREE.Color('#71675f')
+const trailColorScratch = new THREE.Color()
 
 let installed = false
 let bodyBySeed = new Map<string, BodyState>()
@@ -229,7 +232,7 @@ function setSurfaceProfile(material: THREE.ShaderMaterial, body: BodyState) {
   }
 
   if (bodyType === 'moon') {
-    identityColor.lerp(new THREE.Color('#9f9b92'), 0.28).multiplyScalar(0.7)
+    identityColor.lerp(MOON_NEUTRAL_COLOR, 0.28).multiplyScalar(0.7)
     material.uniforms.uBodyKind.value = 2
     material.uniforms.uDetailStrength.value = 1.12
     material.uniforms.uRimStrength.value = 0.012
@@ -242,7 +245,7 @@ function setSurfaceProfile(material: THREE.ShaderMaterial, body: BodyState) {
   }
 
   if (bodyType === 'fragment') {
-    identityColor.lerp(new THREE.Color('#71675f'), 0.24).multiplyScalar(0.58)
+    identityColor.lerp(FRAGMENT_NEUTRAL_COLOR, 0.24).multiplyScalar(0.58)
     material.uniforms.uBodyKind.value = 3
     material.uniforms.uDetailStrength.value = 1.28
     material.uniforms.uRimStrength.value = 0.008
@@ -258,7 +261,7 @@ function setSurfaceProfile(material: THREE.ShaderMaterial, body: BodyState) {
 }
 
 function updateTrailColor(scene: THREE.Scene, objectIndex: number, body: BodyState) {
-  const trailColor = new THREE.Color(
+  trailColorScratch.set(
     getEffectiveBodyType(body) === 'star'
       ? getNearestStellarColor(body.color).hex
       : body.color,
@@ -268,13 +271,47 @@ function updateTrailColor(scene: THREE.Scene, objectIndex: number, body: BodySta
 
   if (trailPoints instanceof THREE.Points && trailPoints.material instanceof THREE.ShaderMaterial) {
     const uniform = trailPoints.material.uniforms.uColor
-    if (uniform?.value instanceof THREE.Color) uniform.value.copy(trailColor)
+    if (uniform?.value instanceof THREE.Color) uniform.value.copy(trailColorScratch)
   }
 
   if (trailRibbon instanceof THREE.Mesh && trailRibbon.material instanceof THREE.ShaderMaterial) {
     const uniform = trailRibbon.material.uniforms.uColor
-    if (uniform?.value instanceof THREE.Color) uniform.value.copy(trailColor)
+    if (uniform?.value instanceof THREE.Color) uniform.value.copy(trailColorScratch)
   }
+}
+
+function setBodyGlowVisibility(scene: THREE.Scene, objectIndex: number, visible: boolean) {
+  const glowInner = scene.children[objectIndex - 1]
+  const glowOuter = scene.children[objectIndex - 2]
+
+  if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
+    glowInner.visible = visible
+    if (!visible) glowInner.material.opacity = 0
+  }
+
+  if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
+    glowOuter.visible = visible
+    if (!visible) glowOuter.material.opacity = 0
+  }
+}
+
+function syncBodyPresentationBeforeRender(scene: THREE.Scene) {
+  // simulationRenderer updates sprite visibility before renderer.render(). Because
+  // the glow sprites are earlier scene siblings than the body mesh, waiting for
+  // mesh.onBeforeRender would be one draw call too late. Normalize all body visual
+  // state here, before Three.js starts traversing and rendering the scene.
+  scene.children.forEach((object, objectIndex) => {
+    if (!(object instanceof THREE.Mesh) || !(object.material instanceof THREE.ShaderMaterial)) return
+    const seed = object.material.uniforms.uSeed?.value
+    if (typeof seed !== 'number') return
+    const body = bodyBySeed.get(seedKey(seed))
+    if (!body) return
+
+    const bodyType = getEffectiveBodyType(body)
+    setSurfaceProfile(object.material, body)
+    if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, bodyType === 'star')
+    if (bodyType !== 'effect' && objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
+  })
 }
 
 function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, object: THREE.Object3D) {
@@ -329,27 +366,7 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
 
   const objectIndex = scene.children.indexOf(object)
   if (objectIndex >= 2) {
-    const glowInner = scene.children[objectIndex - 1]
-    const glowOuter = scene.children[objectIndex - 2]
-
-    if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
-      if (isStar) {
-        glowInner.visible = true
-      } else {
-        glowInner.visible = false
-        glowInner.material.opacity = 0
-      }
-    }
-
-    if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
-      if (isStar) {
-        glowOuter.visible = true
-      } else {
-        glowOuter.visible = false
-        glowOuter.material.opacity = 0
-      }
-    }
-
+    setBodyGlowVisibility(scene, objectIndex, isStar)
     if (!isEffect && objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
   }
 }
@@ -364,6 +381,8 @@ function installCollisionEffectRenderHook() {
     camera: THREE.Camera,
   ) {
     if (scene instanceof THREE.Scene) {
+      syncBodyPresentationBeforeRender(scene)
+
       let layer = collisionEffectsByScene.get(scene)
       if (!layer) {
         layer = createCollisionEffectsLayer(scene)
