@@ -1,6 +1,15 @@
+import {
+  didCollisionWatchTargetImpact,
+  resolveBodyDescendant,
+} from '../src/collisionWatch'
 import { getCollisionContactDistance } from '../src/physics/collisionContact'
 import { stepBodies as stepCoreBodies } from '../src/physics/engine'
 import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
+import {
+  calculatePerspectiveBodyDistance,
+  calculateProjectedBodyRadiusPixels,
+  getRenderedBodyRadius,
+} from '../src/rendering/cameraFraming'
 import type { BodyState } from '../src/types'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -19,6 +28,40 @@ function distance(a: BodyState, b: BodyState) {
     b.position.y - a.position.y,
     b.position.z - a.position.z,
   )
+}
+
+function makeBody(
+  id: string,
+  mass: number,
+  radius: number,
+  x: number,
+  bodyType: BodyState['bodyType'] = 'star',
+): BodyState {
+  return {
+    id,
+    name: id.replaceAll('+', ' + '),
+    color: '#ffffff',
+    mass,
+    radius,
+    position: { x, y: 0, z: 0 },
+    velocity: { x: 0, y: 0, z: 0 },
+    bodyType,
+  }
+}
+
+function makeFlash(id: string, age = 0): BodyState {
+  return {
+    id,
+    name: 'Collision flash',
+    color: '#ffffff',
+    mass: 0,
+    radius: 0.05,
+    position: { x: 0, y: 0, z: 0 },
+    velocity: { x: 0, y: 0, z: 0 },
+    bodyType: 'effect',
+    age,
+    lifetime: 2,
+  }
 }
 
 function testContactDistanceUsesVisibleSurface() {
@@ -212,7 +255,7 @@ function testStellarMergeDeepensBeforeResolution() {
   let deepestOverlap = 0
   let resolved = false
 
-  for (let step = 0; step < 88; step += 1) {
+  for (let step = 0; step < 120; step += 1) {
     const bodyA = frame.find((body) => body.id === starA.id)
     const bodyB = frame.find((body) => body.id === starB.id)
 
@@ -230,13 +273,126 @@ function testStellarMergeDeepensBeforeResolution() {
 
   assert(resolved, 'stellar merge must eventually resolve to its physical result')
   assert(
-    contactFrames >= 55,
-    'stellar merge should preserve the two stars for most of the 0.09 simulated-second absorption window',
+    contactFrames >= 72,
+    'stellar merge should preserve both original stars for most of the 0.12 simulated-second absorption window',
   )
   assert(
-    deepestOverlap >= minRadius * 1.05,
-    'stellar merge should interpenetrate beyond one full smaller-star radius before resolving',
+    deepestOverlap >= minRadius * 1.5,
+    'stellar merge should reach at least 150% of the smaller-star radius before resolving',
   )
+  assert(
+    deepestOverlap <= minRadius * 1.601,
+    'stellar merge display staging must not exceed the configured 160% overlap target',
+  )
+}
+
+function testCollisionWatchFollowsDescendantLineage() {
+  const alpha = makeBody('Alpha', 1, 0.3, -1)
+  const beta = makeBody('Beta', 0.5, 0.2, -0.6)
+  const gamma = makeBody('Gamma', 0.8, 0.3, 1)
+  const alphaBeta = makeBody('Alpha+Beta', 1.48, 0.36, -0.7)
+
+  const resolvedAlpha = resolveBodyDescendant([alphaBeta, gamma], 'Alpha')
+  assert(resolvedAlpha?.id === 'Alpha+Beta', 'missing source id must resolve to its largest living descendant')
+
+  const thirdPartyResult = [
+    alphaBeta,
+    gamma,
+    makeFlash('Alpha+Beta+flash1'),
+  ]
+  assert(
+    !didCollisionWatchTargetImpact(
+      [alpha, beta, gamma],
+      thirdPartyResult,
+      'Alpha',
+      'Gamma',
+      0.0015,
+    ),
+    'Alpha x Beta must not complete an Alpha x Gamma collision watch',
+  )
+
+  const targetContactAlphaBeta = makeBody('Alpha+Beta', 1.48, 0.36, -0.3)
+  const targetContactGamma = makeBody('Gamma', 0.8, 0.3, 0.36)
+  const mergedTarget = makeBody('Alpha+Beta+Gamma', 2.2, 0.45, 0)
+  assert(
+    didCollisionWatchTargetImpact(
+      [targetContactAlphaBeta, targetContactGamma],
+      [mergedTarget, makeFlash('Alpha+Beta+Gamma+flash2')],
+      'Alpha',
+      'Gamma',
+      0.0015,
+    ),
+    'watch must complete when the two source lineages actually merge',
+  )
+}
+
+function testCollisionWatchRequiresTargetHitAndRunResult() {
+  const alphaBeta = makeBody('Alpha+Beta', 1.4, 0.3, -0.3)
+  const gamma = makeBody('Gamma', 1, 0.3, 0.3)
+  const previous = [alphaBeta, gamma]
+
+  const unrelatedCooldown = {
+    ...alphaBeta,
+    collisionCooldown: 0.07,
+  }
+  assert(
+    !didCollisionWatchTargetImpact(
+      previous,
+      [unrelatedCooldown, gamma, makeFlash('Alpha+Beta+flash7')],
+      'Alpha',
+      'Gamma',
+      0.0015,
+    ),
+    'third-party cooldown/flash must not complete the watched pair',
+  )
+
+  const survivorA = { ...alphaBeta, collisionCooldown: 0.07 }
+  const survivorB = { ...gamma, collisionCooldown: 0.07 }
+  assert(
+    didCollisionWatchTargetImpact(
+      previous,
+      [survivorA, survivorB, makeFlash('Alpha+Beta+Gamma+flash8')],
+      'Alpha',
+      'Gamma',
+      0.0015,
+    ),
+    'target hit-and-run must complete only with contact, both cooldowns, and the target pair flash',
+  )
+}
+
+function testPerspectiveCameraFramingMatchesOneTwentiethWidth() {
+  const cases = [
+    { width: 1080, height: 1920, radius: 0.3 },
+    { width: 1080, height: 1080, radius: 0.8 },
+    { width: 1080, height: 607.5, radius: 0.06 },
+    { width: 1440, height: 900, radius: 0.001 },
+  ]
+
+  for (const testCase of cases) {
+    const minRenderRadius = 0.025
+    const renderedRadius = getRenderedBodyRadius(testCase.radius, minRenderRadius)
+    const distanceToBody = calculatePerspectiveBodyDistance({
+      bodyRadius: testCase.radius,
+      minRenderRadius,
+      verticalFovDegrees: 55,
+      viewportWidth: testCase.width,
+      viewportHeight: testCase.height,
+    })
+    const projectedRadius = calculateProjectedBodyRadiusPixels(
+      renderedRadius,
+      distanceToBody,
+      55,
+      testCase.width,
+      testCase.height,
+    )
+
+    assertClose(
+      projectedRadius,
+      testCase.width / 20,
+      1e-7,
+      `projected body radius must be width/20 for ${testCase.width}x${testCase.height}`,
+    )
+  }
 }
 
 const tests = [
@@ -245,6 +401,9 @@ const tests = [
   testHitAndRunSurvivorsDoNotOverlap,
   testStagedImpactKeepsCollidersVisibleBeforeResolution,
   testStellarMergeDeepensBeforeResolution,
+  testCollisionWatchFollowsDescendantLineage,
+  testCollisionWatchRequiresTargetHitAndRunResult,
+  testPerspectiveCameraFramingMatchesOneTwentiethWidth,
 ]
 
 for (const test of tests) test()
