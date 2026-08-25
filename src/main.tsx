@@ -7,6 +7,7 @@ import './camera-controls.css'
 import './time-speed-controls.css'
 import './tablet-panel-controls.css'
 import './version.css'
+import './top-overlay-controls.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

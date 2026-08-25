@@ -1,0 +1,49 @@
+:root {
+  --top-overlay-top: 16px;
+  --top-overlay-height: 40px;
+}
+
+.viewport-speed-menu,
+.language-picker,
+.screen-app-version {
+  top: var(--top-overlay-top);
+}
+
+.viewport-badge {
+  height: var(--top-overlay-height);
+  min-height: var(--top-overlay-height);
+}
+
+.language-picker {
+  width: var(--top-overlay-height);
+  height: var(--top-overlay-height);
+}
+
+.screen-app-version {
+  height: var(--top-overlay-height);
+  min-width: 78px;
+  padding: 0 13px;
+  border: 1px solid rgba(144, 169, 205, 0.22);
+  border-radius: 999px;
+  background: rgba(7, 11, 20, 0.78);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 7px 22px rgba(0, 0, 0, 0.2);
+  color: #c7d3e6;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  text-shadow: 0 0 12px rgba(156, 181, 219, 0.18);
+}
+
+@media (max-width: 760px) {
+  :root {
+    --top-overlay-top: 14px;
+    --top-overlay-height: 42px;
+  }
+
+  .screen-app-version {
+    min-width: 76px;
+    padding-inline: 12px;
+    font-size: 11px;
+  }
+}
