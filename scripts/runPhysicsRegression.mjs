@@ -18,9 +18,11 @@ const compile = spawnSync(
   tsc,
   [
     resolve(root, 'scripts/physicsRegression.ts'),
+    '--ignoreConfig',
     '--target', 'ES2022',
     '--module', 'CommonJS',
     '--moduleResolution', 'Node',
+    '--ignoreDeprecations', '6.0',
     '--rootDir', root,
     '--outDir', outDir,
     '--strict',
