@@ -14,7 +14,7 @@ const PREVIEW_FLASH_LIFETIME = 0.72
 const PREVIEW_SHEAR_LIFETIME = 0.82
 const PREVIEW_PLASMA_LIFETIME = 1.55
 const SYNTHETIC_RETIRE_MS = 260
-const PHYSICAL_EFFECT_FADE_IN_MS = 120
+const PHYSICAL_EFFECT_FADE_IN_MS = 140
 
 const effectVertexShader = `
   varying vec2 vUv;
@@ -117,6 +117,19 @@ const effectFragmentShader = `
       core = (1.0 - smoothstep(0.0, 0.43, headDistance)) + filamentA * 0.34;
       body = max(head * 0.72, tail * 0.75);
       edge = max(head, tail) * (1.0 - clamp(core, 0.0, 1.0));
+    } else if (uKind < 3.5) {
+      // Stellar afterglow: hollow, broken, expanding shell with turbulent gaps.
+      float radial = length(vec2(p.x * 0.9, p.y * 1.06));
+      float shellRadius = mix(0.34, 0.84, smoothstep(0.0, 0.78, uProgress));
+      float shellWidth = mix(0.18, 0.055, smoothstep(0.08, 1.0, uProgress));
+      float shell = exp(-abs(radial - shellRadius) / max(shellWidth, 0.025));
+      float angularBreakup = 0.48 + noise * 0.62;
+      float hollow = smoothstep(0.18, shellRadius * 0.9, radial);
+      float knots = smoothstep(0.58, 0.88, noise) * shell;
+      alpha = shell * angularBreakup * hollow;
+      core = knots * 0.34;
+      body = shell * (0.45 + noise * 0.35);
+      edge = shell * (0.7 + noise * 0.3);
     } else {
       // Small sparks remain directional so even tiny effects do not become dots.
       float headDistance = length(vec2((p.x - 0.2) * 1.15, p.y * 1.6));
@@ -197,7 +210,8 @@ function kindNumber(kind: EffectVisualKind) {
   if (kind === 'contactFlash') return 0
   if (kind === 'compressionShear') return 1
   if (kind === 'stellarPlasma') return 2
-  return 3
+  if (kind === 'stellarAfterglow') return 3
+  return 4
 }
 
 function vec3LengthSquared(value: Vec3) {
@@ -302,6 +316,7 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
           pulseStrength: 0.18 + headOn * 0.08,
           phaseOffset: getBodySeed(pairKey),
           secondaryColor: smaller.color,
+          stellarCollision: true,
         },
       })
 
@@ -328,6 +343,7 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
           pulseStrength: 0.08,
           phaseOffset: getBodySeed(`${pairKey}:shear`),
           secondaryColor: smaller.color,
+          stellarCollision: true,
         },
       })
 
@@ -375,6 +391,7 @@ function getSyntheticStellarEffects(bodies: BodyState[]) {
               pulseStrength: 0.05,
               phaseOffset: getBodySeed(`${pairKey}:plasma:${index}`),
               secondaryColor: dominant.color,
+              stellarCollision: true,
             },
           })
         }
@@ -459,11 +476,20 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     visual.mesh.rotateZ(screenAngle)
 
     const diameter = profile.visualRadius * 2
-    visual.mesh.scale.set(
-      diameter * profile.anisotropicStretch,
-      diameter * profile.widthScale,
-      1,
-    )
+    let scaleX = diameter * profile.anisotropicStretch
+    let scaleY = diameter * profile.widthScale
+    const maxWorldDiameter = profile.kind === 'stellarAfterglow'
+      ? 0.96
+      : body.effectVisual?.stellarCollision
+        ? 0.84
+        : 0.64
+    const largestAxis = Math.max(scaleX, scaleY)
+    if (largestAxis > maxWorldDiameter) {
+      const scaleClamp = maxWorldDiameter / largestAxis
+      scaleX *= scaleClamp
+      scaleY *= scaleClamp
+    }
+    visual.mesh.scale.set(scaleX, scaleY, 1)
     visual.mesh.visible = profile.fadeAlpha > 0.002
 
     const stellarHex = getNearestStellarColor(body.color).hex
@@ -472,24 +498,37 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     secondaryColor.set(secondaryHex)
     baseColor.lerp(secondaryColor, profile.kind === 'stellarPlasma' ? 0.28 : 0.16)
 
-    coreColor.copy(hotWhite).lerp(baseColor, profile.kind === 'stellarPlasma' ? 0.11 : 0.06)
-    midColor.copy(baseColor).lerp(paleBlue, profile.kind === 'contactFlash' ? 0.62 : 0.25)
+    coreColor.copy(hotWhite).lerp(
+      baseColor,
+      profile.kind === 'stellarPlasma' ? 0.11 : profile.kind === 'stellarAfterglow' ? 0.28 : 0.06,
+    )
+    midColor.copy(baseColor).lerp(
+      paleBlue,
+      profile.kind === 'contactFlash' ? 0.68 : profile.kind === 'stellarAfterglow' ? 0.18 : 0.25,
+    )
     edgeColor.copy(baseColor)
     const coolingTarget = profile.kind === 'stellarPlasma' ? coolingRed : coolingAmber
-    edgeColor.lerp(coolingTarget, profile.cooling * (profile.kind === 'stellarPlasma' ? 0.34 : 0.16))
+    edgeColor.lerp(
+      coolingTarget,
+      profile.cooling * (profile.kind === 'stellarPlasma' ? 0.34 : profile.kind === 'stellarAfterglow' ? 0.24 : 0.16),
+    )
     edgeColor.offsetHSL(0, -0.08, 0.02)
 
     const uniforms = visual.material.uniforms
     ;(uniforms.uCoreColor.value as THREE.Color).copy(coreColor)
     ;(uniforms.uMidColor.value as THREE.Color).copy(midColor)
     ;(uniforms.uEdgeColor.value as THREE.Color).copy(edgeColor)
-    uniforms.uOpacity.value = profile.baseOpacity * profile.fadeAlpha * clamp(opacityScale, 0, 1)
+    uniforms.uOpacity.value = clamp(
+      profile.baseOpacity * profile.fadeAlpha * clamp(opacityScale, 0, 1),
+      0,
+      body.effectVisual?.stellarCollision ? 0.97 : 0.94,
+    )
     uniforms.uProgress.value = profile.progress
     uniforms.uSeed.value = getBodySeed(body.id) * 1000 + (body.effectVisual?.phaseOffset ?? 0) * 37
     uniforms.uKind.value = kindNumber(profile.kind)
     uniforms.uTail.value = profile.tailLength
     uniforms.uTurbulence.value = profile.turbulence
-    uniforms.uBrightness.value = profile.brightness
+    uniforms.uBrightness.value = clamp(profile.brightness, 0, 2.62)
     uniforms.uPulse.value = profile.pulseStrength
   }
 
@@ -551,8 +590,14 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
         // The contact flash is the actual impulse and should remain immediate. Larger
         // shear/plasma structures cross-fade in so they do not replace the overlap
         // preview as a visibly different sprite on one frame.
-        const opacity = kind === 'contactFlash' ? 1 : 0.28 + smoothFade * 0.72
-        updateVisual(ensure(body), body, camera, opacity)
+        const opacity = kind === 'contactFlash' ? 1 : 0.22 + smoothFade * 0.78
+        // Physical collision VFX age in real time so 0.03x/0.08x observation does
+        // not stretch a 0.5-2s visual effect into many seconds of wall-clock time.
+        const visualBody = {
+          ...body,
+          age: Math.max(0, (now - introducedAt) / 1000),
+        }
+        updateVisual(ensure(body), visualBody, camera, opacity)
       })
       syntheticEffects.forEach((body) => updateVisual(ensure(body), body, camera))
       retiringEffects.forEach(({ body, opacity }) => {

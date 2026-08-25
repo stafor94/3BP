@@ -6,6 +6,7 @@ export type EffectVisualKind =
   | 'contactFlash'
   | 'compressionShear'
   | 'stellarPlasma'
+  | 'stellarAfterglow'
   | 'collisionSpark'
 
 export type EffectVisualState = {
@@ -21,6 +22,7 @@ export type EffectVisualState = {
   phaseOffset?: number
   secondaryColor?: string
   temperatureBias?: number
+  stellarCollision?: boolean
 }
 
 export type BodyState = {
