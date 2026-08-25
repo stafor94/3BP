@@ -36,6 +36,12 @@ export type BodyState = {
   lifetime?: number
   collisionCooldown?: number
   effectVisual?: EffectVisualState
+  /**
+   * Source body ids whose ordinary camera tracking may continue onto this body.
+   * This is intentionally narrower than collision lineage: only the strictly
+   * larger body in an `absorb` collision contributes continuity ids.
+   */
+  trackingContinuationIds?: string[]
 }
 
 export type TrailSample = {

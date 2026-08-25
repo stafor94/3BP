@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { translations, type Language } from '../i18n'
 import { PRESETS_BY_BODY_COUNT } from '../presets'
 import { formatStellarColorOption, getNearestStellarColor, STELLAR_COLOR_OPTIONS } from '../starColors'
+import { findTrackingCandidate } from '../trackingSelection'
 import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
 import { APP_VERSION } from '../version'
 import { BodyTypeSelector } from './BodyTypeSelector'
@@ -52,28 +53,14 @@ function clonePanelBody(body: BodyState): BodyState {
     ...body,
     position: { ...body.position },
     velocity: { ...body.velocity },
+    trackingContinuationIds: body.trackingContinuationIds
+      ? [...body.trackingContinuationIds]
+      : undefined,
   }
 }
 
 function isInitialPanelBody(body: BodyState) {
   return body.bodyType !== 'fragment' && body.bodyType !== 'effect' && !body.id.includes('+')
-}
-
-function isBodyDescendedFrom(bodyId: string, sourceId: string) {
-  const bodyParts = new Set(bodyId.split('+'))
-  return sourceId.split('+').every((part) => bodyParts.has(part))
-}
-
-function findTrackingCandidate(bodies: BodyState[], sourceId: string) {
-  const exact = bodies.find((body) => body.id === sourceId && body.bodyType !== 'effect')
-  if (exact) return exact
-
-  return bodies
-    .filter((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, sourceId))
-    .reduce<BodyState | null>(
-      (largest, body) => (!largest || body.mass > largest.mass ? body : largest),
-      null,
-    )
 }
 
 function NumberField({ value, onChange, step = 0.01 }: { value: number; onChange: (n: number) => void; step?: number }) {
@@ -194,13 +181,20 @@ export function ControlPanel({
         const currentCandidate = currentSource
           ? findTrackingCandidate(bodies, currentSource.id)
           : null
-        if (currentCandidate?.id === trackedBodyId) return current
+        if (
+          currentCandidate &&
+          (currentCandidate.id === trackedBodyId || currentSource?.id === trackedBodyId)
+        ) {
+          return current
+        }
       }
 
       const exactSource = panelBodies.find((body) => body.id === trackedBodyId)
-      if (exactSource) return exactSource.id
+      if (exactSource && findTrackingCandidate(bodies, exactSource.id)) return exactSource.id
 
-      return panelBodies.find((body) => isBodyDescendedFrom(trackedBodyId, body.id))?.id ?? null
+      return panelBodies.find((body) =>
+        findTrackingCandidate(bodies, body.id)?.id === trackedBodyId,
+      )?.id ?? null
     })
   }, [bodies, panelBodies, trackedBodyId])
 
