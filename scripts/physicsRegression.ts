@@ -273,16 +273,16 @@ function testStellarMergeDeepensBeforeResolution() {
 
   assert(resolved, 'stellar merge must eventually resolve to its physical result')
   assert(
-    contactFrames >= 4 && contactFrames <= 6,
-    'stellar merge staging must stay within the short contact bridge before physical resolution',
+    contactFrames >= 5 && contactFrames <= 8,
+    'stellar merge staging must preserve a human-readable 5-8 frame impact envelope before topology reveal',
   )
   assert(
     deepestOverlap >= minRadius * 0.25,
     'stellar merge contact bridge must still show visible compression before resolving',
   )
   assert(
-    deepestOverlap <= minRadius * 0.341,
-    'stellar merge display staging must not exceed the configured 34% overlap target',
+    deepestOverlap <= minRadius * 0.361,
+    'stellar merge display staging must not exceed the configured 36% overlap target',
   )
 }
 

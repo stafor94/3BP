@@ -258,6 +258,44 @@ function testImpactBridgeDoesNotRewriteStellarHue() {
   assert(sawBridge, 'stellar collision should expose at least one staged impact bridge frame')
 }
 
+function testExactContactStillUsesImpactEnvelope() {
+  const a = makeStar(
+    'stellar-envelope-a',
+    1,
+    0.3,
+    -0.3,
+    '#ffd36b',
+    { x: 0.3, y: 0, z: 0 },
+  )
+  const b = makeStar(
+    'stellar-envelope-b',
+    1,
+    0.3,
+    0.3,
+    '#f5f7ff',
+    { x: -0.3, y: 0, z: 0 },
+  )
+
+  let frame = stepFragmentAwareBodies([a, b], 0.0015)
+  let bridgeFrames = 0
+  for (let index = 0; index < 12; index += 1) {
+    const bodyA = frame.find((body) => body.id === a.id)
+    const bodyB = frame.find((body) => body.id === b.id)
+    if (!bodyA || !bodyB) break
+    bridgeFrames += 1
+    frame = stepFragmentAwareBodies(frame, 0.0015)
+  }
+
+  assert(
+    bridgeFrames >= 5,
+    'exact-contact stellar collision must keep both silhouettes visible through several impact-envelope frames',
+  )
+  assert(
+    frame.some((body) => body.bodyType === 'star' && body.id.includes(a.id) && body.id.includes(b.id)),
+    'impact envelope must eventually reveal the merged stellar remnant',
+  )
+}
+
 testMassTemperatureModel()
 testGrazingHitAndRunHasConsequences()
 testSubEscapeGrazingContactCapturesInsteadOfBouncing()
@@ -265,5 +303,6 @@ testDeepOverlapCannotBecomeHitAndRun()
 testHeadOnMergeUsesRemnantMassColor()
 testPartialDisruptionStripsSmallerStar()
 testImpactBridgeDoesNotRewriteStellarHue()
+testExactContactStillUsesImpactEnvelope()
 
 console.log('stellar collision regression checks passed')

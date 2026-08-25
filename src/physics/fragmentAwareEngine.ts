@@ -7,15 +7,19 @@ import { stepBodies as stepPhysicsBodies } from './engine'
 const COLLISION_SPARK_NAME = 'Collision spark'
 const COLLISION_FLASH_NAME = 'Collision flash'
 
-// Keep only a very short display-only contact bridge before topology resolution.
-// Collision-watch slow motion is real-time phase controlled in App.tsx; stretching
-// this simulated overlap would otherwise recreate a multi-second 0.03x stall.
+// Collision-watch slow motion is real-time phase controlled in App.tsx. Keep the
+// display-only bridge short in simulated time, but long enough at the 0.03x impact
+// speed for the compression/flash envelope to own several visible frames before
+// topology changes. Stellar outcomes use separate durations so grazing encounters
+// cannot read as a one-frame bounce while merges still avoid a multi-second stall.
 const COLLISION_IMPACT_SIM_DURATION = 0.006
-const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.009
-const STELLAR_PARTIAL_IMPACT_SIM_DURATION = 0.0075
+const STELLAR_HIT_RUN_IMPACT_SIM_DURATION = 0.0075
+const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.0105
+const STELLAR_PARTIAL_IMPACT_SIM_DURATION = 0.009
 const IMPACT_MAX_OVERLAP_RATIO = 0.14
-const STELLAR_MERGE_MAX_OVERLAP_RATIO = 0.34
-const STELLAR_PARTIAL_MAX_OVERLAP_RATIO = 0.22
+const STELLAR_HIT_RUN_MAX_OVERLAP_RATIO = 0.18
+const STELLAR_MERGE_MAX_OVERLAP_RATIO = 0.36
+const STELLAR_PARTIAL_MAX_OVERLAP_RATIO = 0.24
 const CONTACT_RESOLUTION_OVERLAP = 1e-6
 const CONTACT_RESOLUTION_DT = 1e-8
 const TRACKING_G = 1
@@ -310,20 +314,19 @@ function smoothstep01(value: number) {
   return t * t * (3 - 2 * t)
 }
 
+function isStellarPair(a: BodyState, b: BodyState) {
+  return getEffectiveBodyType(a) === 'star' && getEffectiveBodyType(b) === 'star'
+}
+
 function isStellarMerge(a: BodyState, b: BodyState, mode: CollisionPresentationMode) {
-  return mode === 'merge' &&
-    getEffectiveBodyType(a) === 'star' &&
-    getEffectiveBodyType(b) === 'star'
+  return mode === 'merge' && isStellarPair(a, b)
 }
 
 function getImpactDuration(a: BodyState, b: BodyState, mode: CollisionPresentationMode) {
-  if (isStellarMerge(a, b, mode)) return STELLAR_MERGE_IMPACT_SIM_DURATION
-  if (
-    mode === 'partialDisruption' &&
-    getEffectiveBodyType(a) === 'star' &&
-    getEffectiveBodyType(b) === 'star'
-  ) return STELLAR_PARTIAL_IMPACT_SIM_DURATION
-  return COLLISION_IMPACT_SIM_DURATION
+  if (!isStellarPair(a, b)) return COLLISION_IMPACT_SIM_DURATION
+  if (mode === 'merge') return STELLAR_MERGE_IMPACT_SIM_DURATION
+  if (mode === 'partialDisruption') return STELLAR_PARTIAL_IMPACT_SIM_DURATION
+  return STELLAR_HIT_RUN_IMPACT_SIM_DURATION
 }
 
 function getCollisionContactPositions(
@@ -439,11 +442,13 @@ function getImpactOverlap(
   progress: number,
   mode: CollisionPresentationMode,
 ) {
-  const overlapRatio = isStellarMerge(a, b, mode)
-    ? STELLAR_MERGE_MAX_OVERLAP_RATIO
-    : mode === 'partialDisruption'
-      ? STELLAR_PARTIAL_MAX_OVERLAP_RATIO
-      : IMPACT_MAX_OVERLAP_RATIO
+  const overlapRatio = isStellarPair(a, b)
+    ? mode === 'merge'
+      ? STELLAR_MERGE_MAX_OVERLAP_RATIO
+      : mode === 'partialDisruption'
+        ? STELLAR_PARTIAL_MAX_OVERLAP_RATIO
+        : STELLAR_HIT_RUN_MAX_OVERLAP_RATIO
+    : IMPACT_MAX_OVERLAP_RATIO
   const maxOverlap = Math.min(a.radius, b.radius) * overlapRatio
   if (mode !== 'merge') return maxOverlap * Math.sin(Math.PI * progress)
   return maxOverlap * smoothstep01(progress)
@@ -573,13 +578,20 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   const collisionPair = findNewCollisionPair(input, probedPhysicalBodies, dt)
   if (!collisionPair) return probedPhysicalBodies
 
-  // If the frame already starts at/inside contact, do not invent an extra visual
-  // transition. Accept the physical result immediately; this handles resumed old
-  // states and avoids repeatedly staging an already-colliding pair.
-  if (isAtOrInsideContact(collisionPair.bodyA, collisionPair.bodyB)) {
+  // Preserve the legacy immediate-resolution path for non-stellar pairs that
+  // already begin at/inside contact. Only star↔star collisions need the forced
+  // presentation envelope; broadening this rule breaks absorption/tracking
+  // continuity for planet-moon and other resumed contact states.
+  if (
+    !isStellarPair(collisionPair.bodyA, collisionPair.bodyB) &&
+    isAtOrInsideContact(collisionPair.bodyA, collisionPair.bodyB)
+  ) {
     return probedPhysicalBodies
   }
 
+  // Star↔star collisions always cross the presentation envelope, even when the
+  // input frame starts exactly at or microscopically inside contact. This keeps
+  // the old silhouettes visible until flash/shear can mask the 2→1 / 2→2 reveal.
   const mode = inferCollisionPresentationMode(
     probedPhysicalBodies,
     collisionPair.bodyA,
