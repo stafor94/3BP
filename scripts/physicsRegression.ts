@@ -119,7 +119,7 @@ function testHitAndRunSurvivorsDoNotOverlap() {
   )
 }
 
-function testStagedApproachNeverShowsPreImpactOverlapOrFlash() {
+function testStagedImpactKeepsCollidersVisibleBeforeResolution() {
   const star: BodyState = {
     id: 'stage-star',
     name: 'Stage Star',
@@ -142,8 +142,11 @@ function testStagedApproachNeverShowsPreImpactOverlapOrFlash() {
   }
 
   const dt = 0.0015
+  const contactDistance = getCollisionContactDistance(star, planet)
   let frame = stepFragmentAwareBodies([star, planet], dt)
   let resolved = false
+  let contactFrames = 0
+  let sawVisibleOverlap = false
 
   for (let step = 0; step < 48; step += 1) {
     const bodyA = frame.find((body) => body.id === star.id)
@@ -151,29 +154,39 @@ function testStagedApproachNeverShowsPreImpactOverlapOrFlash() {
 
     if (bodyA && bodyB) {
       const flash = frame.find((body) => body.bodyType === 'effect' && body.name === 'Collision flash')
-      assert(!flash, 'collision flash must not exist before physical contact is resolved')
+      assert(!flash, 'physical collision flash must not appear before the staged impact resolves')
+
+      const separation = distance(bodyA, bodyB)
       assert(
-        distance(bodyA, bodyB) + 1e-9 >= bodyA.radius + bodyB.radius,
-        'staged approach must not visually overlap the colliders before contact',
+        separation <= contactDistance + 1e-9,
+        'staged impact must begin at contact instead of replaying a long pre-contact approach',
       )
+      if (separation < contactDistance - 1e-6) sawVisibleOverlap = true
+
+      contactFrames += 1
       frame = stepFragmentAwareBodies(frame, dt)
       continue
     }
 
     resolved = true
     const flash = frame.find((body) => body.bodyType === 'effect' && body.name === 'Collision flash')
-    assert(flash, 'resolved staged collision must expose its flash on the impact frame')
+    assert(flash, 'resolved staged collision must expose its physical flash on the result frame')
     break
   }
 
-  assert(resolved, 'staged collision must resolve within its configured transition window')
+  assert(resolved, 'staged collision must resolve within its configured impact window')
+  assert(
+    contactFrames >= 25,
+    'contact must remain visible for most of the 0.045 simulated-second impact window',
+  )
+  assert(sawVisibleOverlap, 'merge impact staging must visibly compress the colliders after contact')
 }
 
 const tests = [
   testContactDistanceUsesVisibleSurface,
   testFlashStartsAtImpactSurface,
   testHitAndRunSurvivorsDoNotOverlap,
-  testStagedApproachNeverShowsPreImpactOverlapOrFlash,
+  testStagedImpactKeepsCollidersVisibleBeforeResolution,
 ]
 
 for (const test of tests) test()
