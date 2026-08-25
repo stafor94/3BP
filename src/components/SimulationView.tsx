@@ -29,9 +29,21 @@ type CollisionCameraAnchorState = {
   trackingEstablished: boolean
 }
 
+type TrackingCameraAnchorState = {
+  trackedSourceId: string
+  pairKey: string
+  anchorId: string
+  direction: Vec3
+  envelopeRadius: number
+  anchorVelocity: Vec3
+}
+
 const COLLISION_CAMERA_BODY_MARGIN = 1.65
 const COLLISION_CAMERA_ENVELOPE_DISTANCE_FACTOR = 0.72
 const COLLISION_CAMERA_DIRECTION_EPSILON = 0.0005
+const TRACKING_CAMERA_ENVELOPE_DISTANCE_FACTOR = 1.25
+const TRACKING_CAMERA_MIN_ENVELOPE_RADIUS = 0.18
+const TRACKING_CAMERA_BODY_RADIUS_FACTOR = 4
 
 function isBodyDescendedFrom(bodyId: string, sourceId: string) {
   const bodyParts = new Set(bodyId.split('+'))
@@ -65,6 +77,107 @@ function normalizedDirection(from: BodyState, to: BodyState): { direction: Vec3;
   }
 }
 
+function findOrbitReference(bodies: BodyState[], trackedBody: BodyState) {
+  let bestBody: BodyState | null = null
+  let bestInfluence = Number.NEGATIVE_INFINITY
+
+  bodies.forEach((body) => {
+    if (
+      body.id === trackedBody.id ||
+      body.bodyType === 'effect' ||
+      body.bodyType === 'fragment'
+    ) return
+
+    const dx = body.position.x - trackedBody.position.x
+    const dy = body.position.y - trackedBody.position.y
+    const dz = body.position.z - trackedBody.position.z
+    const distanceSquared = dx * dx + dy * dy + dz * dz
+    if (distanceSquared <= 1e-12) return
+
+    // Pick the body exerting the strongest instantaneous gravitational pull.
+    // This naturally chooses a nearby planet for a moon, while a star wins for
+    // a planet or wide multi-body orbit.
+    const influence = Math.max(body.mass, 0) / distanceSquared
+    if (influence > bestInfluence) {
+      bestInfluence = influence
+      bestBody = body
+    }
+  })
+
+  return bestBody
+}
+
+function createTrackingCameraAnchorState(
+  bodies: BodyState[],
+  trackedSourceId: string,
+): TrackingCameraAnchorState | null {
+  const trackedBody = resolveBody(bodies, trackedSourceId)
+  if (!trackedBody) return null
+
+  const orbitReference = findOrbitReference(bodies, trackedBody)
+  if (orbitReference) {
+    const { direction, distance } = normalizedDirection(trackedBody, orbitReference)
+    return {
+      trackedSourceId,
+      pairKey: `tracking-camera:${trackedSourceId}`,
+      anchorId: `__tracking-camera-anchor__${trackedSourceId}`,
+      direction,
+      envelopeRadius: Math.max(
+        orbitReference.radius +
+          distance * TRACKING_CAMERA_ENVELOPE_DISTANCE_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
+        trackedBody.radius * TRACKING_CAMERA_BODY_RADIUS_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
+        TRACKING_CAMERA_MIN_ENVELOPE_RADIUS,
+      ),
+      anchorVelocity: { ...orbitReference.velocity },
+    }
+  }
+
+  // A single/free body has no meaningful orbital partner. Give it a stable
+  // top-like view and enough room for its recent trajectory instead of leaving
+  // whatever arbitrary zoom was used for the previously tracked body.
+  return {
+    trackedSourceId,
+    pairKey: `tracking-camera:${trackedSourceId}`,
+    anchorId: `__tracking-camera-anchor__${trackedSourceId}`,
+    direction: { x: 1, y: 0, z: 0 },
+    envelopeRadius: Math.max(
+      trackedBody.radius * TRACKING_CAMERA_BODY_RADIUS_FACTOR / COLLISION_CAMERA_BODY_MARGIN,
+      TRACKING_CAMERA_MIN_ENVELOPE_RADIUS,
+    ),
+    anchorVelocity: {
+      x: trackedBody.velocity.x,
+      y: trackedBody.velocity.y + 1,
+      z: trackedBody.velocity.z,
+    },
+  }
+}
+
+function createRenderOnlyCameraAnchor(
+  mainBody: BodyState,
+  anchorId: string,
+  direction: Vec3,
+  envelopeRadius: number,
+  anchorVelocity: Vec3,
+  name: string,
+): BodyState {
+  return {
+    ...mainBody,
+    id: anchorId,
+    name,
+    mass: 0,
+    radius: envelopeRadius,
+    bodyType: 'fragment',
+    age: FRAGMENT_LIFETIME,
+    lifetime: FRAGMENT_LIFETIME,
+    position: {
+      x: mainBody.position.x + direction.x * COLLISION_CAMERA_DIRECTION_EPSILON,
+      y: mainBody.position.y + direction.y * COLLISION_CAMERA_DIRECTION_EPSILON,
+      z: mainBody.position.z + direction.z * COLLISION_CAMERA_DIRECTION_EPSILON,
+    },
+    velocity: { ...anchorVelocity },
+  }
+}
+
 export function SimulationView({
   bodies,
   simulationTime,
@@ -78,6 +191,7 @@ export function SimulationView({
   const hostRef = useRef<HTMLDivElement | null>(null)
   const collisionCameraAnchorRef = useRef<CollisionCameraAnchorState | null>(null)
   const collisionCameraSuppressedPairRef = useRef<string | null>(null)
+  const trackingCameraAnchorRef = useRef<TrackingCameraAnchorState | null>(null)
 
   let renderBodies = bodies
   let effectiveCollisionCameraFocus = collisionCameraFocus
@@ -136,22 +250,14 @@ export function SimulationView({
       } else {
         const mainBody = resolveBody(bodies, anchorState.mainSourceId)
         if (mainBody) {
-          const cameraAnchor: BodyState = {
-            ...mainBody,
-            id: anchorState.anchorId,
-            name: 'Collision camera anchor',
-            mass: 0,
-            radius: anchorState.envelopeRadius,
-            bodyType: 'fragment',
-            age: FRAGMENT_LIFETIME,
-            lifetime: FRAGMENT_LIFETIME,
-            position: {
-              x: mainBody.position.x + anchorState.direction.x * COLLISION_CAMERA_DIRECTION_EPSILON,
-              y: mainBody.position.y + anchorState.direction.y * COLLISION_CAMERA_DIRECTION_EPSILON,
-              z: mainBody.position.z + anchorState.direction.z * COLLISION_CAMERA_DIRECTION_EPSILON,
-            },
-            velocity: { ...anchorState.anchorVelocity },
-          }
+          const cameraAnchor = createRenderOnlyCameraAnchor(
+            mainBody,
+            anchorState.anchorId,
+            anchorState.direction,
+            anchorState.envelopeRadius,
+            anchorState.anchorVelocity,
+            'Collision camera anchor',
+          )
 
           renderBodies = [...bodies, cameraAnchor]
           effectiveCollisionCameraFocus = {
@@ -166,6 +272,45 @@ export function SimulationView({
     } else {
       effectiveCollisionCameraFocus = null
     }
+  }
+
+  // Collision watch owns the camera only while its one-shot framing is active.
+  // Otherwise every newly selected tracking target receives its own orbit-aware
+  // one-shot framing. The synthetic anchor moves with the selected body, so the
+  // renderer keeps the initial angle and zoom while following that body.
+  if (effectiveCollisionCameraFocus) {
+    trackingCameraAnchorRef.current = null
+  } else if (trackedBodyId) {
+    const previousTrackingAnchor = trackingCameraAnchorRef.current
+    if (!previousTrackingAnchor || previousTrackingAnchor.trackedSourceId !== trackedBodyId) {
+      trackingCameraAnchorRef.current = createTrackingCameraAnchorState(bodies, trackedBodyId)
+    }
+
+    const trackingAnchor = trackingCameraAnchorRef.current
+    const trackedBody = trackingAnchor
+      ? resolveBody(bodies, trackingAnchor.trackedSourceId)
+      : null
+
+    if (trackingAnchor && trackedBody) {
+      const cameraAnchor = createRenderOnlyCameraAnchor(
+        trackedBody,
+        trackingAnchor.anchorId,
+        trackingAnchor.direction,
+        trackingAnchor.envelopeRadius,
+        trackingAnchor.anchorVelocity,
+        'Tracking camera anchor',
+      )
+      renderBodies = [...bodies, cameraAnchor]
+      effectiveCollisionCameraFocus = {
+        pairKey: trackingAnchor.pairKey,
+        bodyAId: trackingAnchor.trackedSourceId,
+        bodyBId: trackingAnchor.anchorId,
+      }
+    } else {
+      trackingCameraAnchorRef.current = null
+    }
+  } else {
+    trackingCameraAnchorRef.current = null
   }
 
   const renderStateRef = useRef<SimulationRenderState>({
