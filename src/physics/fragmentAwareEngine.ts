@@ -8,9 +8,10 @@ const COLLISION_SPARK_NAME = 'Collision spark'
 const COLLISION_FLASH_NAME = 'Collision flash'
 
 // At collision-watch impact speed (0.03x), 0.045 simulated seconds is roughly
-// 1.5 real seconds. Only the pre-contact approach is stretched. The collision
-// result itself is not allowed to advance in a hidden future timeline.
-const COLLISION_APPROACH_SIM_DURATION = 0.045
+// 1.5 real seconds. The normal pre-contact approach is handled by the real
+// physics timeline; this window is reserved for the visible contact/impact itself.
+const COLLISION_IMPACT_SIM_DURATION = 0.045
+const IMPACT_MAX_OVERLAP_RATIO = 0.18
 const CONTACT_RESOLUTION_OVERLAP = 1e-6
 const CONTACT_RESOLUTION_DT = 1e-8
 
@@ -20,11 +21,14 @@ const ASTEROID_MIN_RADIUS = 0.012
 const ASTEROID_MIN_MASS = 0.0003
 const MAX_PERSISTENT_ASTEROIDS = 10
 
+type CollisionPresentationMode = 'merge' | 'hitRun'
+
 type CollisionTransition = {
   bodyAId: string
   bodyBId: string
   sourceBodies: BodyState[]
   elapsed: number
+  mode: CollisionPresentationMode
 }
 
 type CollisionContactPositions = {
@@ -153,16 +157,18 @@ function findNewCollisionPair(input: BodyState[], stepped: BodyState[], dt: numb
   return null
 }
 
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t
+function inferCollisionPresentationMode(
+  stepped: BodyState[],
+  bodyA: BodyState,
+  bodyB: BodyState,
+): CollisionPresentationMode {
+  const survivorA = stepped.some((body) => body.bodyType !== 'effect' && body.id === bodyA.id)
+  const survivorB = stepped.some((body) => body.bodyType !== 'effect' && body.id === bodyB.id)
+  return survivorA && survivorB ? 'hitRun' : 'merge'
 }
 
-function lerpVec3(a: Vec3, b: Vec3, t: number): Vec3 {
-  return {
-    x: lerp(a.x, b.x, t),
-    y: lerp(a.y, b.y, t),
-    z: lerp(a.z, b.z, t),
-  }
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t
 }
 
 function smoothstep01(value: number) {
@@ -222,6 +228,43 @@ function getCollisionContactPositions(
   }
 }
 
+function getCenterVelocity(a: BodyState, b: BodyState): Vec3 {
+  const totalMass = Math.max(a.mass + b.mass, 1e-9)
+  return {
+    x: (a.velocity.x * a.mass + b.velocity.x * b.mass) / totalMass,
+    y: (a.velocity.y * a.mass + b.velocity.y * b.mass) / totalMass,
+    z: (a.velocity.z * a.mass + b.velocity.z * b.mass) / totalMass,
+  }
+}
+
+function getDriftedCollisionContactPositions(
+  a: BodyState,
+  b: BodyState,
+  elapsed: number,
+  overlap = 0,
+): CollisionContactPositions {
+  const contact = getCollisionContactPositions(a, b, overlap)
+  const centerVelocity = getCenterVelocity(a, b)
+  const drift = {
+    x: centerVelocity.x * elapsed,
+    y: centerVelocity.y * elapsed,
+    z: centerVelocity.z * elapsed,
+  }
+
+  return {
+    bodyA: {
+      x: contact.bodyA.x + drift.x,
+      y: contact.bodyA.y + drift.y,
+      z: contact.bodyA.z + drift.z,
+    },
+    bodyB: {
+      x: contact.bodyB.x + drift.x,
+      y: contact.bodyB.y + drift.y,
+      z: contact.bodyB.z + drift.z,
+    },
+  }
+}
+
 function brightenHex(color: string, amount: number) {
   const normalized = color.trim().replace(/^#/, '')
   if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return color
@@ -255,14 +298,32 @@ function isExpiredEffect(body: BodyState) {
   return body.bodyType === 'effect' && (body.age ?? 0) >= (body.lifetime ?? 2)
 }
 
-function animateCollider(body: BodyState, contactPosition: Vec3, progress: number) {
-  const eased = smoothstep01(progress)
-  const whiteMix = Math.sin(Math.PI * eased) * 0.28
+function getImpactOverlap(
+  a: BodyState,
+  b: BodyState,
+  progress: number,
+  mode: CollisionPresentationMode,
+) {
+  const maxOverlap = Math.min(a.radius, b.radius) * IMPACT_MAX_OVERLAP_RATIO
+  if (mode === 'hitRun') return maxOverlap * Math.sin(Math.PI * progress)
+  return maxOverlap * smoothstep01(progress)
+}
+
+function animateCollider(
+  body: BodyState,
+  impactPosition: Vec3,
+  progress: number,
+  mode: CollisionPresentationMode,
+) {
+  const energy = mode === 'hitRun'
+    ? Math.sin(Math.PI * progress)
+    : smoothstep01(progress)
+  const whiteMix = 0.04 + energy * 0.46
 
   return {
     ...cloneBody(body),
     color: brightenHex(body.color, whiteMix),
-    position: lerpVec3(body.position, contactPosition, eased),
+    position: { ...impactPosition },
   }
 }
 
@@ -273,17 +334,27 @@ function getTransitionBodies(transition: CollisionTransition) {
   return { bodyA, bodyB }
 }
 
-function buildCollisionApproachFrame(transition: CollisionTransition) {
+function buildCollisionImpactFrame(transition: CollisionTransition) {
   const pair = getTransitionBodies(transition)
   if (!pair) return transition.sourceBodies.map(cloneBody)
 
-  const progress = Math.min(1, Math.max(0, transition.elapsed / COLLISION_APPROACH_SIM_DURATION))
-  const contactPositions = getCollisionContactPositions(pair.bodyA, pair.bodyB)
+  const progress = Math.min(1, Math.max(0, transition.elapsed / COLLISION_IMPACT_SIM_DURATION))
+  const overlap = getImpactOverlap(pair.bodyA, pair.bodyB, progress, transition.mode)
+  const impactPositions = getDriftedCollisionContactPositions(
+    pair.bodyA,
+    pair.bodyB,
+    transition.elapsed,
+    overlap,
+  )
 
   return transition.sourceBodies
     .map((body) => {
-      if (body.id === pair.bodyA.id) return animateCollider(body, contactPositions.bodyA, progress)
-      if (body.id === pair.bodyB.id) return animateCollider(body, contactPositions.bodyB, progress)
+      if (body.id === pair.bodyA.id) {
+        return animateCollider(body, impactPositions.bodyA, progress, transition.mode)
+      }
+      if (body.id === pair.bodyB.id) {
+        return animateCollider(body, impactPositions.bodyB, progress, transition.mode)
+      }
       return advanceDisplayBody(body, transition.elapsed)
     })
     .filter((body) => !isExpiredEffect(body))
@@ -295,15 +366,17 @@ function buildContactPhysicalFrame(transition: CollisionTransition) {
 
   // Resolve a microscopic amount inside the mathematical surface so the engine
   // cannot miss contact because of floating-point drift or an outward substep.
-  const contactPositions = getCollisionContactPositions(
+  // The display-only impact overlap above is never fed into the physical solver.
+  const contactPositions = getDriftedCollisionContactPositions(
     pair.bodyA,
     pair.bodyB,
+    COLLISION_IMPACT_SIM_DURATION,
     CONTACT_RESOLUTION_OVERLAP,
   )
 
   return transition.sourceBodies
     .map((body) => {
-      const advanced = advanceDisplayBody(body, COLLISION_APPROACH_SIM_DURATION)
+      const advanced = advanceDisplayBody(body, COLLISION_IMPACT_SIM_DURATION)
       if (body.id === pair.bodyA.id) return { ...advanced, position: contactPositions.bodyA }
       if (body.id === pair.bodyB.id) return { ...advanced, position: contactPositions.bodyB }
       return advanced
@@ -331,10 +404,10 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   const activeTransition = collisionTransitionByFrame.get(input)
   if (activeTransition) {
     const elapsed = activeTransition.elapsed + dt
-    if (elapsed + 1e-12 >= COLLISION_APPROACH_SIM_DURATION) {
+    if (elapsed + 1e-12 >= COLLISION_IMPACT_SIM_DURATION) {
       return resolveTransition(
         activeTransition,
-        Math.max(0, elapsed - COLLISION_APPROACH_SIM_DURATION),
+        Math.max(0, elapsed - COLLISION_IMPACT_SIM_DURATION),
       )
     }
 
@@ -342,20 +415,22 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
       ...activeTransition,
       elapsed,
     }
-    const frame = buildCollisionApproachFrame(nextTransition)
+    const frame = buildCollisionImpactFrame(nextTransition)
     collisionTransitionByFrame.set(frame, nextTransition)
     return frame
   }
 
   // Probe one normal physics step only to discover whether this frame would cross
   // a collision surface. If so, discard that already-resolved future state and
-  // stage the approach from the current state. Nothing after impact exists yet.
+  // enter a contact/impact phase from the current frame. The natural approach is
+  // no longer stretched or replayed; only the actual collision is slowed down.
   const probedPhysicalBodies = advancePhysicalBodies(input, dt)
   const collisionPair = findNewCollisionPair(input, probedPhysicalBodies, dt)
   if (!collisionPair) return probedPhysicalBodies
 
-  // If the frame already starts at/inside contact, do not animate bodies outward.
-  // Accept the physical result immediately; this also handles resumed old states.
+  // If the frame already starts at/inside contact, do not invent an extra visual
+  // transition. Accept the physical result immediately; this handles resumed old
+  // states and avoids repeatedly staging an already-colliding pair.
   if (isAtOrInsideContact(collisionPair.bodyA, collisionPair.bodyB)) {
     return probedPhysicalBodies
   }
@@ -364,14 +439,19 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
     bodyAId: collisionPair.bodyA.id,
     bodyBId: collisionPair.bodyB.id,
     sourceBodies: input.map(cloneBody),
-    elapsed: Math.min(dt, COLLISION_APPROACH_SIM_DURATION),
+    elapsed: Math.min(dt, COLLISION_IMPACT_SIM_DURATION),
+    mode: inferCollisionPresentationMode(
+      probedPhysicalBodies,
+      collisionPair.bodyA,
+      collisionPair.bodyB,
+    ),
   }
 
-  if (transition.elapsed + 1e-12 >= COLLISION_APPROACH_SIM_DURATION) {
+  if (transition.elapsed + 1e-12 >= COLLISION_IMPACT_SIM_DURATION) {
     return resolveTransition(transition, 0)
   }
 
-  const frame = buildCollisionApproachFrame(transition)
+  const frame = buildCollisionImpactFrame(transition)
   collisionTransitionByFrame.set(frame, transition)
   return frame
 }
