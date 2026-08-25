@@ -1,5 +1,5 @@
 import type { BodyState, BodyType, Vec3 } from '../types'
-import { getCollisionContactDistance, getCollisionContactScale } from './collisionContact'
+import { getCollisionContactDistance } from './collisionContact'
 import { add, magnitude, magnitudeSquared, scale, sub } from './vector'
 
 const G = 1
@@ -297,7 +297,13 @@ function centerOfMassVelocity(a: BodyState, b: BodyState): Vec3 {
   return scale(add(momentum(a), momentum(b)), 1 / Math.max(totalMass, 1e-9))
 }
 
-function makeCollisionFlash(a: BodyState, b: BodyState): BodyState {
+function collisionContactPoint(a: BodyState, b: BodyState, normal: Vec3): Vec3 {
+  const pointA = add(a.position, scale(normal, a.radius))
+  const pointB = sub(b.position, scale(normal, b.radius))
+  return scale(add(pointA, pointB), 0.5)
+}
+
+function makeCollisionFlash(a: BodyState, b: BodyState, geometry: CollisionGeometry): BodyState {
   const dominant = a.mass >= b.mass ? a : b
   const totalRadius = a.radius + b.radius
 
@@ -307,7 +313,7 @@ function makeCollisionFlash(a: BodyState, b: BodyState): BodyState {
     color: dominant.color,
     mass: 0,
     radius: Math.max(COLLISION_FLASH_RADIUS, Math.min(0.11, totalRadius * 0.42)),
-    position: centerOfMassPosition(a, b),
+    position: collisionContactPoint(a, b, geometry.normal),
     velocity: centerOfMassVelocity(a, b),
     bodyType: 'effect',
     age: 0,
@@ -477,7 +483,7 @@ function resolveMergedCollision(
     bodyType: dominantBodyType(a, b),
   }
 
-  return [remnant, ...fragments, makeCollisionFlash(a, b)]
+  return [remnant, ...fragments, makeCollisionFlash(a, b, geometry)]
 }
 
 function resolveHitAndRun(
@@ -516,11 +522,7 @@ function resolveHitAndRun(
   let velocityB = add(b.velocity, scale(geometry.normal, impulseMagnitude / b.mass))
 
   const center = centerOfMassPosition(a, b)
-  const separation = (
-    (radiusA + radiusB) *
-    getCollisionContactScale(a, b) *
-    (1 + geometry.grazing * 0.08)
-  ) + 1e-4
+  const separation = (radiusA + radiusB) * (1 + geometry.grazing * 0.08) + 1e-4
   const survivorMass = massA + massB
   const positionA = sub(center, scale(geometry.normal, separation * (massB / survivorMass)))
   const positionB = add(center, scale(geometry.normal, separation * (massA / survivorMass)))
@@ -554,7 +556,7 @@ function resolveHitAndRun(
     collisionCooldown: HIT_RUN_COOLDOWN,
   }
 
-  return [survivorA, survivorB, ...fragments, makeCollisionFlash(a, b)]
+  return [survivorA, survivorB, ...fragments, makeCollisionFlash(a, b, geometry)]
 }
 
 function resolveCollisions(input: BodyState[]): BodyState[] {
