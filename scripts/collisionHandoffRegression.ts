@@ -1,7 +1,11 @@
 import {
   COLLISION_HANDOFF_DURATION_MS,
+  COLLISION_PRODUCT_REVEAL_DELAY_MS,
+  COLLISION_PRODUCT_REVEAL_DURATION_MS,
   findCollisionHandoffSources,
+  getCollisionHandoffParticleProgress,
   getCollisionHandoffProgress,
+  getCollisionProductRevealProgress,
 } from '../src/rendering/collisionHandoffLayer'
 import type { BodyState } from '../src/types'
 
@@ -28,6 +32,31 @@ function testHandoffProgressIsSmoothAndBounded() {
   assert(midpoint > 0.45 && midpoint < 0.55, 'handoff midpoint must remain near the smoothstep midpoint')
   assert(getCollisionHandoffProgress(COLLISION_HANDOFF_DURATION_MS) === 1, 'handoff must finish at its configured duration')
   assert(getCollisionHandoffProgress(COLLISION_HANDOFF_DURATION_MS * 2) === 1, 'handoff progress must clamp after completion')
+}
+
+function testDebrisEmissionWaitsForSurfaceFracture() {
+  assert(getCollisionHandoffParticleProgress(0) === 0, 'debris must not burst before the outgoing surface starts fracturing')
+  const middle = getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS * 0.6)
+  assert(middle > 0 && middle < 1, 'debris emission must progress smoothly through the handoff')
+  assert(
+    getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS) === 1,
+    'debris emission must finish with the outgoing surface handoff',
+  )
+}
+
+function testCollisionProductRevealIsDelayedAndProgressive() {
+  assert(
+    getCollisionProductRevealProgress(COLLISION_PRODUCT_REVEAL_DELAY_MS) === 0,
+    'new collision products must remain hidden during the initial fracture delay',
+  )
+  const midpoint = getCollisionProductRevealProgress(
+    (COLLISION_PRODUCT_REVEAL_DELAY_MS + COLLISION_PRODUCT_REVEAL_DURATION_MS) / 2,
+  )
+  assert(midpoint > 0.45 && midpoint < 0.55, 'collision products must crossfade through a smooth midpoint')
+  assert(
+    getCollisionProductRevealProgress(COLLISION_PRODUCT_REVEAL_DURATION_MS) === 1,
+    'new collision products must be fully revealed by the configured handoff end',
+  )
 }
 
 function testMergeRetiresBothOriginalBodies() {
@@ -79,6 +108,8 @@ function testTransientBodiesDoNotRetireAsCelestialGhosts() {
 
 const tests = [
   testHandoffProgressIsSmoothAndBounded,
+  testDebrisEmissionWaitsForSurfaceFracture,
+  testCollisionProductRevealIsDelayedAndProgressive,
   testMergeRetiresBothOriginalBodies,
   testDestructionIntoFragmentsCreatesHandoff,
   testStellarMergeStaysOnDedicatedTopologyPath,
