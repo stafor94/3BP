@@ -10,14 +10,18 @@ import {
 import { getAtmospherePreset, getResolvedSurfaceProfile } from '../surfacePresets'
 import type { BodyState } from '../types'
 import { createCollisionEffectsLayer } from './collisionEffectRenderer'
+import { getStellarRenderProfile } from './stellarRenderProfile'
 
 export { getCollisionEffectProfile } from './collisionEffectProfile'
 export type { CollisionEffectProfile } from './collisionEffectProfile'
 
 const MAX_STAR_LIGHTS = 6
 const FRAGMENT_VISUAL_MIN_RADIUS = 0.022
+const STELLAR_VISUAL_MIN_RADIUS = 0.025
 const EFFECT_MESH_EPSILON = 0.0001
 const trailColorScratch = new THREE.Color()
+const outerHaloColorScratch = new THREE.Color()
+const whiteColor = new THREE.Color('#ffffff')
 
 let installed = false
 let bodyBySeed = new Map<string, BodyState>()
@@ -102,6 +106,7 @@ const litBodyFragmentShader = `
   uniform float uOpacity;
   uniform float uSelfLuminous;
   uniform float uEmissionStrength;
+  uniform float uWhiteHotMix;
   uniform float uBodyKind;
   uniform float uSpecularStrength;
   uniform float uSpecularPower;
@@ -229,6 +234,16 @@ const litBodyFragmentShader = `
     return pow(fresnel, 2.45) * uRimStrength;
   }
 
+  vec3 toneMapStellarHuePreserving(vec3 source) {
+    float peak = max(max(source.r, source.g), source.b);
+    if (peak <= 0.9) return source;
+
+    // Compress only the high-luminance shoulder and scale all RGB channels by
+    // the same factor. Unlike per-channel clipping, this preserves stellar hue.
+    float mappedPeak = 0.9 + 0.08 * (1.0 - exp(-(peak - 0.9) * 3.0));
+    return source * (mappedPeak / max(peak, 0.0001));
+  }
+
   void main() {
     if (uOpacity <= 0.001) discard;
 
@@ -241,8 +256,12 @@ const litBodyFragmentShader = `
 
     if (uSelfLuminous > 0.5) {
       float emission = drawBodyEmission(normalWorld, viewDirection);
-      float intensity = min((emission * surfaceDetail + rim) * uEmissionStrength, 1.48);
-      color = uIdentityColor * intensity;
+      float intensity = min((emission * surfaceDetail + rim) * uEmissionStrength, 1.22);
+      vec3 stellarColor = toneMapStellarHuePreserving(uIdentityColor * intensity);
+      float limb = max(dot(normalWorld, viewDirection), 0.0);
+      float whiteHotCore = pow(limb, 14.0) * uWhiteHotMix;
+      float peak = min(0.98, max(max(stellarColor.r, stellarColor.g), stellarColor.b) + 0.055);
+      color = mix(stellarColor, vec3(peak), whiteHotCore);
     } else {
       vec3 albedo = drawNonStellarAlbedo(objectNormal, surfaceDetail);
       vec3 litColor = albedo * uAmbientStrength;
@@ -359,25 +378,57 @@ function updateTrailColor(scene: THREE.Scene, objectIndex: number, body: BodySta
   }
 }
 
+function configureStellarGlowMaterial(material: THREE.SpriteMaterial) {
+  if (material.blending !== THREE.NormalBlending) {
+    material.blending = THREE.NormalBlending
+    material.needsUpdate = true
+  }
+}
+
 function setBodyGlowVisibility(
   scene: THREE.Scene,
   objectIndex: number,
   visible: boolean,
+  body?: BodyState,
   stellarColor?: string,
 ) {
   const glowInner = scene.children[objectIndex - 1]
   const glowOuter = scene.children[objectIndex - 2]
 
+  if (!visible || !body || !stellarColor) {
+    if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
+      glowInner.visible = false
+      glowInner.material.opacity = 0
+    }
+    if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
+      glowOuter.visible = false
+      glowOuter.material.opacity = 0
+    }
+    return
+  }
+
+  const properties = getStellarComputedProperties(body)
+  const renderProfile = getStellarRenderProfile(
+    properties.luminositySolar,
+    properties.surfaceTemperatureK,
+  )
+  const renderRadius = Math.max(body.radius, STELLAR_VISUAL_MIN_RADIUS)
+
   if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
-    glowInner.visible = visible
-    if (!visible) glowInner.material.opacity = 0
-    else if (stellarColor) glowInner.material.color.set(stellarColor)
+    configureStellarGlowMaterial(glowInner.material)
+    glowInner.visible = true
+    glowInner.material.color.set(stellarColor)
+    glowInner.material.opacity = renderProfile.innerGlowOpacity
+    glowInner.scale.setScalar(renderRadius * renderProfile.innerGlowScale)
   }
 
   if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
-    glowOuter.visible = visible
-    if (!visible) glowOuter.material.opacity = 0
-    else if (stellarColor) glowOuter.material.color.set(stellarColor)
+    configureStellarGlowMaterial(glowOuter.material)
+    glowOuter.visible = true
+    outerHaloColorScratch.set(stellarColor).lerp(whiteColor, renderProfile.outerHaloWhiteMix)
+    glowOuter.material.color.copy(outerHaloColorScratch)
+    glowOuter.material.opacity = renderProfile.outerGlowOpacity
+    glowOuter.scale.setScalar(renderRadius * renderProfile.outerGlowScale)
   }
 }
 
@@ -392,7 +443,15 @@ function syncBodyPresentationBeforeRender(scene: THREE.Scene) {
     const bodyType = getEffectiveBodyType(body)
     const stellarColor = bodyType === 'star' ? getResolvedStellarColor(body) : undefined
     setSurfaceProfile(object.material, body)
-    if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, bodyType === 'star', stellarColor)
+    if (objectIndex >= 2) {
+      setBodyGlowVisibility(
+        scene,
+        objectIndex,
+        bodyType === 'star',
+        bodyType === 'star' ? body : undefined,
+        stellarColor,
+      )
+    }
     if (bodyType !== 'effect' && objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
   })
 }
@@ -410,14 +469,19 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
   const selfLuminous = isStar || isEffect
 
   let emissionStrength = 0
+  let whiteHotMix = 0
   let effectOpacity = 1
 
   setSurfaceProfile(material, body)
 
   if (isStar) {
     const properties = getStellarComputedProperties(body)
-    const temperatureBoost = clamp((properties.surfaceTemperatureK - 3200) / 30000, 0, 1)
-    emissionStrength = 0.96 + temperatureBoost * 0.14
+    const renderProfile = getStellarRenderProfile(
+      properties.luminositySolar,
+      properties.surfaceTemperatureK,
+    )
+    emissionStrength = renderProfile.photosphereIntensity
+    whiteHotMix = renderProfile.whiteHotMix
   } else if (bodyType === 'fragment') {
     object.scale.setScalar(Math.max(body.radius, FRAGMENT_VISUAL_MIN_RADIUS))
   } else if (isEffect) {
@@ -428,6 +492,7 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
 
   material.uniforms.uSelfLuminous.value = selfLuminous ? 1 : 0
   material.uniforms.uEmissionStrength.value = emissionStrength
+  material.uniforms.uWhiteHotMix.value = whiteHotMix
   material.uniforms.uLightCount.value = lightingStars.length
   if (isEffect && material.uniforms.uOpacity) material.uniforms.uOpacity.value = effectOpacity
 
@@ -455,7 +520,13 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
 
   const objectIndex = scene.children.indexOf(object)
   if (objectIndex >= 2) {
-    setBodyGlowVisibility(scene, objectIndex, isStar, isStar ? getResolvedStellarColor(body) : undefined)
+    setBodyGlowVisibility(
+      scene,
+      objectIndex,
+      isStar,
+      isStar ? body : undefined,
+      isStar ? getResolvedStellarColor(body) : undefined,
+    )
     if (!isEffect && objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
   }
 }
@@ -565,6 +636,7 @@ export function installBodyLighting() {
         uPolarColor: { value: new THREE.Color('#ffffff') },
         uSelfLuminous: { value: 1 },
         uEmissionStrength: { value: 1 },
+        uWhiteHotMix: { value: 0 },
         uBodyKind: { value: 0 },
         uSpecularStrength: { value: 0 },
         uSpecularPower: { value: 32 },
