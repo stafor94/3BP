@@ -4,14 +4,14 @@ export function isCollisionCameraJustReleased(
   wasCollisionCameraFocused: boolean,
   collisionCameraFocused: boolean,
   hasTrackedBody: boolean,
-) {
+): boolean {
   return wasCollisionCameraFocused && !collisionCameraFocused && hasTrackedBody
 }
 
 export function shouldResetTrackingFocus(
   selectionChanged: boolean,
   collisionCameraJustReleased: boolean,
-) {
+): boolean {
   return selectionChanged || collisionCameraJustReleased
 }
 
