@@ -72,23 +72,37 @@ const preservedSurfaceFractureCode = `
     sin(uCollisionHandoffSeed * 0.157 + 2.6)
   ) + vec3(0.001, 0.002, 0.003));
   float handoffLocality = 0.5 + 0.5 * dot(handoffNormal, handoffOrigin);
+
+  // Fracture is presentation-only during the 180-650ms phase. It begins at a
+  // small deterministic contact-side patch and spreads over the real surface,
+  // but it does not remove geometry yet.
   float handoffLocalProgress = clamp(
-    uCollisionHandoffFracture * 1.22 - (1.0 - handoffLocality) * 0.32,
+    uCollisionHandoffFracture * 1.06 - (1.0 - handoffLocality) * 0.62,
     0.0,
     1.0
   );
-  float handoffCrackEdge = mix(0.34, 0.68, handoffLocalProgress);
+  float handoffCrackEdge = mix(0.36, 0.66, handoffLocalProgress);
   float handoffCrack = 1.0 - smoothstep(
-    0.018,
-    0.095,
+    0.012,
+    0.072,
     abs(handoffNoise - handoffCrackEdge)
   );
-  float handoffCrackStrength = handoffCrack * smoothstep(0.025, 0.72, handoffLocalProgress);
-  color = mix(color, vec3(1.0, 0.63, 0.28), handoffCrackStrength * 0.88);
+  float handoffCrackStrength =
+    handoffCrack * smoothstep(0.035, 0.58, handoffLocalProgress);
+  color = mix(color, vec3(1.0, 0.64, 0.30), handoffCrackStrength * 0.58);
 
-  float handoffBreakup = smoothstep(0.66, 1.0, uCollisionHandoffFracture);
-  float handoffDissolveThreshold = handoffBreakup * 0.86 - handoffLocality * 0.08;
-  if (handoffBreakup > 0.01 && handoffNoise < handoffDissolveThreshold) discard;
+  // Structural loss is deliberately separate from fracture propagation. No
+  // source pixels are discarded before 650ms; at 780ms most of the original
+  // silhouette still survives. Only the later breakup phase opens large gaps,
+  // while the opacity fade retires the remaining shell near 1.5s.
+  float handoffLocalBreakup = clamp(
+    uCollisionHandoffBreakup * 1.05 - (1.0 - handoffLocality) * 0.12,
+    0.0,
+    1.0
+  );
+  float handoffDissolveThreshold =
+    smoothstep(0.30, 1.0, handoffLocalBreakup) * 0.48;
+  if (handoffDissolveThreshold > 0.001 && handoffNoise < handoffDissolveThreshold) discard;
 `
 
 function clamp01(value: number) {
@@ -108,7 +122,15 @@ export function getCollisionHandoffFractureProgress(elapsedMs: number) {
   if (elapsedMs <= COLLISION_IMPACT_HOLD_END_MS) return 0
   return smooth01(
     (elapsedMs - COLLISION_IMPACT_HOLD_END_MS) /
-      Math.max(1, COLLISION_BREAKUP_END_MS - COLLISION_IMPACT_HOLD_END_MS),
+      Math.max(1, COLLISION_FRACTURE_END_MS - COLLISION_IMPACT_HOLD_END_MS),
+  )
+}
+
+export function getCollisionHandoffBreakupProgress(elapsedMs: number) {
+  if (elapsedMs <= COLLISION_FRACTURE_END_MS) return 0
+  return smooth01(
+    (elapsedMs - COLLISION_FRACTURE_END_MS) /
+      Math.max(1, COLLISION_BREAKUP_END_MS - COLLISION_FRACTURE_END_MS),
   )
 }
 
@@ -225,6 +247,7 @@ function createPreservedSurfaceMaterial(sourceMaterial: THREE.ShaderMaterial, so
   const material = sourceMaterial.clone()
   material.uniforms = THREE.UniformsUtils.clone(sourceMaterial.uniforms)
   material.uniforms.uCollisionHandoffFracture = { value: 0 }
+  material.uniforms.uCollisionHandoffBreakup = { value: 0 }
   material.uniforms.uCollisionHandoffSeed = { value: getSimulationBodySeed(sourceId) }
   material.transparent = true
   material.depthWrite = false
@@ -232,6 +255,7 @@ function createPreservedSurfaceMaterial(sourceMaterial: THREE.ShaderMaterial, so
   if (material.fragmentShader.includes(SOURCE_FRAGMENT_OUTPUT)) {
     material.fragmentShader = `
       uniform float uCollisionHandoffFracture;
+      uniform float uCollisionHandoffBreakup;
       uniform float uCollisionHandoffSeed;
     ${material.fragmentShader.replace(
       SOURCE_FRAGMENT_OUTPUT,
@@ -359,12 +383,14 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
   const updateVisual = (visual: HandoffVisual, now: number) => {
     const elapsedMs = Math.max(0, now - visual.startedAt)
     const fractureProgress = getCollisionHandoffFractureProgress(elapsedMs)
+    const breakupProgress = getCollisionHandoffBreakupProgress(elapsedMs)
     const particleProgress = getCollisionHandoffParticleProgress(elapsedMs)
 
     // Keep the preserved real surface locked to its exact collision transform.
     // The prior implementation applied velocity drift to a fabricated sphere,
     // which is what produced the huge flat-colored object crossing the camera.
     visual.material.uniforms.uCollisionHandoffFracture.value = fractureProgress
+    visual.material.uniforms.uCollisionHandoffBreakup.value = breakupProgress
     if (visual.material.uniforms.uOpacity) {
       visual.material.uniforms.uOpacity.value =
         visual.baseOpacity * getCollisionHandoffSourceOpacity(elapsedMs)
