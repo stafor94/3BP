@@ -265,10 +265,15 @@ def validate(metrics: dict[str, FrameMetrics]) -> None:
         f'peak={peak.hot_neutral_pixels}px retained={retained.hot_neutral_pixels}px',
     )
 
+    # The first remnant frame now intentionally includes a longer-lived remnant
+    # relaxation presentation. Its own bright photosphere persists after the
+    # short topology veil retires, so a retained->faded raw-pixel ratio conflates
+    # two different lifecycles. Compare the faded frame against the deterministic
+    # pre-impact stellar footprint instead, matching the authoritative strict gate.
     assert_condition(
-        faded.hot_neutral_pixels <= int(retained.hot_neutral_pixels * 0.78),
-        'topology veil does not visibly retire after its handoff window: '
-        f'retained={retained.hot_neutral_pixels}px faded={faded.hot_neutral_pixels}px',
+        faded.hot_neutral_pixels <= int(separate.hot_neutral_pixels * 0.85),
+        'topology veil does not retire to the single-remnant footprint after its handoff window: '
+        f'separate={separate.hot_neutral_pixels}px faded={faded.hot_neutral_pixels}px',
     )
 
 
