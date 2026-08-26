@@ -2,6 +2,50 @@ export type Vec3 = { x: number; y: number; z: number }
 
 export type BodyType = 'star' | 'planet' | 'moon' | 'fragment' | 'effect'
 
+export type StellarEvolutionStage =
+  | 'protostar'
+  | 'mainSequence'
+  | 'subgiant'
+  | 'giant'
+  | 'supergiant'
+  | 'whiteDwarf'
+
+export type SurfacePresetId =
+  | 'rockyMercuryLike'
+  | 'venusLike'
+  | 'earthLike'
+  | 'marsLike'
+  | 'gasGiantJupiterLike'
+  | 'gasGiantSaturnLike'
+  | 'iceGiantUranusLike'
+  | 'iceGiantNeptuneLike'
+  | 'lavaWorld'
+  | 'desertWorld'
+  | 'oceanWorld'
+  | 'iceWorld'
+  | 'lunarGray'
+  | 'ioVolcanic'
+  | 'europaIcy'
+  | 'ganymedeMixed'
+  | 'callistoCratered'
+  | 'titanHazy'
+  | 'enceladusBrightIce'
+  | 'rockyBrown'
+  | 'charcoalCratered'
+  | 'darkCarbonaceous'
+  | 'stonySilicate'
+  | 'metallicIron'
+  | 'icyDebris'
+
+export type AtmospherePresetId =
+  | 'none'
+  | 'thin'
+  | 'earthLike'
+  | 'venusHaze'
+  | 'titanHaze'
+  | 'gasGiant'
+  | 'iceGiant'
+
 export type StellarCollisionOutcome = 'merge' | 'hitAndRun' | 'partialDisruption'
 
 export type EffectVisualKind =
@@ -37,6 +81,12 @@ export type BodyState = {
   position: Vec3
   velocity: Vec3
   bodyType?: BodyType
+  stellarEvolutionStage?: StellarEvolutionStage
+  stellarEvolutionPhase01?: number
+  stellarRadiusScale?: number
+  surfacePresetId?: SurfacePresetId
+  surfaceVariant01?: number
+  atmospherePresetId?: AtmospherePresetId
   age?: number
   lifetime?: number
   collisionCooldown?: number
