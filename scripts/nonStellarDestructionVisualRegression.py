@@ -114,6 +114,12 @@ def trigger_destruction(driver: webdriver.Chrome) -> None:
     )
 
 
+def wait_until(started_at: float, target_seconds: float) -> None:
+    remaining = target_seconds - (time.monotonic() - started_at)
+    if remaining > 0:
+        time.sleep(remaining)
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     driver = make_driver()
@@ -137,13 +143,18 @@ def main() -> None:
         contact = capture_canvas(driver, '01-contact')
 
         trigger_destruction(driver)
-        time.sleep(0.30)
+        destruction_started_at = time.monotonic()
+
+        # Target absolute offsets from the committed destruction state. Screenshot
+        # capture itself can take hundreds of milliseconds on CI, so cumulative
+        # sleeps would otherwise push later captures past the 1.5s handoff.
+        wait_until(destruction_started_at, 0.30)
         early = capture_canvas(driver, '02-early-fracture')
-        time.sleep(0.48)
+        wait_until(destruction_started_at, 0.78)
         middle = capture_canvas(driver, '03-mid-breakup')
-        time.sleep(0.40)
+        wait_until(destruction_started_at, 1.18)
         reveal = capture_canvas(driver, '04-result-reveal')
-        time.sleep(0.48)
+        wait_until(destruction_started_at, 1.65)
         final = capture_canvas(driver, '05-final-debris')
 
         captures = {
@@ -164,6 +175,12 @@ def main() -> None:
         early_centroid = warm_surface_centroid(early)
         early_surface_shift = math.dist(contact_centroid[:2], early_centroid[:2])
 
+        payload['capture_targets_seconds'] = {
+            'early_fracture': 0.30,
+            'mid_breakup': 0.78,
+            'result_reveal': 1.18,
+            'final_debris': 1.65,
+        }
         payload['non_dark_pixels'] = energies
         payload['mean_frame_differences'] = differences
         payload['warm_surface_centroid'] = {
@@ -179,6 +196,10 @@ def main() -> None:
             },
             'early_shift_px': early_surface_shift,
         }
+
+        # Persist diagnostics before assertions so failed CI runs remain debuggable.
+        (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
+        print(json.dumps(payload, indent=2))
 
         require(energies['contact'] >= 700, 'contact capture is unexpectedly empty')
         require(
@@ -213,8 +234,6 @@ def main() -> None:
             'final debris must continue evolving after result reveal',
         )
 
-        (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
-        print(json.dumps(payload, indent=2))
         print('non-stellar destruction browser visual regression: ok')
     except Exception:
         try:
