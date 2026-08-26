@@ -6,9 +6,9 @@ import {
   type SimulationRenderState,
 } from '../rendering/simulationRenderer'
 import {
-  installStellarTopologyMask,
-  syncStellarTopologyMaskState,
-} from '../rendering/stellarTopologyMask'
+  installStellarTopologyOcclusion,
+  syncStellarTopologyOcclusionState,
+} from '../rendering/stellarTopologyOccluder'
 import type { BodyState, TrailSampleBatch } from '../types'
 
 type Props = {
@@ -55,15 +55,15 @@ export function SimulationView({
     collisionCameraFocus,
   }
   syncBodyLightingState(bodies)
-  syncStellarTopologyMaskState(bodies)
+  syncStellarTopologyOcclusionState(bodies)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     installBodyLighting()
-    installStellarTopologyMask()
+    installStellarTopologyOcclusion()
     syncBodyLightingState(renderStateRef.current.bodies)
-    syncStellarTopologyMaskState(renderStateRef.current.bodies)
+    syncStellarTopologyOcclusionState(renderStateRef.current.bodies)
     return createSimulationRenderer(host, () => renderStateRef.current)
   }, [])
 
