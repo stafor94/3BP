@@ -32,6 +32,10 @@ if (visualRegression === 'stellar-topology') {
   void import('./visualRegression/AbsorptionContinuityVisualHarness').then(({ AbsorptionContinuityVisualHarness }) => {
     root.render(<AbsorptionContinuityVisualHarness />)
   })
+} else if (visualRegression === 'tracking-camera-handoff') {
+  void import('./visualRegression/TrackingCameraHandoffVisualHarness').then(({ TrackingCameraHandoffVisualHarness }) => {
+    root.render(<TrackingCameraHandoffVisualHarness />)
+  })
 } else {
   root.render(
     <StrictMode>

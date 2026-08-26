@@ -6,6 +6,16 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.5] - 2026-08-27
+
+### Fixed
+- 충돌 관찰 카메라가 종료될 때 `trackedBodyId`가 동일해 일반 tracking의 selection change가 발생하지 않고, collision camera의 마지막 거리/방향이 남은 채 focus settle이 재시작되지 않던 문제를 수정했습니다.
+- collision camera의 `focused → released` 전이를 별도 camera-mode handoff로 감지해 기존 tracking selection·baseline·50% mass rule을 건드리지 않고 같은 tracking focus 초기화 경로에서 view direction과 auto-distance settle을 다시 시작하도록 했습니다.
+- collision camera 종료 프레임에 default composition을 거치거나 카메라를 순간이동하지 않고, 현재 카메라 위치에서 기존 tracking transition으로 유효 continuation을 계속 화면 중앙에 유지하도록 했습니다.
+
+### Added
+- 동일 tracked source의 collision-camera release, 50% mass 경계, release 직후 1 frame 및 +100/+300/+600ms의 viewport 중심·camera distance 수렴을 검증하는 tracking/camera handoff 회귀와 브라우저 renderer telemetry 검증을 추가했습니다.
+
 ## [0.19.4] - 2026-08-27
 
 ### Changed

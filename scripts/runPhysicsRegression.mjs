@@ -17,6 +17,7 @@ const checks = [
   { source: 'stellarTopologyMaskRegression.ts', output: 'stellarTopologyMaskRegression.mjs' },
   { source: 'nonStellarRegression.ts', output: 'nonStellarRegression.mjs' },
   { source: 'trackingRegression.ts', output: 'trackingRegression.mjs' },
+  { source: 'collisionCameraTrackingHandoffRegression.ts', output: 'collisionCameraTrackingHandoffRegression.mjs' },
   { source: 'collisionWatchTimingRegression.ts', output: 'collisionWatchTimingRegression.mjs' },
   { source: 'stellarEvolutionRegression.ts', output: 'stellarEvolutionRegression.mjs' },
   { source: 'stellarRenderingRegression.ts', output: 'stellarRenderingRegression.mjs' },

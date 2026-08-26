@@ -1,4 +1,8 @@
 import { stepBodies } from '../src/physics/fragmentAwareEngine'
+import {
+  isCollisionCameraJustReleased,
+  shouldResetTrackingFocus,
+} from '../src/rendering/trackingCameraHandoff'
 import { isTrackingMassEligible } from '../src/trackingMassPolicy'
 import { findDirectTrackingCandidate, findTrackingCandidate } from '../src/trackingSelection'
 import type { BodyState } from '../src/types'
@@ -179,6 +183,47 @@ function testBodyScaleEquivalentMassKeepsSameEligibilityRatio() {
   )
 }
 
+function testCollisionCameraReleaseForcesExistingTrackingFocusReset() {
+  const initialMass = 1
+  const trackedBodyId = 'Alpha'
+  const remnant = makeBody('Alpha+Beta', 'planet', 0.72, 0.18)
+  remnant.trackingContinuationIds = [trackedBodyId]
+  const candidate = findTrackingCandidate([remnant], trackedBodyId)
+
+  assert(candidate?.id === remnant.id, 'collision result must expose the authorized Alpha continuation')
+  assert(
+    isTrackingMassEligible(candidate.mass, initialMass),
+    'fixture continuation must pass the original 50% tracking mass gate',
+  )
+
+  const collisionCameraJustReleased = isCollisionCameraJustReleased(true, false, true)
+  assert(collisionCameraJustReleased, 'collision camera release must be detected while tracking remains valid')
+  assert(
+    shouldResetTrackingFocus(false, collisionCameraJustReleased),
+    'same trackedBodyId must still restart tracking focus after collision-camera release',
+  )
+  assert(trackedBodyId === 'Alpha', 'camera handoff must not rewrite the user-selected source id')
+  assert(initialMass === 1, 'camera handoff must not rewrite the captured tracking baseline mass')
+}
+
+function testCollisionCameraReleaseDoesNotReviveBelowHalfTracking() {
+  const initialMass = 1
+  const trackedBodyId = 'Alpha'
+  const remnant = makeBody('Alpha+Beta', 'planet', 0.49, 0.14)
+  remnant.trackingContinuationIds = [trackedBodyId]
+  const candidate = findTrackingCandidate([remnant], trackedBodyId)
+
+  assert(candidate?.id === remnant.id, 'fixture must expose a continuation before the mass gate')
+  assert(
+    !isTrackingMassEligible(candidate.mass, initialMass),
+    'continuation below 50% must remain ineligible for ordinary tracking',
+  )
+  assert(
+    !isCollisionCameraJustReleased(true, false, false),
+    'camera handoff must not restart tracking after the mass gate has cleared the tracked body',
+  )
+}
+
 const tests = [
   testLivingOriginalBodyRemainsTrackable,
   testGenericCollisionDescendantDoesNotInheritUserTracking,
@@ -191,6 +236,8 @@ const tests = [
   testOriginalHalfMassCutoffIsInclusiveAtBoundary,
   testBelowHalfMassCannotUseAuthorizedDescendant,
   testBodyScaleEquivalentMassKeepsSameEligibilityRatio,
+  testCollisionCameraReleaseForcesExistingTrackingFocusReset,
+  testCollisionCameraReleaseDoesNotReviveBelowHalfTracking,
 ]
 
 for (const test of tests) test()
