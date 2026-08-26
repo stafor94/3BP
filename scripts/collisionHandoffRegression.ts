@@ -1,10 +1,15 @@
 import {
+  COLLISION_BREAKUP_END_MS,
+  COLLISION_FRACTURE_END_MS,
   COLLISION_HANDOFF_DURATION_MS,
+  COLLISION_IMPACT_HOLD_END_MS,
   COLLISION_PRODUCT_REVEAL_DELAY_MS,
   COLLISION_PRODUCT_REVEAL_DURATION_MS,
   findCollisionHandoffSources,
+  getCollisionHandoffFractureProgress,
   getCollisionHandoffParticleProgress,
   getCollisionHandoffProgress,
+  getCollisionHandoffSourceOpacity,
   getCollisionProductRevealProgress,
 } from '../src/rendering/collisionHandoffLayer'
 import type { BodyState } from '../src/types'
@@ -26,6 +31,15 @@ function body(id: string, bodyType: BodyState['bodyType'] = 'planet'): BodyState
   }
 }
 
+function testHandoffDurationAndPhases() {
+  assert(COLLISION_HANDOFF_DURATION_MS === 1500, 'solid-body handoff must run for the configured 1.5 seconds')
+  assert(COLLISION_HANDOFF_DURATION_MS >= 1000, 'solid-body handoff must never finish in under one second')
+  assert(COLLISION_IMPACT_HOLD_END_MS === 180, 'impact hold should preserve the source for the opening 180ms')
+  assert(COLLISION_FRACTURE_END_MS === 650, 'fracture propagation phase must remain distinct')
+  assert(COLLISION_BREAKUP_END_MS === 1100, 'structural breakup must precede the final result reveal phase')
+  assert(COLLISION_PRODUCT_REVEAL_DURATION_MS === COLLISION_HANDOFF_DURATION_MS, 'products must converge only at the handoff end')
+}
+
 function testHandoffProgressIsSmoothAndBounded() {
   assert(getCollisionHandoffProgress(-100) === 0, 'handoff progress must clamp before start')
   const midpoint = getCollisionHandoffProgress(COLLISION_HANDOFF_DURATION_MS / 2)
@@ -34,20 +48,37 @@ function testHandoffProgressIsSmoothAndBounded() {
   assert(getCollisionHandoffProgress(COLLISION_HANDOFF_DURATION_MS * 2) === 1, 'handoff progress must clamp after completion')
 }
 
-function testDebrisEmissionWaitsForSurfaceFracture() {
-  assert(getCollisionHandoffParticleProgress(0) === 0, 'debris must not burst before the outgoing surface starts fracturing')
+function testSourceSurfaceSurvivesOpeningPhase() {
+  const early = COLLISION_HANDOFF_DURATION_MS * 0.15
+  assert(getCollisionHandoffSourceOpacity(0) >= 0.98, 'source surface must start effectively fully opaque')
+  assert(getCollisionHandoffSourceOpacity(early) >= 0.98, 'source opacity must remain effectively intact through the first 15%')
+  assert(getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS) === 0, 'fracture must not begin during impact hold')
+  assert(
+    getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS + 120) > 0,
+    'fracture propagation must begin before structural breakup',
+  )
+}
+
+function testDebrisEmissionWaitsForVisibleFracture() {
+  assert(getCollisionHandoffParticleProgress(0) === 0, 'debris must not burst at contact')
+  assert(
+    getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS * 0.18) === 0,
+    'debris must remain hidden through roughly the first 18% of the handoff',
+  )
   const middle = getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS * 0.6)
-  assert(middle > 0 && middle < 1, 'debris emission must progress smoothly through the handoff')
+  assert(middle > 0 && middle < 1, 'debris emission must progress smoothly through breakup')
   assert(
     getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS) === 1,
-    'debris emission must finish with the outgoing surface handoff',
+    'debris separation progress must finish with the outgoing source handoff',
   )
 }
 
 function testCollisionProductRevealIsDelayedAndProgressive() {
+  assert(COLLISION_PRODUCT_REVEAL_DELAY_MS >= 150, 'collision product reveal must be delayed by at least 150ms')
+  assert(COLLISION_PRODUCT_REVEAL_DELAY_MS <= 350, 'collision product reveal delay should remain near the requested early-fracture window')
   assert(
     getCollisionProductRevealProgress(COLLISION_PRODUCT_REVEAL_DELAY_MS) === 0,
-    'new collision products must remain hidden during the initial fracture delay',
+    'new collision products must remain fully hidden through the reveal delay',
   )
   const midpoint = getCollisionProductRevealProgress(
     (COLLISION_PRODUCT_REVEAL_DELAY_MS + COLLISION_PRODUCT_REVEAL_DURATION_MS) / 2,
@@ -55,7 +86,27 @@ function testCollisionProductRevealIsDelayedAndProgressive() {
   assert(midpoint > 0.45 && midpoint < 0.55, 'collision products must crossfade through a smooth midpoint')
   assert(
     getCollisionProductRevealProgress(COLLISION_PRODUCT_REVEAL_DURATION_MS) === 1,
-    'new collision products must be fully revealed by the configured handoff end',
+    'new collision products must become fully revealed only by the handoff end',
+  )
+}
+
+function testSourceAndResultOverlapBeforeFinalRetirement() {
+  const revealTime = COLLISION_BREAKUP_END_MS
+  assert(
+    getCollisionProductRevealProgress(revealTime) > 0,
+    'collision products must already be crossfading by structural breakup',
+  )
+  assert(
+    getCollisionHandoffSourceOpacity(revealTime) > 0,
+    'the original source must still coexist with products during result reveal',
+  )
+  assert(
+    getCollisionHandoffSourceOpacity(COLLISION_HANDOFF_DURATION_MS - 1) > 0,
+    'source must retire only at the very end of the handoff',
+  )
+  assert(
+    getCollisionHandoffSourceOpacity(COLLISION_HANDOFF_DURATION_MS) === 0,
+    'source must be completely retired at handoff completion',
   )
 }
 
@@ -74,7 +125,7 @@ function testDestructionIntoFragmentsCreatesHandoff() {
   const fragmentA = body('Alpha+Beta+fragment-0', 'fragment')
   const fragmentB = body('Alpha+Beta+fragment-1', 'fragment')
   const retired = findCollisionHandoffSources([alpha], [fragmentA, fragmentB])
-  assert(retired.length === 1 && retired[0].id === 'Alpha', 'fragment descendants must keep a dissolving source body during destruction')
+  assert(retired.length === 1 && retired[0].id === 'Alpha', 'fragment descendants must keep a staged source body during destruction')
 }
 
 function testStellarMergeStaysOnDedicatedTopologyPath() {
@@ -107,9 +158,12 @@ function testTransientBodiesDoNotRetireAsCelestialGhosts() {
 }
 
 const tests = [
+  testHandoffDurationAndPhases,
   testHandoffProgressIsSmoothAndBounded,
-  testDebrisEmissionWaitsForSurfaceFracture,
+  testSourceSurfaceSurvivesOpeningPhase,
+  testDebrisEmissionWaitsForVisibleFracture,
   testCollisionProductRevealIsDelayedAndProgressive,
+  testSourceAndResultOverlapBeforeFinalRetirement,
   testMergeRetiresBothOriginalBodies,
   testDestructionIntoFragmentsCreatesHandoff,
   testStellarMergeStaysOnDedicatedTopologyPath,
