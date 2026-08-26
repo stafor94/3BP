@@ -24,27 +24,28 @@ jobs:
 
           lighting = Path('src/rendering/bodyLighting.ts')
           text = lighting.read_text(encoding='utf-8')
-          text = text.replace(
-              '  uniform float uSeed;\n  uniform float uDetailStrength;',
-              '  uniform float uSeed;\n  uniform float uSurfaceSeed;\n  uniform float uDetailStrength;',
-              1,
-          )
-          for old, new in [
-              ('uSeed * 0.071', 'uSurfaceSeed * 0.071'),
-              ('uSeed * 0.113', 'uSurfaceSeed * 0.113'),
-              ('uSeed * 0.157', 'uSurfaceSeed * 0.157'),
-              ('uSeed * 0.013', 'uSurfaceSeed * 0.013'),
-              ('uSeed * 0.043', 'uSurfaceSeed * 0.043'),
-              ('uSeed * 0.079', 'uSurfaceSeed * 0.079'),
-              ('uSeed * 0.131', 'uSurfaceSeed * 0.131'),
-              ('uSeed * 0.07', 'uSurfaceSeed * 0.07'),
-          ]:
-              text = text.replace(old, new)
-          text = text.replace(
-              '        ...values.uniforms,\n        uSecondaryColor:',
-              '        ...values.uniforms,\n        uSurfaceSeed: { value: values.uniforms.uSeed.value },\n        uSecondaryColor:',
-              1,
-          )
+          if 'uniform float uSurfaceSeed;' not in text:
+              text = text.replace(
+                  '  uniform float uSeed;\n  uniform float uDetailStrength;',
+                  '  uniform float uSeed;\n  uniform float uSurfaceSeed;\n  uniform float uDetailStrength;',
+                  1,
+              )
+              for old, new in [
+                  ('uSeed * 0.071', 'uSurfaceSeed * 0.071'),
+                  ('uSeed * 0.113', 'uSurfaceSeed * 0.113'),
+                  ('uSeed * 0.157', 'uSurfaceSeed * 0.157'),
+                  ('uSeed * 0.013', 'uSurfaceSeed * 0.013'),
+                  ('uSeed * 0.043', 'uSurfaceSeed * 0.043'),
+                  ('uSeed * 0.079', 'uSurfaceSeed * 0.079'),
+                  ('uSeed * 0.131', 'uSurfaceSeed * 0.131'),
+                  ('uSeed * 0.07', 'uSurfaceSeed * 0.07'),
+              ]:
+                  text = text.replace(old, new)
+              text = text.replace(
+                  '        ...values.uniforms,\n        uSecondaryColor:',
+                  '        ...values.uniforms,\n        uSurfaceSeed: { value: values.uniforms.uSeed.value },\n        uSecondaryColor:',
+                  1,
+              )
           lighting.write_text(text, encoding='utf-8')
 
           bridge = Path('src/rendering/liveCollisionVfxBridge.ts')
@@ -69,33 +70,108 @@ jobs:
               '  color += vec3(1.0, 0.76, 0.46) * collisionImpactMask * uCollisionImpactFlash * 0.7;',
               1,
           )
-          text = text.replace(
-              'function applySurvivorImpact(material: THREE.ShaderMaterial, now: number) {',
-              'function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Object3D, now: number) {',
-              1,
-          )
-          start = text.index('function applySurvivorImpact(')
-          end = text.index('function applyCollisionProductReveal(', start)
-          block = text[start:end]
-          needle = '  const direction = material.uniforms.uCollisionImpactDirection?.value\n  if (direction instanceof THREE.Vector3) {'
-          replacement = needle + '\n    const worldQuaternion = new THREE.Quaternion()\n    object.getWorldQuaternion(worldQuaternion)'
-          if needle not in block:
-              raise SystemExit('survivor impact direction start not found')
-          block = block.replace(needle, replacement, 1)
-          normal_end = '    ).normalize()'
-          if normal_end not in block:
-              raise SystemExit('survivor impact normalize not found')
-          block = block.replace(
-              normal_end,
-              '    ).applyQuaternion(worldQuaternion.invert()).normalize()',
-              1,
-          )
-          text = text[:start] + block + text[end:]
-          text = text.replace(
-              '      applySurvivorImpact(material, now)',
-              '      applySurvivorImpact(material, object, now)',
-              1,
-          )
+
+          if 'function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Object3D, now: number)' not in text:
+              text = text.replace(
+                  'function applySurvivorImpact(material: THREE.ShaderMaterial, now: number) {',
+                  'function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Object3D, now: number) {',
+                  1,
+              )
+              start = text.index('function applySurvivorImpact(')
+              end = text.index('function applyCollisionProductReveal(', start)
+              block = text[start:end]
+              needle = '  const direction = material.uniforms.uCollisionImpactDirection?.value\n  if (direction instanceof THREE.Vector3) {'
+              replacement = needle + '\n    const worldQuaternion = new THREE.Quaternion()\n    object.getWorldQuaternion(worldQuaternion)'
+              if needle not in block:
+                  raise SystemExit('survivor impact direction start not found')
+              block = block.replace(needle, replacement, 1)
+              normal_end = '    ).normalize()'
+              if normal_end not in block:
+                  raise SystemExit('survivor impact normalize not found')
+              block = block.replace(
+                  normal_end,
+                  '    ).applyQuaternion(worldQuaternion.invert()).normalize()',
+                  1,
+              )
+              text = text[:start] + block + text[end:]
+              text = text.replace(
+                  '      applySurvivorImpact(material, now)',
+                  '      applySurvivorImpact(material, object, now)',
+                  1,
+              )
+
+          install_start = text.index('export function installLiveCollisionVfxBridge()')
+          old_install = text[install_start:]
+          if 'const fragmentShader = simulationBodyShader' in old_install:
+              new_install = '''export function installLiveCollisionVfxBridge() {
+            if (installed) return
+            installed = true
+
+            const shaderPrototype = THREE.ShaderMaterial.prototype as any
+            const previousSetValues = shaderPrototype.setValues
+
+            shaderPrototype.setValues = function setValuesWithLiveCollisionVfx(values: Record<string, any>) {
+              const simulationBodyShader = isSimulationBodyShader(values)
+              const result = previousSetValues.call(this, values)
+              if (!simulationBodyShader) return result
+
+              const material = this as THREE.ShaderMaterial & {
+                onBeforeRender?: MaterialRenderCallback
+                __liveCollisionVfxBridgeInstalled?: boolean
+              }
+              if (material.__liveCollisionVfxBridgeInstalled) return result
+              material.__liveCollisionVfxBridgeInstalled = true
+
+              material.vertexShader = collisionRevealVertexShader
+              material.uniforms.uCollisionRevealScale ??= { value: 1 }
+              material.uniforms.uCollisionImpactDirection ??= { value: new THREE.Vector3(1, 0, 0) }
+              material.uniforms.uCollisionImpactFlash ??= { value: 0 }
+              material.uniforms.uCollisionImpactHeat ??= { value: 0 }
+
+              if (
+                material.fragmentShader.includes(SOURCE_FRAGMENT_OUTPUT) &&
+                !material.fragmentShader.includes('uniform vec3 uCollisionImpactDirection;')
+              ) {
+                material.fragmentShader = `
+                  uniform vec3 uCollisionImpactDirection;
+                  uniform float uCollisionImpactFlash;
+                  uniform float uCollisionImpactHeat;
+                ${material.fragmentShader.replace(
+                  SOURCE_FRAGMENT_OUTPUT,
+                  `${survivorImpactFragmentCode}\\n  ${SOURCE_FRAGMENT_OUTPUT}`,
+                )}`
+              }
+              material.needsUpdate = true
+
+              const previousOnBeforeRender = material.onBeforeRender
+              material.onBeforeRender = function liveCollisionVfxBeforeBodyRender(
+                renderer: THREE.WebGLRenderer,
+                scene: THREE.Scene,
+                camera: THREE.Camera,
+                geometry: THREE.BufferGeometry,
+                object: THREE.Object3D,
+                group: THREE.Group | null,
+              ) {
+                updateLiveLayers(scene, camera)
+                previousOnBeforeRender?.call(
+                  this,
+                  renderer,
+                  scene,
+                  camera,
+                  geometry,
+                  object,
+                  group,
+                )
+                const now = performance.now()
+                applySurvivorImpact(material, object, now)
+                applyCollisionProductReveal(material, now)
+              }
+
+              return result
+            }
+          }
+          '''
+              text = text[:install_start] + new_install
           bridge.write_text(text, encoding='utf-8')
 
           regression = Path('scripts/nonStellarDestructionVisualRegression.py')
@@ -122,6 +198,7 @@ jobs:
                   '- 충돌 후 살아남은 큰 천체 위에 동일 크기의 검은 shell/ghost sphere가 겹치던 현상을 제거했습니다.',
                   '- survivor의 표면 정체성 seed와 렌더 body lookup seed를 분리해 흡수 후 비항성 천체가 self-luminous/glow 상태로 고착될 수 있던 경로를 제거했습니다.',
                   '- world-space contact normal을 body mesh local-space로 변환해 회전된 천체에서도 국소 충돌 흔적이 실제 접촉면에 고정되도록 수정했습니다.',
+                  '- bodyLighting이 최종 셰이더를 교체한 뒤 survivor impact 코드를 주입하도록 순서를 고쳐 국소 heat/crack가 실제 렌더 셰이더에서 누락되던 문제를 수정했습니다.',
                   '',
                   '### Added',
                   '- survivor absorption과 actual disruption을 분리 검증하는 브라우저 시각 회귀를 추가하고 contact/150/350/700/1100/1600ms 단계 캡처 및 survivor 반대 hemisphere 변화 검사를 추가했습니다.',
@@ -171,7 +248,6 @@ jobs:
       - name: Survivor absorption browser visual regression
         run: python scripts/survivorAbsorptionVisualRegression.py
       - name: Actual disruption browser visual regression
-        if: always()
         run: python scripts/actualDisruptionVisualRegression.py
 
       - name: Upload visual captures
@@ -195,5 +271,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts scripts/nonStellarDestructionVisualRegression.py
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "fix: keep survivor impacts local and surface-stable"
+          git commit -m "fix: compose survivor impact with final body shader"
           git push
