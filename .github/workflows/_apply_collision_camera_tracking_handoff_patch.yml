@@ -17,6 +17,24 @@ jobs:
         with:
           ref: fix/collision-camera-tracking-handoff-v0.19.5
           fetch-depth: 0
+      - name: Repair generated Python delimiter
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/_apply_collision_camera_tracking_handoff_patch.py')
+          text = path.read_text(encoding='utf-8')
+          start_marker = "write('scripts/collisionCameraTrackingHandoffVisualRegression.py', r'''"
+          end_marker = "\n\nreplace_exact(\n    '.github/workflows/ci.yml'"
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          segment = text[start:end]
+          segment = segment.replace("r'''", 'r"""', 1)
+          closing = segment.rfind("''')")
+          if closing < 0:
+              raise RuntimeError('visual regression generated-string closing delimiter not found')
+          segment = segment[:closing] + '""")' + segment[closing + 4:]
+          path.write_text(text[:start] + segment + text[end:], encoding='utf-8')
+          PY
       - name: Validate patch script
         run: python -m py_compile scripts/_apply_collision_camera_tracking_handoff_patch.py
       - name: Apply patch
