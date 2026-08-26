@@ -3,6 +3,12 @@ import { getEffectiveBodyType, normalizeBodyForType } from '../bodyTypes'
 import { translations, type Language } from '../i18n'
 import { PRESETS_BY_BODY_COUNT } from '../presets'
 import {
+  BODY_SCALE_OPTIONS,
+  TRAIL_DURATION_MAX,
+  TRAIL_DURATION_MIN,
+  normalizeTrailDuration,
+} from '../simulationSettings'
+import {
   getStellarComputedProperties,
   STELLAR_EVOLUTION_STAGES,
 } from '../starColors'
@@ -84,6 +90,18 @@ function formatScientific(value: number) {
     return value.toExponential(2)
   }
   return Number(value.toFixed(2)).toLocaleString()
+}
+
+function formatScale(value: number) {
+  return `${Number(value.toFixed(2))}×`
+}
+
+function getBodyScaleIndex(value: number) {
+  return BODY_SCALE_OPTIONS.reduce((closestIndex, option, index) =>
+    Math.abs(option - value) < Math.abs(BODY_SCALE_OPTIONS[closestIndex] - value)
+      ? index
+      : closestIndex,
+  0)
 }
 
 function clonePanelBody(body: BodyState): BodyState {
@@ -183,6 +201,7 @@ export function ControlPanel({
   const resetRequestedRef = useRef(false)
   const panelBodyScaleRef = useRef(bodyScale)
   const availablePresets = PRESETS_BY_BODY_COUNT[bodyCount]
+  const bodyScaleIndex = getBodyScaleIndex(bodyScale)
 
   useEffect(() => {
     const setupKey = `${preset}:${bodyCount}:${spaceMode}`
@@ -394,23 +413,23 @@ export function ControlPanel({
         <section className="body-scale-section">
           <div className="body-scale-heading-row">
             <label className="section-label" htmlFor="body-scale">{t.bodyScale}</label>
-            <output htmlFor="body-scale">{bodyScale.toFixed(2)}×</output>
+            <output htmlFor="body-scale">{formatScale(bodyScale)}</output>
           </div>
           <input
             id="body-scale"
             className="body-scale-slider"
             type="range"
-            min="-2"
-            max="2"
-            step="0.05"
-            value={Math.log2(bodyScale)}
+            min="0"
+            max={BODY_SCALE_OPTIONS.length - 1}
+            step="1"
+            value={bodyScaleIndex}
             aria-label={t.bodyScale}
-            onChange={(event) => onBodyScaleChange(2 ** Number(event.target.value))}
+            onChange={(event) => onBodyScaleChange(BODY_SCALE_OPTIONS[Number(event.target.value)])}
           />
           <div className="body-scale-range" aria-hidden="true">
-            <span>0.25×</span>
+            <span>{formatScale(BODY_SCALE_OPTIONS[0])}</span>
             <small>{t.bodyScaleHint}</small>
-            <span>4.00×</span>
+            <span>{formatScale(BODY_SCALE_OPTIONS[BODY_SCALE_OPTIONS.length - 1])}</span>
           </div>
         </section>
 
@@ -432,12 +451,12 @@ export function ControlPanel({
             <input
               id="trail-duration"
               type="range"
-              min="1"
-              max="60"
+              min={TRAIL_DURATION_MIN}
+              max={TRAIL_DURATION_MAX}
               step="1"
               value={trailDuration}
               disabled={!trailEnabled}
-              onChange={(event) => onTrailDurationChange(Math.min(60, Math.max(1, Number(event.target.value))))}
+              onChange={(event) => onTrailDurationChange(normalizeTrailDuration(Number(event.target.value)))}
             />
             <output htmlFor="trail-duration">{trailDuration} s</output>
           </div>

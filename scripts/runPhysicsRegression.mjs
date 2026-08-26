@@ -14,6 +14,7 @@ const checks = [
   { source: 'trackingRegression.ts', output: 'trackingRegression.mjs' },
   { source: 'collisionWatchTimingRegression.ts', output: 'collisionWatchTimingRegression.mjs' },
   { source: 'stellarEvolutionRegression.ts', output: 'stellarEvolutionRegression.mjs' },
+  { source: 'simulationSettingsRegression.ts', output: 'simulationSettingsRegression.mjs' },
 ]
 
 rmSync(outDir, { recursive: true, force: true })
