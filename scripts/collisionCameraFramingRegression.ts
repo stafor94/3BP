@@ -145,6 +145,7 @@ function testCollisionDistanceFrameRateIsCappedDuringHandoff() {
   let result = advanceCollisionCameraDistanceHandoff(null, sourceDistance, 0)
   let state: CollisionCameraDistanceHandoffState = result.state
   let previousValue = result.value
+  let midpointValue = previousValue
 
   for (let frame = 1; frame <= 120; frame += 1) {
     result = advanceCollisionCameraDistanceHandoff(state, tinyRemnantDistance, frame * 16)
@@ -155,11 +156,16 @@ function testCollisionDistanceFrameRateIsCappedDuringHandoff() {
     )
     previousValue = result.value
     state = result.state
+    if (frame === 60) midpointValue = result.value
   }
 
   assert(
-    previousValue > tinyRemnantDistance,
-    'protected camera handoff must approach a much smaller radius progressively rather than snap-fit instantly',
+    midpointValue > tinyRemnantDistance,
+    'protected camera handoff must still be approaching the smaller remnant before the 1.5s window completes',
+  )
+  assert(
+    previousValue >= tinyRemnantDistance - 1e-12,
+    'camera handoff must never overshoot closer than the requested remnant distance',
   )
 }
 
