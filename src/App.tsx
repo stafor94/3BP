@@ -34,6 +34,12 @@ import {
 } from './physics/collisionPrediction'
 import { stepBodies } from './physics/fragmentAwareEngine'
 import { DEFAULT_PRESET_BY_BODY_COUNT, getPreset, getPresetBodyCount } from './presets'
+import {
+  INITIAL_SETTINGS_STORAGE_KEYS,
+  getStoredInitialSetup,
+  normalizeBodyScale,
+  persistInitialSetup,
+} from './simulationSettings'
 import { findTrackingCandidate } from './trackingSelection'
 import type { BodyCount, BodyState, BodyType, PresetId, SpaceMode, TrailSample, TrailSampleBatch } from './types'
 
@@ -49,12 +55,7 @@ const COLLISION_REPLAY_LEAD_TIME = 0.36
 const COLLISION_WATCH_IMPACT_SLOW_TIME = 0.06
 const COLLISION_WATCH_MUTE_MS = 650
 const TRACKING_MIN_MASS_RATIO = 0.5
-const MIN_BODY_SCALE = 0.25
-const MAX_BODY_SCALE = 4
 const LANGUAGE_STORAGE_KEY = '3bp-language'
-const TRAIL_ENABLED_STORAGE_KEY = '3bp-trail-enabled'
-const TRAIL_DURATION_STORAGE_KEY = '3bp-trail-duration'
-const SPACE_MODE_STORAGE_KEY = '3bp-space-mode'
 const COLLISION_WATCH_ENABLED_STORAGE_KEY = '3bp-collision-watch-enabled'
 const SHOWCASE_DEFAULT_BY_BODY_COUNT: Partial<Record<BodyCount, PresetId>> = {
   4: 'quadNested',
@@ -109,21 +110,15 @@ function getInitialLanguage(): Language {
   return saved === 'en' ? 'en' : 'ko'
 }
 
-function getInitialTrailEnabled() {
-  return localStorage.getItem(TRAIL_ENABLED_STORAGE_KEY) !== 'false'
-}
-
-function getInitialTrailDuration() {
-  const saved = Number(localStorage.getItem(TRAIL_DURATION_STORAGE_KEY))
-  return Number.isFinite(saved) && saved >= 1 && saved <= 60 ? saved : 8
-}
-
-function getInitialSpaceMode(): SpaceMode {
-  return localStorage.getItem(SPACE_MODE_STORAGE_KEY) === '2d' ? '2d' : '3d'
-}
-
 function getInitialCollisionWatchEnabled() {
   return localStorage.getItem(COLLISION_WATCH_ENABLED_STORAGE_KEY) === 'true'
+}
+
+function createPresetBodies(preset: PresetId, mode: SpaceMode) {
+  const raw = mode === '3d'
+    ? getOrbital3dPresetOverride(preset) ?? getPreset(preset)
+    : getOrbital2dPresetOverride(preset) ?? getPreset(preset)
+  return applyPresetBodyTypes(preset, raw)
 }
 
 function createCollisionWatchBodyInfo(
@@ -172,17 +167,20 @@ function refreshCollisionWatchDetails(details: CollisionWatchDetails, bodies: Bo
 }
 
 export default function App() {
-  const [preset, setPreset] = useState<PresetId>('figure8')
-  const [bodyCount, setBodyCount] = useState<BodyCount>(3)
-  const [spaceMode, setSpaceMode] = useState<SpaceMode>(getInitialSpaceMode)
-  const [bodies, setBodies] = useState<BodyState[]>(() => applyPresetBodyTypes('figure8', getPreset('figure8')))
+  const [initialSetup] = useState(getStoredInitialSetup)
+  const [preset, setPreset] = useState<PresetId>(initialSetup.preset)
+  const [bodyCount, setBodyCount] = useState<BodyCount>(initialSetup.bodyCount)
+  const [spaceMode, setSpaceMode] = useState<SpaceMode>(initialSetup.spaceMode)
+  const [bodies, setBodies] = useState<BodyState[]>(() =>
+    createPresetBodies(initialSetup.preset, initialSetup.spaceMode),
+  )
   const [isRunning, setIsRunning] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [bodyScale, setBodyScale] = useState(1)
   const [time, setTime] = useState(0)
   const [trailVersion, setTrailVersion] = useState(0)
-  const [trailEnabled, setTrailEnabled] = useState(getInitialTrailEnabled)
-  const [trailDuration, setTrailDuration] = useState(getInitialTrailDuration)
+  const [trailEnabled, setTrailEnabled] = useState(initialSetup.trailEnabled)
+  const [trailDuration, setTrailDuration] = useState(initialSetup.trailDuration)
   const [trailSampleBatch, setTrailSampleBatch] = useState<TrailSampleBatch>({ sequence: 0, samples: [] })
   const [trackedBodyId, setTrackedBodyId] = useState<string | null>(null)
   const [language, setLanguage] = useState<Language>(getInitialLanguage)
@@ -299,16 +297,16 @@ export default function App() {
     document.documentElement.lang = language === 'ko' ? 'ko' : 'en'
   }, [language])
   useEffect(() => {
-    localStorage.setItem(SPACE_MODE_STORAGE_KEY, spaceMode)
-  }, [spaceMode])
+    persistInitialSetup({ spaceMode, bodyCount, preset })
+  }, [bodyCount, preset, spaceMode])
   useEffect(() => {
     trailEnabledRef.current = trailEnabled
     trailSampleQueueRef.current = []
     nextTrailSampleAtRef.current = simulationTimeRef.current
-    localStorage.setItem(TRAIL_ENABLED_STORAGE_KEY, String(trailEnabled))
+    localStorage.setItem(INITIAL_SETTINGS_STORAGE_KEYS.trailEnabled, String(trailEnabled))
   }, [trailEnabled])
   useEffect(() => {
-    localStorage.setItem(TRAIL_DURATION_STORAGE_KEY, String(trailDuration))
+    localStorage.setItem(INITIAL_SETTINGS_STORAGE_KEYS.trailDuration, String(trailDuration))
   }, [trailDuration])
   useEffect(() => {
     setTrackedBodyId((current) => {
@@ -452,10 +450,7 @@ export default function App() {
   const loadPreset = useCallback((nextPreset: PresetId, mode: SpaceMode = spaceMode) => {
     setPreset(nextPreset)
     setBodyCount(getPresetBodyCount(nextPreset))
-    const raw = mode === '3d'
-      ? getOrbital3dPresetOverride(nextPreset) ?? getPreset(nextPreset)
-      : getOrbital2dPresetOverride(nextPreset) ?? getPreset(nextPreset)
-    const next = applyPresetBodyTypes(nextPreset, raw)
+    const next = createPresetBodies(nextPreset, mode)
     bodyScaleRef.current = 1
     bodyScaleBaselineRef.current = createBodyScaleBaseline(next)
     setBodyScale(1)
@@ -515,7 +510,7 @@ export default function App() {
 
   const changeBodyScale = useCallback((nextScale: number) => {
     if (!Number.isFinite(nextScale)) return
-    const clamped = Math.min(MAX_BODY_SCALE, Math.max(MIN_BODY_SCALE, nextScale))
+    const clamped = normalizeBodyScale(nextScale)
     const previousScale = Math.max(bodyScaleRef.current, 1e-9)
     if (Math.abs(clamped - previousScale) < 1e-9) return
 
