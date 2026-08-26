@@ -58,13 +58,30 @@ function testExplicitAbsorptionContinuationCanInheritTracking() {
   )
 }
 
+function testChainedAbsorptionKeepsAuthorizedLineage() {
+  const nextRemnant = makeBody('Alpha+Beta+debris')
+  nextRemnant.trackingContinuationIds = ['Alpha']
+
+  assert(
+    findTrackingCandidate([nextRemnant], 'Alpha+Beta')?.id === nextRemnant.id,
+    'a previously authorized remnant id must follow a later remnant that still carries the original explicit continuation lineage',
+  )
+  assert(
+    findTrackingCandidate([nextRemnant], 'Beta+Gamma') === null,
+    'chained tracking must not invent continuity for an unmarked lineage',
+  )
+}
+
 function testLargerAbsorberContinuesOrdinaryTracking() {
   const large = makeBody('Large', 'planet', 1, 0.2)
   const small = makeBody('Small', 'moon', 0.1, 0.08)
   large.position = { x: -0.13, y: 0, z: 0 }
   small.position = { x: 0.13, y: 0, z: 0 }
 
-  const after = stepBodies([large, small], 0.0015)
+  let after: BodyState[] = [large, small]
+  for (let step = 0; step < 24; step += 1) {
+    after = stepBodies(after, 0.0015)
+  }
   const remnant = after.find((body) =>
     body.bodyType !== 'effect' &&
     body.bodyType !== 'fragment' &&
@@ -72,7 +89,7 @@ function testLargerAbsorberContinuesOrdinaryTracking() {
     body.id.includes('Small'),
   )
 
-  assert(remnant, 'planet-moon absorption must produce a physical remnant')
+  assert(remnant, 'planet-moon absorption must produce a physical remnant after the contact presentation bridge')
   assert(
     remnant.trackingContinuationIds?.includes('Large') === true,
     'the larger absorber must be marked as an allowed tracking predecessor',
@@ -112,6 +129,7 @@ const tests = [
   testLivingOriginalBodyRemainsTrackable,
   testUnmarkedMergedDescendantNeverInheritsOrdinaryTracking,
   testExplicitAbsorptionContinuationCanInheritTracking,
+  testChainedAbsorptionKeepsAuthorizedLineage,
   testLargerAbsorberContinuesOrdinaryTracking,
   testDestroyedBodyDoesNotTransferTrackingToFragment,
   testUnrelatedBodyIsNeverSelectedAsFallback,
