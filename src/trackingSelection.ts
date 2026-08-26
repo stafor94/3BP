@@ -9,10 +9,18 @@ export function findDirectTrackingCandidate(bodies: BodyState[], sourceId: strin
 }
 
 /**
- * Ordinary/manual tracking follows only the exact selected physical body.
- * Collision-watch lineage is intentionally handled elsewhere; an absorbed or
- * destroyed body never transfers ordinary tracking to a remnant or fallback.
+ * Ordinary/manual tracking prefers the exact selected physical body. If that
+ * exact id disappeared during an absorption collision, only a physical remnant
+ * explicitly marked by the physics layer as that body's tracking continuation
+ * may inherit the selection. Generic merged descendants, fragments, effects,
+ * and unrelated bodies are never selected as fallbacks.
  */
 export function findTrackingCandidate(bodies: BodyState[], sourceId: string) {
-  return findDirectTrackingCandidate(bodies, sourceId)
+  const exact = findDirectTrackingCandidate(bodies, sourceId)
+  if (exact) return exact
+
+  return bodies.find((body) =>
+    isTrackablePhysicalBody(body) &&
+    body.trackingContinuationIds?.includes(sourceId),
+  ) ?? null
 }
