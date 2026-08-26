@@ -20,6 +20,10 @@ if (visualRegression === 'stellar-topology') {
   void import('./visualRegression/CollisionWatchVisualHarness').then(({ CollisionWatchVisualHarness }) => {
     root.render(<CollisionWatchVisualHarness />)
   })
+} else if (visualRegression === 'non-stellar-destruction') {
+  void import('./visualRegression/NonStellarDestructionVisualHarness').then(({ NonStellarDestructionVisualHarness }) => {
+    root.render(<NonStellarDestructionVisualHarness />)
+  })
 } else {
   root.render(
     <StrictMode>
