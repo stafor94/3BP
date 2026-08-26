@@ -36,8 +36,10 @@ jobs:
         run: python -m py_compile scripts/_apply_collision_camera_tracking_handoff_patch.py
       - name: Apply patch
         run: python scripts/_apply_collision_camera_tracking_handoff_patch.py
-      - name: Restore temporary runner for push
-        run: git checkout HEAD -- .github/workflows/_apply_collision_camera_tracking_handoff_patch.yml
+      - name: Restore workflow files for bot push
+        run: |
+          git checkout HEAD -- .github/workflows/_apply_collision_camera_tracking_handoff_patch.yml
+          git checkout HEAD -- .github/workflows/ci.yml
       - name: Configure commit identity
         run: |
           git config user.name "github-actions[bot]"
