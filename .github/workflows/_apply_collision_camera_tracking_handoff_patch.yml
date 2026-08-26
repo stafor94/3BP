@@ -47,6 +47,7 @@ jobs:
           git add -A
           git status --short
       - name: Commit release changes
-        run: git commit -m "v0.19.5: restore tracking after collision camera"
+        run: |
+          git commit -m "v0.19.5: restore tracking after collision camera"
       - name: Push release changes
         run: git push origin HEAD:fix/collision-camera-tracking-handoff-v0.19.5
