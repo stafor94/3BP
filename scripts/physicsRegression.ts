@@ -219,8 +219,8 @@ function testStagedImpactKeepsCollidersVisibleBeforeResolution() {
 
   assert(resolved, 'staged collision must resolve within its configured impact window')
   assert(
-    contactFrames >= 2 && contactFrames <= 4,
-    'ordinary impact staging must remain a short contact bridge instead of a long simulated-time hold',
+    contactFrames >= 14 && contactFrames <= 18,
+    `ordinary impact staging must preserve a readable 14-18 frame contact bridge, got ${contactFrames}`,
   )
   assert(sawVisibleOverlap, 'merge impact staging must visibly compress the colliders after contact')
 }
