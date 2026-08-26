@@ -36,6 +36,8 @@ jobs:
         run: python -m py_compile scripts/_apply_collision_camera_tracking_handoff_patch.py
       - name: Apply patch
         run: python scripts/_apply_collision_camera_tracking_handoff_patch.py
+      - name: Restore temporary runner for push
+        run: git checkout HEAD -- .github/workflows/_apply_collision_camera_tracking_handoff_patch.yml
       - name: Commit release changes
         run: |
           git config user.name "github-actions[bot]"
