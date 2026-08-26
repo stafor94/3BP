@@ -6,6 +6,17 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.6] - 2026-08-27
+
+### Fixed
+- 동일 질량 또는 일반 merge 충돌에서 두 원본 천체 모두 remnant의 명시적 tracking continuation으로 연결해, 기존 50% initial-mass rule을 통과하는 추적이 collision camera 종료 뒤에도 유지되도록 수정했습니다.
+- collision camera가 merge 이후 이미 해제된 tracking 상태를 잠시 가리고 있다가 종료 순간 천체가 화면 밖으로 이동하던 실제 원인을 수정했습니다.
+- merge로 원본 body id가 사라질 때 renderer가 해당 body의 과거 궤적까지 즉시 폐기하던 문제를 수정하고, 기존 trail duration이 끝날 때까지 충돌 전 궤적을 trail-only 상태로 유지하도록 했습니다.
+
+### Added
+- 실제 equal-mass planet merge를 통과시켜 양쪽 source tracking continuation과 50% mass gate를 검증하는 회귀 테스트를 추가했습니다.
+- collision-camera handoff 브라우저 regression에 source body가 remnant로 교체된 뒤에도 충돌 전 source trail이 retained 상태로 남는 renderer telemetry 검증을 추가했습니다.
+
 ## [0.19.5] - 2026-08-27
 
 ### Fixed

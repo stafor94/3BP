@@ -157,7 +157,7 @@ function advancePhysicalBodies(input: BodyState[], dt: number) {
     withLocalizedAbsorptionEjecta,
     dt,
   )
-  const withTrackingContinuity = attachAbsorptionTrackingContinuity(input, withMassCorrection, dt)
+  const withTrackingContinuity = attachCollisionTrackingContinuity(input, withMassCorrection, dt)
   return finalizePhysicalBodies(input, withTrackingContinuity, dt)
 }
 
@@ -547,7 +547,7 @@ function localizeExtremeAbsorptionEjecta(
   })
 }
 
-function attachAbsorptionTrackingContinuity(
+function attachCollisionTrackingContinuity(
   input: BodyState[],
   stepped: BodyState[],
   dt: number,
@@ -557,16 +557,7 @@ function attachAbsorptionTrackingContinuity(
 
   const { bodyA, bodyB } = collisionPair
   const mode = inferCollisionPresentationMode(stepped, bodyA, bodyB)
-  if (!isAbsorptionCollision(bodyA, bodyB, mode)) return stepped
-
-  // Equal-mass collisions have no unambiguous larger absorber, so do not transfer
-  // ordinary tracking in that case.
-  const larger = bodyA.mass > bodyB.mass
-    ? bodyA
-    : bodyB.mass > bodyA.mass
-      ? bodyB
-      : null
-  if (!larger) return stepped
+  if (mode !== 'merge') return stepped
 
   const remnant = stepped.find((body) =>
     body.bodyType !== 'effect' &&
@@ -578,10 +569,30 @@ function attachAbsorptionTrackingContinuity(
   )
   if (!remnant) return stepped
 
-  const continuationIds = Array.from(new Set([
-    ...(larger.trackingContinuationIds ?? []),
-    larger.id,
-  ]))
+  let continuationSources: BodyState[]
+  if (isAbsorptionCollision(bodyA, bodyB, mode)) {
+    // Absorption is identity-asymmetric: only the dominant absorber keeps
+    // ordinary user tracking. The absorbed source must not jump to it.
+    const larger = bodyA.mass > bodyB.mass
+      ? bodyA
+      : bodyB.mass > bodyA.mass
+        ? bodyB
+        : null
+    if (!larger) return stepped
+    continuationSources = [larger]
+  } else {
+    // A true merge produces one body from both physical sources. Carry both
+    // explicit source lineages; App.tsx still applies the captured initial-mass
+    // 50% gate before ordinary tracking can continue.
+    continuationSources = [bodyA, bodyB]
+  }
+
+  const continuationIds = Array.from(new Set(
+    continuationSources.flatMap((source) => [
+      ...(source.trackingContinuationIds ?? []),
+      source.id,
+    ]),
+  ))
 
   return stepped.map((body) => (
     body === remnant
