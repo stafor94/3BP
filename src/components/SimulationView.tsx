@@ -5,6 +5,10 @@ import {
   type CollisionCameraFocus,
   type SimulationRenderState,
 } from '../rendering/simulationRenderer'
+import {
+  installStellarTopologyMask,
+  syncStellarTopologyMaskState,
+} from '../rendering/stellarTopologyMask'
 import type { BodyState, TrailSampleBatch } from '../types'
 
 type Props = {
@@ -51,12 +55,15 @@ export function SimulationView({
     collisionCameraFocus,
   }
   syncBodyLightingState(bodies)
+  syncStellarTopologyMaskState(bodies)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     installBodyLighting()
+    installStellarTopologyMask()
     syncBodyLightingState(renderStateRef.current.bodies)
+    syncStellarTopologyMaskState(renderStateRef.current.bodies)
     return createSimulationRenderer(host, () => renderStateRef.current)
   }, [])
 

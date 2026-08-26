@@ -9,6 +9,7 @@ const outDir = resolve(root, '.tmp-physics-regression')
 const checks = [
   { source: 'physicsRegression.ts', output: 'physicsRegression.mjs' },
   { source: 'stellarCollisionRegression.ts', output: 'stellarCollisionRegression.mjs' },
+  { source: 'stellarTopologyMaskRegression.ts', output: 'stellarTopologyMaskRegression.mjs' },
   { source: 'nonStellarRegression.ts', output: 'nonStellarRegression.mjs' },
   { source: 'trackingRegression.ts', output: 'trackingRegression.mjs' },
   { source: 'collisionWatchTimingRegression.ts', output: 'collisionWatchTimingRegression.mjs' },
