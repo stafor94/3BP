@@ -815,45 +815,45 @@ function buildCollisionImpactFrame(transition: CollisionTransition) {
   )
 
   const nonStellarAbsorption =
-  isAbsorptionCollision(pair.bodyA, pair.bodyB, transition.mode) &&
-  getEffectiveBodyType(pair.bodyA) !== 'star' &&
-  getEffectiveBodyType(pair.bodyB) !== 'star'
-const absorbedId = nonStellarAbsorption
-  ? pair.bodyA.mass < pair.bodyB.mass
-    ? pair.bodyA.id
-    : pair.bodyB.mass < pair.bodyA.mass
-      ? pair.bodyB.id
-      : null
-  : null
-const absorberImpactPosition = absorbedId === pair.bodyA.id
-  ? impactPositions.bodyB
-  : impactPositions.bodyA
+    isAbsorptionCollision(pair.bodyA, pair.bodyB, transition.mode) &&
+    getEffectiveBodyType(pair.bodyA) !== 'star' &&
+    getEffectiveBodyType(pair.bodyB) !== 'star'
+  const absorbedId = nonStellarAbsorption
+    ? pair.bodyA.mass < pair.bodyB.mass
+      ? pair.bodyA.id
+      : pair.bodyB.mass < pair.bodyA.mass
+        ? pair.bodyB.id
+        : null
+    : null
+  const absorberImpactPosition = absorbedId === pair.bodyA.id
+    ? impactPositions.bodyB
+    : impactPositions.bodyA
 
-return transition.sourceBodies
-  .map((body) => {
-    if (body.id === pair.bodyA.id) {
-      return body.id === absorbedId
-        ? animateAbsorbedCollider(
-            body,
-            impactPositions.bodyA,
-            absorberImpactPosition,
-            progress,
-          )
-        : animateCollider(body, impactPositions.bodyA)
-    }
-    if (body.id === pair.bodyB.id) {
-      return body.id === absorbedId
-        ? animateAbsorbedCollider(
-            body,
-            impactPositions.bodyB,
-            absorberImpactPosition,
-            progress,
-          )
-        : animateCollider(body, impactPositions.bodyB)
-    }
-    return advanceDisplayBody(body, transition.elapsed)
-  })
-  .filter((body) => !isExpiredEffect(body))
+  return transition.sourceBodies
+    .map((body) => {
+      if (body.id === pair.bodyA.id) {
+        return body.id === absorbedId
+          ? animateAbsorbedCollider(
+              body,
+              impactPositions.bodyA,
+              absorberImpactPosition,
+              progress,
+            )
+          : animateCollider(body, impactPositions.bodyA)
+      }
+      if (body.id === pair.bodyB.id) {
+        return body.id === absorbedId
+          ? animateAbsorbedCollider(
+              body,
+              impactPositions.bodyB,
+              absorberImpactPosition,
+              progress,
+            )
+          : animateCollider(body, impactPositions.bodyB)
+      }
+      return advanceDisplayBody(body, transition.elapsed)
+    })
+    .filter((body) => !isExpiredEffect(body))
 
 }
 
