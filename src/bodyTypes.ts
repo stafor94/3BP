@@ -94,28 +94,30 @@ function isBodyDescendedFrom(bodyId: string, ancestorId: string) {
 
 function ensureRuntimeStellarEvolution(body: BodyState) {
   const explicitStage = body.stellarEvolutionStage
-  const explicitPhase = body.stellarEvolutionPhase01
-  const explicitRadiusScale = body.stellarRadiusScale
-
-  if (explicitStage === undefined) {
-    const inherited = Array.from(runtimeStellarStateById.values())
+  const inherited = explicitStage === undefined
+    ? Array.from(runtimeStellarStateById.values())
       .filter((candidate) => candidate.id !== body.id && isBodyDescendedFrom(body.id, candidate.id))
       .sort((a, b) => b.mass - a.mass)[0]
+    : undefined
 
-    body.stellarEvolutionStage = inherited?.stage ?? 'mainSequence'
-    body.stellarEvolutionPhase01 = inherited?.phase01 ?? explicitPhase ?? 0.5
-    body.stellarRadiusScale = inherited?.radiusScale ?? explicitRadiusScale ?? 1
-  } else {
-    body.stellarEvolutionPhase01 = explicitPhase ?? 0.5
-    body.stellarRadiusScale = explicitRadiusScale ?? 1
-  }
+  const stage: StellarEvolutionStage = explicitStage ?? inherited?.stage ?? 'mainSequence'
+  const phase01 = explicitStage === undefined
+    ? inherited?.phase01 ?? body.stellarEvolutionPhase01 ?? 0.5
+    : body.stellarEvolutionPhase01 ?? 0.5
+  const radiusScale = explicitStage === undefined
+    ? inherited?.radiusScale ?? body.stellarRadiusScale ?? 1
+    : body.stellarRadiusScale ?? 1
+
+  body.stellarEvolutionStage = stage
+  body.stellarEvolutionPhase01 = phase01
+  body.stellarRadiusScale = radiusScale
 
   runtimeStellarStateById.set(body.id, {
     id: body.id,
     mass: body.mass,
-    stage: body.stellarEvolutionStage,
-    phase01: body.stellarEvolutionPhase01,
-    radiusScale: body.stellarRadiusScale,
+    stage,
+    phase01,
+    radiusScale,
   })
 }
 
