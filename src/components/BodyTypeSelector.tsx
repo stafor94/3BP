@@ -1,3 +1,4 @@
+import { normalizeBodyForType } from '../bodyTypes'
 import { translations, type Language } from '../i18n'
 import type { BodyState, BodyType } from '../types'
 import '../body-type-controls.css'
@@ -36,7 +37,7 @@ export function BodyTypeSelector({ body, language, onChange }: Props) {
         value={displayedType}
         disabled={!editableType}
         aria-label={`${body.name} ${t.bodyType}`}
-        onChange={(event) => onChange({ ...body, bodyType: event.target.value as EditableBodyType })}
+        onChange={(event) => onChange(normalizeBodyForType(body, event.target.value as EditableBodyType))}
       >
         {editableType ? (
           EDITABLE_BODY_TYPES.map((type) => <option key={type} value={type}>{t[type]}</option>)
