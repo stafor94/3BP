@@ -55,7 +55,7 @@ const flash: BodyState = {
   velocity: { x: 0, y: 0, z: 0 },
   bodyType: 'effect',
   age: 0,
-  lifetime: 0.72,
+  lifetime: 0.09,
   effectVisual: {
     kind: 'contactFlash',
     direction: { x: 0, y: 1, z: 0 },
@@ -96,7 +96,7 @@ export function SurvivorAbsorptionVisualHarness() {
       velocity: { ...fragment.velocity },
       age: elapsedSeconds,
     }))
-    const activeFlash = elapsedSeconds < (flash.lifetime ?? 0.72)
+    const activeFlash = elapsedSeconds < (flash.lifetime ?? 0.09)
       ? [{ ...flash, age: elapsedSeconds }]
       : []
     return [remnant, ...movingDebris, ...activeFlash]
