@@ -65,11 +65,11 @@ export function getCollisionWatchTimingProfile(
   return {
     collisionType: 'standard',
     isStellarCollision: false,
-    impactHoldMs: 550,
-    postImpactHoldMs: 1000,
-    restoreRampMs: 600,
-    cameraHoldMs: 1800,
-    infoHoldMs: 1650,
+    impactHoldMs: 850,
+    postImpactHoldMs: 1800,
+    restoreRampMs: 900,
+    cameraHoldMs: 3800,
+    infoHoldMs: 3500,
   }
 }
 
