@@ -101,11 +101,11 @@ def component_metrics(path: Path) -> dict[str, float | int]:
         for x in range(roi_width):
             r, g, b = pixels[x, y]
             luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-            spread = max(r, g, b) - min(r, g, b)
-            # The camera fixture's primary is a warm stellar body. This threshold
-            # isolates the rendered photosphere while excluding the star field and
-            # most of the soft additive halo.
-            if luminance >= 72 and spread >= 18 and r >= b * 1.08:
+            # Track the photosphere by brightness rather than a warm-color bias.
+            # Stellar luminosity/temperature rendering can legitimately make the
+            # centered primary nearly neutral white, while the surrounding star
+            # field remains far below this threshold.
+            if luminance >= 120:
                 mask[y][x] = True
 
     visited = [[False] * roi_width for _ in range(roi_height)]
