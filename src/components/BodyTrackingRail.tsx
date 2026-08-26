@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { translations, type Language } from '../i18n'
+import { isTrackingMassEligible } from '../trackingMassPolicy'
 import { findTrackingCandidate } from '../trackingSelection'
 import { publishTrackedBodyTelemetry } from '../trackingTelemetry'
 import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
@@ -21,9 +22,6 @@ type TrackingEntry = {
   source: BodyState
   candidate: BodyState | null
 }
-
-const TRACKING_MIN_MASS_RATIO = 0.5
-const TRACKING_MASS_EPSILON = 1e-12
 
 function cloneTrackingBody(body: BodyState): BodyState {
   return {
@@ -138,17 +136,14 @@ export function BodyTrackingRail({
     const scaleRatio = bodyScale / Math.max(sourceScaleRef.current, 1e-9)
     const initialMassAtCurrentScale = source.mass * scaleRatio
     const canTrack = Boolean(
-      resolvedCandidate &&
-      resolvedCandidate.mass + TRACKING_MASS_EPSILON >=
-        initialMassAtCurrentScale * TRACKING_MIN_MASS_RATIO,
+      resolvedCandidate && isTrackingMassEligible(resolvedCandidate.mass, initialMassAtCurrentScale),
     )
     return { candidate: resolvedCandidate, canTrack }
   }
 
-  // The rail owns the original-body mass gate. Keep the original source snapshot
-  // stable while the simulation runs so collision descendants cannot reset the
-  // 50% threshold to their current mass. Telemetry follows only while that source
-  // remains eligible for ordinary user tracking.
+  // Keep the original source snapshot stable while the simulation runs so a
+  // collision descendant cannot reset the 50% threshold to its current mass.
+  // Telemetry follows only while the original source remains trackable.
   useLayoutEffect(() => {
     if (!trackedBodyId) {
       publishTrackedBodyTelemetry(null)
