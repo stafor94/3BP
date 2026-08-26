@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [fix/nonstellar-survivor-impact-v0.19.3]
   pull_request:
     branches: [main]
 
