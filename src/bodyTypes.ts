@@ -1,8 +1,25 @@
-import type { BodyState, BodyType, PresetId } from './types'
+import { withComputedStellarState } from './starColors'
+import { getResolvedSurfaceProfile } from './surfacePresets'
+import type { BodyState, BodyType, PresetId, StellarEvolutionStage } from './types'
 
 export type UserBodyType = Extract<BodyType, 'star' | 'planet' | 'moon'>
 
 export const USER_BODY_TYPES: UserBodyType[] = ['star', 'planet', 'moon']
+
+type RuntimeStellarState = {
+  id: string
+  mass: number
+  stage: StellarEvolutionStage
+  phase01: number
+  radiusScale: number
+}
+
+// Collision results are created in the physics layer as fresh BodyState objects.
+// Keep a small lineage cache here so a new stellar remnant can inherit the
+// dominant progenitor's evolution state instead of silently resetting to a
+// main-sequence default. Preset/editor stars carry explicit state and therefore
+// continuously refresh this cache on load/reset.
+const runtimeStellarStateById = new Map<string, RuntimeStellarState>()
 
 const PRESET_BODY_TYPES: Record<PresetId, UserBodyType[]> = {
   singleDrift: ['star'],
@@ -32,6 +49,34 @@ const PRESET_BODY_TYPES: Record<PresetId, UserBodyType[]> = {
   hexaDance: ['star', 'star', 'star', 'star', 'star', 'star'],
 }
 
+const PRESET_STAR_PHASES: Partial<Record<PresetId, number[]>> = {
+  singleDrift: [0.5],
+  binaryOrbit: [0.42, 0.58],
+  binaryEllipse: [0.35, 0.65],
+  binaryUnequal: [0.38, 0.68],
+  binaryWide: [0.46, 0.54],
+  binaryInclined: [0.44, 0.56],
+  binaryTight: [0.4, 0.6],
+  figure8: [0.32, 0.5, 0.68],
+  hierarchical: [0.48],
+  circumbinary: [0.38, 0.62],
+  trojan: [0.46],
+  planetary: [0.48],
+  random: [0.5],
+  quadCrown: [0.38, 0.58],
+  quadNested: [0.46],
+  quadCrossed: [0.5],
+  quadDance: [0.28, 0.42, 0.58, 0.72],
+  pentaCrown: [0.36, 0.6],
+  pentaNested: [0.46],
+  pentaCrossed: [0.48],
+  pentaDance: [0.24, 0.36, 0.5, 0.64, 0.76],
+  hexaCrown: [0.34, 0.6],
+  hexaNested: [0.44],
+  hexaCrossed: [0.46],
+  hexaDance: [0.2, 0.32, 0.44, 0.56, 0.68, 0.8],
+}
+
 export function inferUserBodyType(body: BodyState): UserBodyType {
   const name = body.name.toLowerCase()
   if (/moon|luna|selene|nereid|echo|trojan|satellite/.test(name)) return 'moon'
@@ -42,14 +87,111 @@ export function inferUserBodyType(body: BodyState): UserBodyType {
   return 'moon'
 }
 
+function isBodyDescendedFrom(bodyId: string, ancestorId: string) {
+  const bodyParts = new Set(bodyId.split('+'))
+  return ancestorId.split('+').every((part) => bodyParts.has(part))
+}
+
+function ensureRuntimeStellarEvolution(body: BodyState) {
+  const explicitStage = body.stellarEvolutionStage
+  const inherited = explicitStage === undefined
+    ? Array.from(runtimeStellarStateById.values())
+      .filter((candidate) => candidate.id !== body.id && isBodyDescendedFrom(body.id, candidate.id))
+      .sort((a, b) => b.mass - a.mass)[0]
+    : undefined
+
+  const stage: StellarEvolutionStage = explicitStage ?? inherited?.stage ?? 'mainSequence'
+  const phase01 = explicitStage === undefined
+    ? inherited?.phase01 ?? body.stellarEvolutionPhase01 ?? 0.5
+    : body.stellarEvolutionPhase01 ?? 0.5
+  const radiusScale = explicitStage === undefined
+    ? inherited?.radiusScale ?? body.stellarRadiusScale ?? 1
+    : body.stellarRadiusScale ?? 1
+
+  body.stellarEvolutionStage = stage
+  body.stellarEvolutionPhase01 = phase01
+  body.stellarRadiusScale = radiusScale
+
+  runtimeStellarStateById.set(body.id, {
+    id: body.id,
+    mass: body.mass,
+    stage,
+    phase01,
+    radiusScale,
+  })
+}
+
 export function getEffectiveBodyType(body: BodyState): BodyType {
-  return body.bodyType ?? inferUserBodyType(body)
+  const type = body.bodyType ?? inferUserBodyType(body)
+  if (type === 'star') ensureRuntimeStellarEvolution(body)
+  return type
+}
+
+function defaultStellarPhase(body: BodyState, index: number) {
+  if (body.mass >= 8) return 0.34 + (index % 3) * 0.08
+  if (body.mass >= 3) return 0.42 + (index % 2) * 0.08
+  return 0.5
+}
+
+export function normalizeBodyForType(
+  body: BodyState,
+  type: BodyType,
+  stellarPhase01?: number,
+): BodyState {
+  if (type === 'star') {
+    const normalized = withComputedStellarState({
+      ...body,
+      bodyType: 'star',
+      stellarEvolutionStage: body.stellarEvolutionStage ?? 'mainSequence',
+      stellarEvolutionPhase01: body.stellarEvolutionPhase01 ?? stellarPhase01 ?? 0.5,
+      stellarRadiusScale: body.stellarRadiusScale ?? 1,
+      surfacePresetId: undefined,
+      surfaceVariant01: undefined,
+      atmospherePresetId: undefined,
+    })
+    ensureRuntimeStellarEvolution(normalized)
+    return normalized
+  }
+
+  if (type === 'planet' || type === 'moon' || type === 'fragment') {
+    const typedBody: BodyState = {
+      ...body,
+      bodyType: type,
+      stellarEvolutionStage: undefined,
+      stellarEvolutionPhase01: undefined,
+      stellarRadiusScale: undefined,
+      stellarTemperatureK: undefined,
+      surfaceVariant01: body.surfaceVariant01 ?? 0.5,
+    }
+    const profile = getResolvedSurfaceProfile(typedBody, type)
+    return {
+      ...typedBody,
+      color: profile.baseColor,
+      surfacePresetId: profile.id,
+      atmospherePresetId: type === 'planet'
+        ? body.atmospherePresetId ?? profile.defaultAtmosphere
+        : profile.defaultAtmosphere,
+    }
+  }
+
+  return { ...body, bodyType: type }
+}
+
+export function hydrateBodyVisualState(body: BodyState): BodyState {
+  return normalizeBodyForType(body, getEffectiveBodyType(body))
 }
 
 export function applyPresetBodyTypes(id: PresetId, bodies: BodyState[]): BodyState[] {
   const mappedTypes = PRESET_BODY_TYPES[id]
-  return bodies.map((body, index) => ({
-    ...body,
-    bodyType: mappedTypes[index] ?? inferUserBodyType(body),
-  }))
+  const starPhases = PRESET_STAR_PHASES[id] ?? []
+  let starIndex = 0
+
+  return bodies.map((body, index) => {
+    const type = mappedTypes[index] ?? inferUserBodyType(body)
+    const phase = type === 'star'
+      ? starPhases[starIndex] ?? defaultStellarPhase(body, starIndex)
+      : undefined
+    if (type === 'star') starIndex += 1
+    return normalizeBodyForType(body, type, phase)
+  })
 }
