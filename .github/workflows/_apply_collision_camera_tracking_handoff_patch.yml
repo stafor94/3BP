@@ -38,11 +38,15 @@ jobs:
         run: python scripts/_apply_collision_camera_tracking_handoff_patch.py
       - name: Restore temporary runner for push
         run: git checkout HEAD -- .github/workflows/_apply_collision_camera_tracking_handoff_patch.yml
-      - name: Commit release changes
+      - name: Configure commit identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Stage release changes
+        run: |
           git add -A
-          git diff --cached --check
-          git commit -m "v0.19.5: restore tracking after collision camera"
-          git push origin HEAD:fix/collision-camera-tracking-handoff-v0.19.5
+          git status --short
+      - name: Commit release changes
+        run: git commit -m "v0.19.5: restore tracking after collision camera"
+      - name: Push release changes
+        run: git push origin HEAD:fix/collision-camera-tracking-handoff-v0.19.5
