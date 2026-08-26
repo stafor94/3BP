@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -19,6 +19,22 @@ jobs:
           node-version: 24
       - name: Install dependencies
         run: npm install
+      - name: Restore missing 0.18.x changelog history
+        if: github.event.pull_request.number == 67
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          git fetch origin "$HEAD_REF"
+          git checkout -B "$HEAD_REF" "origin/$HEAD_REF"
+          node scripts/repairReleaseHistory.mjs
+          if git diff --quiet -- CHANGELOG.md; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CHANGELOG.md
+          git commit -m 'docs: restore missing 0.18.2-0.18.7 changelog entries'
+          git push origin HEAD:"$HEAD_REF"
       - name: Versioning regression
         run: npm run check:version
       - name: Physics regression
