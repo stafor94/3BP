@@ -48,6 +48,16 @@ function testDestructionIntoFragmentsCreatesHandoff() {
   assert(retired.length === 1 && retired[0].id === 'Alpha', 'fragment descendants must keep a dissolving source body during destruction')
 }
 
+function testStellarMergeStaysOnDedicatedTopologyPath() {
+  const alpha = body('Alpha', 'star')
+  const beta = body('Beta', 'star')
+  const remnant = body('Alpha+Beta', 'star')
+  assert(
+    findCollisionHandoffSources([alpha, beta], [remnant]).length === 0,
+    'stellar mergers must use the dedicated topology mask instead of the generic solid-body handoff',
+  )
+}
+
 function testUnrelatedPresetReplacementDoesNotCreateHandoff() {
   const alpha = body('Alpha')
   const gamma = body('Gamma')
@@ -71,6 +81,7 @@ const tests = [
   testHandoffProgressIsSmoothAndBounded,
   testMergeRetiresBothOriginalBodies,
   testDestructionIntoFragmentsCreatesHandoff,
+  testStellarMergeStaysOnDedicatedTopologyPath,
   testUnrelatedPresetReplacementDoesNotCreateHandoff,
   testTransientBodiesDoNotRetireAsCelestialGhosts,
 ]
