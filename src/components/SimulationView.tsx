@@ -5,6 +5,10 @@ import {
   syncLiveCollisionVfxState,
 } from '../rendering/liveCollisionVfxBridge'
 import {
+  installStellarRemnantPresentation,
+  syncStellarRemnantPresentationState,
+} from '../rendering/stellarRemnantPresentation'
+import {
   createSimulationRenderer,
   type CollisionCameraFocus,
   type SimulationRenderState,
@@ -55,16 +59,23 @@ export function SimulationView({
     collisionCameraFocus,
   }
   syncBodyLightingState(bodies)
+  syncStellarRemnantPresentationState(bodies, simulationTime)
   syncLiveCollisionVfxState(bodies)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     installBodyLighting()
-    // Install after body lighting so the bridge wraps the body material's real
-    // onBeforeRender callback instead of relying on WebGLRenderer.prototype.render.
+    // Install after body lighting so the remnant hook composes with the real
+    // body material callback without changing physical radius or lighting state.
+    installStellarRemnantPresentation()
+    // Install last so collision VFX keeps owning its existing draw-path bridge.
     installLiveCollisionVfxBridge()
     syncBodyLightingState(renderStateRef.current.bodies)
+    syncStellarRemnantPresentationState(
+      renderStateRef.current.bodies,
+      renderStateRef.current.simulationTime,
+    )
     syncLiveCollisionVfxState(renderStateRef.current.bodies)
     return createSimulationRenderer(host, () => renderStateRef.current)
   }, [])
