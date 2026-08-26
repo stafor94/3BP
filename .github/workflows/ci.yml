@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-      - name: Apply pending survivor surface identity fix
+      - name: Apply pending survivor rendering fixes
         if: github.event_name == 'push'
         run: |
           python - <<'PY'
@@ -51,6 +51,21 @@ jobs:
           text = text.replace(
               '  if (material.uniforms.uSeed) material.uniforms.uSeed.value = identitySeed',
               '  if (material.uniforms.uSurfaceSeed) material.uniforms.uSurfaceSeed.value = identitySeed',
+              1,
+          )
+          text = text.replace(
+              '    0.955,\n    collisionImpactFacing',
+              '    0.92,\n    collisionImpactFacing',
+              1,
+          )
+          text = text.replace(
+              '  color = mix(color, vec3(1.0, 0.34, 0.12), collisionHeat * 0.18 + collisionCrack * 0.28);',
+              '  color = mix(color, vec3(1.0, 0.34, 0.12), collisionHeat * 0.34 + collisionCrack * 0.44);',
+              1,
+          )
+          text = text.replace(
+              '  color += vec3(1.0, 0.76, 0.46) * collisionImpactMask * uCollisionImpactFlash * 0.5;',
+              '  color += vec3(1.0, 0.76, 0.46) * collisionImpactMask * uCollisionImpactFlash * 0.7;',
               1,
           )
           bridge.write_text(text, encoding='utf-8')
@@ -177,5 +192,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts
-          git commit -m "fix: separate survivor surface and body identity seeds"
+          git commit -m "fix: keep survivor impacts local and surface-stable"
           git push
