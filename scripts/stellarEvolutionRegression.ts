@@ -1,4 +1,4 @@
-import { applyPresetBodyTypes, normalizeBodyForType } from '../src/bodyTypes'
+import { applyPresetBodyTypes, getEffectiveBodyType, normalizeBodyForType } from '../src/bodyTypes'
 import { getOrbital2dPresetOverride } from '../src/orbital2dPresets'
 import { getOrbital3dPresetOverride } from '../src/orbital3dPresets'
 import { getPreset, PRESETS_BY_BODY_COUNT } from '../src/presets'
@@ -97,6 +97,39 @@ function testLegacyMigrationAndSurfaceDefaults() {
   assert(legacyPlanet.color === getResolvedSurfaceProfile(legacyPlanet, 'planet').baseColor, 'non-stellar color cache must follow surface preset base color')
 }
 
+function testMergedStarInheritsDominantEvolutionState() {
+  const dominant = normalizeBodyForType(makeStar({
+    id: 'giant-a',
+    mass: 2,
+    stellarEvolutionStage: 'giant',
+    stellarEvolutionPhase01: 0.72,
+    stellarRadiusScale: 1.18,
+  }), 'star')
+  const secondary = normalizeBodyForType(makeStar({
+    id: 'star-b',
+    mass: 1,
+    stellarEvolutionStage: 'mainSequence',
+    stellarEvolutionPhase01: 0.2,
+  }), 'star')
+
+  getEffectiveBodyType(dominant)
+  getEffectiveBodyType(secondary)
+
+  const merged = makeStar({
+    id: `${dominant.id}+${secondary.id}`,
+    mass: 2.8,
+    stellarEvolutionStage: undefined,
+    stellarEvolutionPhase01: undefined,
+    stellarRadiusScale: undefined,
+    stellarCollisionOutcome: 'merge',
+  })
+  getEffectiveBodyType(merged)
+
+  assert(merged.stellarEvolutionStage === 'giant', 'merged star must inherit the dominant progenitor evolution stage')
+  assert(merged.stellarEvolutionPhase01 === dominant.stellarEvolutionPhase01, 'merged star must inherit dominant progenitor phase')
+  assert(merged.stellarRadiusScale === dominant.stellarRadiusScale, 'merged star must inherit dominant progenitor radius scale')
+}
+
 function validatePresetBodies(id: PresetId, rawBodies: BodyState[], label: string) {
   const hydrated = applyPresetBodyTypes(id, rawBodies)
   hydrated.forEach((body) => {
@@ -136,6 +169,7 @@ const tests = [
   testEvolutionStagesAreVisuallyDistinct,
   testPhaseEvolutionChangesRadiusAndLuminosity,
   testLegacyMigrationAndSurfaceDefaults,
+  testMergedStarInheritsDominantEvolutionState,
   testAllPresetFamiliesHydrate,
   testSurfacePresetInventory,
 ]
