@@ -99,6 +99,20 @@ def opposite_hemisphere_mask(
     return mask
 
 
+def impact_cap_mask(
+    points: list[tuple[int, int]],
+    center_x: float,
+    max_x: int,
+) -> list[tuple[int, int]]:
+    # The shader caps the effect around the +X contact normal. Measure the
+    # projected outer 20% of the primary's right-side radius instead of diluting
+    # the signal across the entire canvas.
+    cutoff = center_x + (max_x - center_x) * 0.80
+    mask = [(x, y) for x, y in points if x >= cutoff]
+    require(len(mask) >= 180, 'impact cap mask is unexpectedly small')
+    return mask
+
+
 def masked_metrics(base: Path, current: Path, mask: list[tuple[int, int]]) -> dict[str, float]:
     image_a = Image.open(base).convert('RGB')
     image_b = Image.open(current).convert('RGB')
@@ -175,6 +189,7 @@ def main() -> None:
         baseline_points = warm_primary_pixels(contact)
         center_x, center_y, min_x, max_x, min_y, max_y = body_geometry(baseline_points)
         opposite_mask = opposite_hemisphere_mask(baseline_points, center_x)
+        impact_mask = impact_cap_mask(baseline_points, center_x, max_x)
 
         captures: dict[str, Path] = {'contact': contact}
         names = ['02-150ms', '03-350ms', '04-700ms', '05-1100ms', '06-1600ms']
@@ -187,6 +202,11 @@ def main() -> None:
 
         opposite = {
             name: masked_metrics(contact, path, opposite_mask)
+            for name, path in captures.items()
+            if name != 'contact'
+        }
+        impact = {
+            name: masked_metrics(contact, path, impact_mask)
             for name, path in captures.items()
             if name != 'contact'
         }
@@ -208,8 +228,10 @@ def main() -> None:
                 'bbox': [min_x, min_y, max_x, max_y],
                 'surface_pixels': len(baseline_points),
                 'opposite_mask_pixels': len(opposite_mask),
+                'impact_cap_pixels': len(impact_mask),
             },
             'opposite_hemisphere': opposite,
+            'impact_cap': impact,
             'warm_surface_pixels': surface_counts,
             'whole_frame_difference': frame_differences,
         }
@@ -229,8 +251,20 @@ def main() -> None:
         for name in ['04-700ms', '05-1100ms', '06-1600ms']:
             ratio = surface_counts[name] / baseline_count
             require(0.82 <= ratio <= 1.18, f'{name}: survivor silhouette/surface area changed excessively: ratio={ratio:.3f}')
-        require(frame_differences['02-150ms'] >= 0.05, '150ms frame must show a visible local collision response')
-        require(frame_differences['03-350ms'] >= 0.05, '350ms frame must retain a visible local impact trace')
+
+        require(
+            impact['02-150ms']['mean_difference'] >= 4.0,
+            '150ms contact cap must show a visible local collision response',
+        )
+        require(
+            impact['03-350ms']['mean_difference'] >= 2.0,
+            '350ms contact cap must retain a visible local impact trace',
+        )
+        for name in ['04-700ms', '05-1100ms', '06-1600ms']:
+            require(
+                impact[name]['mean_difference'] <= 1.0,
+                f'{name}: survivor impact should have faded from the contact cap',
+            )
         print('survivor absorption browser visual regression: ok')
     except Exception:
         try:
