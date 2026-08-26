@@ -26,6 +26,10 @@ function body(
 }
 
 const source = body('visual-solid-source', 'planet', 1, 0.28, 0, 0, '#d49a63')
+// Deliberately high source velocity is a regression stressor. The destruction
+// handoff must preserve the exact collision transform rather than extrapolating
+// a replacement sphere from velocity, which previously swept across the camera.
+source.velocity = { x: 4.5, y: -2.6, z: 0 }
 const impactor = body('visual-solid-impactor', 'moon', 0.18, 0.105, 0.365, 0.015, '#9fb8d7')
 const anchor = body('visual-solid-anchor', 'planet', 0.75, 0.22, -0.78, 0.2, '#d9c68a')
 
