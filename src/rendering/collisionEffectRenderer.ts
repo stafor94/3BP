@@ -243,6 +243,58 @@ function getBodySeed(id: string) {
   return (hash >>> 0) / 4294967295
 }
 
+function getSeededSignedScalar(seed: string) {
+  return getBodySeed(seed) * 2 - 1
+}
+
+function getPreviewContactSurfacePoint(
+  source: BodyState,
+  a: BodyState,
+  normal: Vec3,
+  tangent: Vec3,
+  pairKey: string,
+  index: number,
+  is2d: boolean,
+) {
+  const contactNormal = source === a ? normal : scale(normal, -1)
+  const tangentOffset = getSeededSignedScalar(`${pairKey}:patch-tangent:${index}`) * 0.2
+  let surfaceDirection = add(contactNormal, scale(tangent, tangentOffset))
+
+  if (!is2d) {
+    const referenceAxis: Vec3 = Math.abs(contactNormal.z) < 0.86
+      ? { x: 0, y: 0, z: 1 }
+      : { x: 0, y: 1, z: 0 }
+    const binormal = normalize(cross(contactNormal, tangent), cross(contactNormal, referenceAxis))
+    const binormalOffset = getSeededSignedScalar(`${pairKey}:patch-binormal:${index}`) * 0.18
+    surfaceDirection = add(surfaceDirection, scale(binormal, binormalOffset))
+  }
+
+  surfaceDirection = normalize(surfaceDirection, contactNormal)
+  return add(source.position, scale(surfaceDirection, source.radius * 1.008))
+}
+
+function getPreviewSplashPlaneDirection(
+  pairKey: string,
+  index: number,
+  normal: Vec3,
+  tangent: Vec3,
+  is2d: boolean,
+  sign: number,
+) {
+  if (is2d) return scale(tangent, sign)
+
+  const referenceAxis: Vec3 = Math.abs(normal.z) < 0.86
+    ? { x: 0, y: 0, z: 1 }
+    : { x: 0, y: 1, z: 0 }
+  const binormal = normalize(cross(normal, tangent), cross(normal, referenceAxis))
+  const angle = getBodySeed(`${pairKey}:splash:${index}`) * Math.PI * 1.45 - Math.PI * 0.725
+  const candidate = normalize(
+    add(scale(tangent, Math.cos(angle) * sign), scale(binormal, Math.sin(angle))),
+    scale(tangent, sign),
+  )
+  return dot(candidate, tangent) * sign < 0 ? scale(candidate, -1) : candidate
+}
+
 function kindNumber(kind: EffectVisualKind) {
   if (kind === 'contactFlash') return 0
   if (kind === 'compressionShear') return 1
@@ -304,6 +356,8 @@ export function getSyntheticStellarEffects(bodies: BodyState[]) {
       const relativeSpeed = magnitude(relativeVelocity)
       const normalVelocity = scale(normal, dot(relativeVelocity, normal))
       const tangentialVelocity = sub(relativeVelocity, normalVelocity)
+      const is2d =
+        Math.abs(a.position.z) + Math.abs(b.position.z) + Math.abs(a.velocity.z) + Math.abs(b.velocity.z) < 1e-8
       const referenceAxis: Vec3 = Math.abs(normal.z) < 0.86
         ? { x: 0, y: 0, z: 1 }
         : { x: 0, y: 1, z: 0 }
@@ -330,7 +384,11 @@ export function getSyntheticStellarEffects(bodies: BodyState[]) {
       const massAsymmetry = 1 - massRatio
       const relativeDirection = normalize(relativeVelocity, tangent)
       const strippedDirection = smaller === a ? scale(relativeDirection, -1) : relativeDirection
-      const dominantTangentSign = dot(strippedDirection, tangent) < 0 ? -1 : 1
+      const planarStrippedDirection = normalize(
+        sub(strippedDirection, scale(normal, dot(strippedDirection, normal))),
+        tangent,
+      )
+      const dominantTangentSign = dot(planarStrippedDirection, tangent) < 0 ? -1 : 1
       // These are compression/buildup phases, not physical effect ages. Keep the
       // mapping aligned with the staged stellar overlap envelope (18-36%).
       const flashProgress = clamp(overlapRatio / 0.34, 0, 1)
@@ -389,53 +447,94 @@ export function getSyntheticStellarEffects(bodies: BodyState[]) {
         },
       })
 
-      // Plasma must start inside the normal staged overlap range. The old 42%
-      // threshold was above merge/partial/hit-and-run maxima, making this branch
-      // unreachable during the intended presentation envelope.
+      // Plasma starts on separate patches of the two contact hemispheres instead
+      // of translating several meshes out of one shared contact point.
       const plasmaPhase = clamp((overlapRatio - 0.055) / 0.22, 0, 1)
       if (plasmaPhase > 0) {
         const previewCount = grazing > 0.55 ? 3 : 2
         for (let index = 0; index < previewCount; index += 1) {
-          const counterStream = index === previewCount - 1
+          const smallerSourceProbability = clamp(0.55 + massAsymmetry * 0.25 + grazing * 0.05, 0.55, 0.85)
+          const source = getBodySeed(`${pairKey}:source:${index}`) < smallerSourceProbability
+            ? smaller
+            : dominant
+          const counterStream = grazing > 0.55 && index === previewCount - 1
           const sign = counterStream ? -dominantTangentSign : dominantTangentSign
-          const tangentWeight = headOn > 0.7 ? 0.72 : 0.66 + grazing * 0.2
-          const direction = normalize(
-            add(
-              scale(tangent, sign * tangentWeight),
-              add(
-                scale(strippedDirection, 0.12 + massAsymmetry * 0.2),
-                scale(normal, index % 2 === 0 ? 0.04 : -0.04),
-              ),
-            ),
-            scale(tangent, sign),
+          const splashDirection = getPreviewSplashPlaneDirection(
+            pairKey,
+            index,
+            normal,
+            tangent,
+            is2d,
+            headOn > 0.7 ? (index % 2 === 0 ? 1 : -1) : sign,
           )
-          const strength = counterStream ? 0.58 : 1 - index * 0.12
-          const travel = minRadius * (0.04 + plasmaPhase * 0.5 * strength)
-          const source = index === 0 || massAsymmetry > 0.3 ? smaller : dominant
+          const direction = headOn > 0.7
+            ? normalize(
+                add(
+                  scale(splashDirection, 0.9),
+                  scale(normal, (index % 2 === 0 ? 1 : -1) * 0.03),
+                ),
+                splashDirection,
+              )
+            : normalize(
+                add(
+                  add(
+                    scale(tangent, sign * (counterStream ? 0.82 : 0.9)),
+                    scale(planarStrippedDirection, 0.08 + massAsymmetry * 0.1),
+                  ),
+                  scale(normal, (index % 2 === 0 ? 1 : -1) * 0.025),
+                ),
+                scale(tangent, sign),
+              )
+          const strength = counterStream ? 0.36 : 1 - index * 0.1
+          const sourceWeight = index === 0 ? 0.62 : 0.52
+          const inheritedVelocity = add(
+            scale(source.velocity, sourceWeight),
+            scale(centerVelocity, 1 - sourceWeight),
+          )
+          const velocity = add(
+            inheritedVelocity,
+            scale(direction, Math.max(relativeSpeed * 0.48 * strength, 0.08)),
+          )
+          const travelDirection = normalize(sub(velocity, centerVelocity), direction)
+          const surfacePoint = getPreviewContactSurfacePoint(
+            source,
+            a,
+            normal,
+            tangent,
+            pairKey,
+            index,
+            is2d,
+          )
+          const travel = minRadius * plasmaPhase * 0.08 * strength
+          const radiusScale = counterStream ? 0.09 : index === 0 ? 0.2 : 0.13
 
           effects.push({
             id: `preview:${pairKey}:plasma-${index}`,
             name: 'Stellar plasma',
             color: source.color,
             mass: 0,
-            radius: minRadius * (index === 0 ? 0.2 : 0.13),
-            position: add(contactPoint, scale(direction, travel)),
-            velocity: add(centerVelocity, scale(direction, Math.max(relativeSpeed * 0.48, 0.08))),
+            radius: minRadius * radiusScale,
+            position: add(surfacePoint, scale(travelDirection, travel)),
+            velocity,
             bodyType: 'effect',
             age: PREVIEW_PLASMA_LIFETIME * plasmaPhase,
             lifetime: PREVIEW_PLASMA_LIFETIME,
             effectVisual: {
               kind: 'stellarPlasma',
-              direction,
+              direction: travelDirection,
               normal,
-              stretch: clamp(2.0 + grazing * 2.4 + plasmaPhase * 0.8 + index * 0.24, 1.9, 5.4),
-              widthScale: clamp(0.9 - grazing * 0.36 - index * 0.06, 0.45, 1.02),
-              tailLength: 0.34 + grazing * 0.66 + plasmaPhase * 0.34 + index * 0.1,
-              brightness: 1.12 + plasmaPhase * 0.12 + (index === 0 ? 0.18 : 0.04),
-              turbulence: 0.48 + grazing * 0.3 + index * 0.06,
+              stretch: clamp(
+                2.0 + grazing * 2.6 + plasmaPhase * 0.8 + index * 0.2 - (counterStream ? 0.45 : 0),
+                1.9,
+                5.5,
+              ),
+              widthScale: clamp(0.9 - grazing * 0.38 - index * 0.04, 0.45, 1.02),
+              tailLength: 0.34 + grazing * 0.72 + plasmaPhase * 0.34 + index * 0.08,
+              brightness: 1.12 + plasmaPhase * 0.12 + (index === 0 ? 0.18 : counterStream ? -0.1 : 0.04),
+              turbulence: 0.48 + grazing * 0.32 + index * 0.06,
               pulseStrength: 0.05,
               phaseOffset: getBodySeed(`${pairKey}:plasma:${index}`),
-              secondaryColor: dominant.color,
+              secondaryColor: source === smaller ? dominant.color : smaller.color,
               stellarCollision: true,
             },
           })
