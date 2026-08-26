@@ -177,7 +177,10 @@ function isDescendantId(candidateId: string, sourceId: string) {
 }
 
 function isRetirablePhysicalBody(body: BodyState) {
-  return body.bodyType !== 'effect' && body.bodyType !== 'fragment'
+  // Stellar collisions already have a dedicated topology occlusion/remnant
+  // transition. Stacking this solid-body dissolve on top makes the remnant
+  // photosphere readable too early and weakens that higher-fidelity mask.
+  return body.bodyType !== 'star' && body.bodyType !== 'effect' && body.bodyType !== 'fragment'
 }
 
 export function findCollisionHandoffSources(previous: BodyState[], current: BodyState[]) {
