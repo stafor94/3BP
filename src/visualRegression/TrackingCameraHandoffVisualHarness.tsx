@@ -58,13 +58,36 @@ const remnant = makeBody(
 )
 remnant.trackingContinuationIds = [SOURCE_ID]
 
+function makeTrailBatch(stage: HandoffStage): SimulationRenderState['trailSampleBatch'] {
+  if (stage === 'tracking') return { sequence: 0, samples: [] }
+  if (stage === 'collision') {
+    return {
+      sequence: 1,
+      samples: [
+        { bodyId: sourceA.id, color: sourceA.color, position: { x: -0.9, y: -0.08, z: 0 }, simulatedAt: 0.1 },
+        { bodyId: sourceA.id, color: sourceA.color, position: { x: -0.6, y: -0.05, z: 0 }, simulatedAt: 0.2 },
+        { bodyId: sourceA.id, color: sourceA.color, position: { x: -0.3, y: -0.02, z: 0 }, simulatedAt: 0.3 },
+        { bodyId: sourceB.id, color: sourceB.color, position: { x: 1.1, y: 0.28, z: 0 }, simulatedAt: 0.1 },
+        { bodyId: sourceB.id, color: sourceB.color, position: { x: 0.9, y: 0.22, z: 0 }, simulatedAt: 0.2 },
+        { bodyId: sourceB.id, color: sourceB.color, position: { x: 0.7, y: 0.16, z: 0 }, simulatedAt: 0.3 },
+      ],
+    }
+  }
+  return {
+    sequence: 2,
+    samples: [
+      { bodyId: remnant.id, color: remnant.color, position: { ...remnant.position }, simulatedAt: 1 },
+    ],
+  }
+}
+
 function makeState(stage: HandoffStage): SimulationRenderState {
   const common = {
     simulationTime: stage === 'release' ? 1 : 0,
     trailVersion: 0,
-    trailEnabled: false,
+    trailEnabled: true,
     trailDuration: 8,
-    trailSampleBatch: { sequence: 0, samples: [] },
+    trailSampleBatch: makeTrailBatch(stage),
     trackedBodyId: SOURCE_ID,
   }
 
@@ -97,6 +120,7 @@ declare global {
     __trackingCameraHandoffStage?: string
     __trackingCameraHandoffTelemetry?: SimulationCameraTelemetry
     __trackingCameraHandoffSamples?: TimedCameraTelemetry[]
+    __trackingCameraHandoffRetainedTrailIds?: string[]
   }
 }
 
@@ -132,6 +156,9 @@ export function TrackingCameraHandoffVisualHarness() {
             window.__trackingCameraHandoffSamples = [...releaseSamples]
           }
         },
+        onTrailTelemetry: (telemetry) => {
+          window.__trackingCameraHandoffRetainedTrailIds = [...telemetry.retainedTrailIds]
+        },
       },
     )
 
@@ -155,6 +182,7 @@ export function TrackingCameraHandoffVisualHarness() {
       delete window.__trackingCameraHandoffStage
       delete window.__trackingCameraHandoffTelemetry
       delete window.__trackingCameraHandoffSamples
+      delete window.__trackingCameraHandoffRetainedTrailIds
       delete document.body.dataset.visualStage
     }
   }, [])

@@ -113,6 +113,45 @@ function testOnlyLargerAbsorberGetsPhysicsContinuation() {
   )
 }
 
+function testEqualMassMergeGetsExplicitPhysicsContinuation() {
+  const atlas = makeBody('Atlas', 'planet', 0.4013, 0.0754)
+  const selene = makeBody('Selene', 'planet', 0.4013, 0.0754)
+  atlas.position = { x: -0.073, y: 0, z: 0 }
+  selene.position = { x: 0.073, y: 0, z: 0 }
+
+  let after: BodyState[] = [atlas, selene]
+  for (let step = 0; step < 24; step += 1) {
+    after = stepBodies(after, 0.0015)
+  }
+
+  const remnant = after.find((body) =>
+    body.bodyType !== 'effect' &&
+    body.bodyType !== 'fragment' &&
+    body.id.includes('Atlas') &&
+    body.id.includes('Selene'),
+  )
+
+  assert(remnant, 'equal-mass planet merge must produce one physical remnant')
+  assert(
+    remnant.trackingContinuationIds?.includes('Atlas') === true &&
+      remnant.trackingContinuationIds?.includes('Selene') === true,
+    'a true equal-mass merge must explicitly continue both merged source ids',
+  )
+  assert(
+    findTrackingCandidate(after, 'Atlas')?.id === remnant.id,
+    'Atlas tracking must resolve to the equal-mass merge remnant',
+  )
+  assert(
+    findTrackingCandidate(after, 'Selene')?.id === remnant.id,
+    'Selene tracking must resolve to the equal-mass merge remnant',
+  )
+  assert(
+    isTrackingMassEligible(remnant.mass, atlas.mass) &&
+      isTrackingMassEligible(remnant.mass, selene.mass),
+    'the equal-mass merge continuation must remain subject to and pass the existing 50% initial-mass gate',
+  )
+}
+
 function testDestroyedBodyNeverFallsBackToFragments() {
   const smallFragment = makeBody('Alpha+Beta+fragment-0', 'fragment', 0.02, 0.04)
   const largeFragment = makeBody('Alpha+Beta+fragment-1', 'fragment', 0.8, 0.17)
@@ -230,6 +269,7 @@ const tests = [
   testExplicitAbsorptionContinuationStillWins,
   testChainedAbsorptionKeepsOnlyAuthorizedLineage,
   testOnlyLargerAbsorberGetsPhysicsContinuation,
+  testEqualMassMergeGetsExplicitPhysicsContinuation,
   testDestroyedBodyNeverFallsBackToFragments,
   testFragmentCannotOverrideAuthorizedPhysicalRemnant,
   testUnrelatedBodyIsNeverSelectedAsFallback,

@@ -55,8 +55,13 @@ export type SimulationCameraTelemetry = {
   targetErrorToTrackedBody: number | null
 }
 
+export type SimulationTrailTelemetry = {
+  retainedTrailIds: string[]
+}
+
 export type SimulationRendererOptions = {
   onCameraTelemetry?: (telemetry: SimulationCameraTelemetry) => void
+  onTrailTelemetry?: (telemetry: SimulationTrailTelemetry) => void
 }
 
 type TrailPoint = {
@@ -1357,8 +1362,26 @@ export function createSimulationRenderer(
       observedTrailSampleSequence = sampleBatch.sequence
     }
 
-    Array.from(visuals.entries()).forEach(([id]) => {
+    const retainedTrailIds: string[] = []
+    Array.from(visuals.entries()).forEach(([id, visual]) => {
       if (currentIds.has(id)) return
+
+      visual.mesh.visible = false
+      visual.glowInner.visible = false
+      visual.glowOuter.visible = false
+      while (visual.points.length > 0 && visual.points[0].capturedAt < cutoff) visual.points.shift()
+
+      if (trailEnabledNow && visual.points.length > 0) {
+        retainedTrailIds.push(id)
+        updateTrailVisual(
+          visual,
+          simulationTimeNow,
+          trailDurationNow,
+          true,
+        )
+        return
+      }
+
       removeVisual(id)
     })
 
@@ -1393,6 +1416,7 @@ export function createSimulationRenderer(
       )
     })
 
+    options.onTrailTelemetry?.({ retainedTrailIds: [...retainedTrailIds] })
     controls.update()
     emitCameraTelemetry(
       state,

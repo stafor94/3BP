@@ -101,8 +101,9 @@ export type BodyState = {
   trailExcitation01?: number
   /**
    * Source body ids whose ordinary camera tracking may continue onto this body.
-   * This is intentionally narrower than collision lineage: only the strictly
-   * larger body in an `absorb` collision contributes continuity ids.
+   * This is intentionally narrower than generic collision lineage: absorption
+   * carries only the dominant absorber, while a true merge may carry both merged
+   * physical source lineages. The captured initial-mass gate still applies.
    */
   trackingContinuationIds?: string[]
 }

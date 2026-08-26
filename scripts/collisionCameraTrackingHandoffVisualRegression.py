@@ -127,6 +127,15 @@ def main() -> None:
         samples = driver.execute_script('return window.__trackingCameraHandoffSamples')
         require(isinstance(samples, list) and len(samples) >= 4, 'release telemetry must contain multiple renderer frames')
 
+        retained_trail_ids = driver.execute_script(
+            'return window.__trackingCameraHandoffRetainedTrailIds || []'
+        )
+        require(
+            'handoff-a' in retained_trail_ids and 'handoff-b' in retained_trail_ids,
+            f'collision source trails must remain after merge body-id replacement: {retained_trail_ids}',
+        )
+        payload['retained_trail_ids'] = retained_trail_ids
+
         first = samples[0]
         require(float(first['elapsedMs']) <= 50, 'first release telemetry must represent the immediate handoff frame')
         require(first['mode'] == 'tracking', 'release frame must go directly from collision mode to tracking mode')
