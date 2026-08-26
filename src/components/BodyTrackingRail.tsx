@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { translations, type Language } from '../i18n'
+import { isTrackingMassEligible } from '../trackingMassPolicy'
 import { findTrackingCandidate } from '../trackingSelection'
 import { publishTrackedBodyTelemetry } from '../trackingTelemetry'
 import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
@@ -84,6 +85,7 @@ function resolveTrackingSourceId(
 export function BodyTrackingRail({
   bodies,
   bodyCount,
+  bodyScale,
   preset,
   spaceMode,
   isRunning,
@@ -97,6 +99,7 @@ export function BodyTrackingRail({
   )
   const [trackingSourceId, setTrackingSourceId] = useState<string | null>(null)
   const setupKeyRef = useRef(`${preset}:${bodyCount}:${spaceMode}`)
+  const sourceScaleRef = useRef(bodyScale)
 
   useEffect(() => {
     const setupKey = `${preset}:${bodyCount}:${spaceMode}`
@@ -107,9 +110,10 @@ export function BodyTrackingRail({
     if (setupChanged) setupKeyRef.current = setupKey
 
     if (setupChanged || (!isRunning && isCleanInitialSet)) {
+      sourceScaleRef.current = bodyScale
       setSourceBodies(initialBodies.map(cloneTrackingBody))
     }
-  }, [bodies, bodyCount, isRunning, preset, spaceMode])
+  }, [bodies, bodyCount, bodyScale, isRunning, preset, spaceMode])
 
   const trackingEntries = buildTrackingEntries(bodies, sourceBodies)
   const resolvedTrackingSourceId = resolveTrackingSourceId(
@@ -129,13 +133,17 @@ export function BodyTrackingRail({
 
   const getTrackingState = (source: BodyState, candidate?: BodyState | null) => {
     const resolvedCandidate = candidate ?? findTrackingCandidate(bodies, source.id)
-    return { candidate: resolvedCandidate, canTrack: resolvedCandidate !== null }
+    const scaleRatio = bodyScale / Math.max(sourceScaleRef.current, 1e-9)
+    const initialMassAtCurrentScale = source.mass * scaleRatio
+    const canTrack = Boolean(
+      resolvedCandidate && isTrackingMassEligible(resolvedCandidate.mass, initialMassAtCurrentScale),
+    )
+    return { candidate: resolvedCandidate, canTrack }
   }
 
-  // Tracking is a user selection, not a mass-retention heuristic. Keep refreshing
-  // App's selected candidate before its passive validation runs so collision mass
-  // loss cannot trip the legacy 50% baseline and clear an otherwise valid lineage.
-  // The same layout pass also publishes the actual live body used by the top HUD.
+  // Keep the original source snapshot stable while the simulation runs so a
+  // collision descendant cannot reset the 50% threshold to its current mass.
+  // Telemetry follows only while the original source remains trackable.
   useLayoutEffect(() => {
     if (!trackedBodyId) {
       publishTrackedBodyTelemetry(null)
@@ -159,10 +167,7 @@ export function BodyTrackingRail({
     }
 
     publishTrackedBodyTelemetry(state.candidate)
-    // Calling this even when the id is unchanged intentionally refreshes App's
-    // tracking baseline to the current physical candidate before passive effects.
-    onTrackedBodyChange(state.candidate.id)
-  }, [bodies, onTrackedBodyChange, resolvedTrackingSourceId, sourceBodies, trackedBodyId])
+  }, [bodies, bodyScale, onTrackedBodyChange, resolvedTrackingSourceId, sourceBodies, trackedBodyId])
 
   if (trackingEntries.length === 0) return null
 
@@ -183,6 +188,12 @@ export function BodyTrackingRail({
             aria-pressed={isTracked}
             title={source.name}
             onClick={() => {
+              if (isTracked) {
+                setTrackingSourceId(null)
+                publishTrackedBodyTelemetry(null)
+                onTrackedBodyChange(null)
+                return
+              }
               if (!candidate || !canTrack) return
               setTrackingSourceId(source.id)
               onTrackedBodyChange(candidate.id)

@@ -1,4 +1,5 @@
 import { stepBodies } from '../src/physics/fragmentAwareEngine'
+import { isTrackingMassEligible } from '../src/trackingMassPolicy'
 import { findDirectTrackingCandidate, findTrackingCandidate } from '../src/trackingSelection'
 import type { BodyState } from '../src/types'
 
@@ -140,6 +141,21 @@ function testUnrelatedBodyIsNeverSelectedAsFallback() {
   )
 }
 
+function testOriginalHalfMassCutoffIsPreserved() {
+  assert(
+    isTrackingMassEligible(0.500001, 1),
+    'a body retaining more than half of its original mass must remain trackable',
+  )
+  assert(
+    !isTrackingMassEligible(0.5, 1),
+    'a body at the existing half-mass cutoff must no longer be trackable',
+  )
+  assert(
+    !isTrackingMassEligible(0.49, 1),
+    'a body below half of its original mass must not be trackable',
+  )
+}
+
 const tests = [
   testLivingOriginalBodyRemainsTrackable,
   testMergedDescendantKeepsSelectedLineage,
@@ -149,6 +165,7 @@ const tests = [
   testDestroyedBodyFallsBackToLargestFragment,
   testPhysicalRemnantBeatsLargerFragment,
   testUnrelatedBodyIsNeverSelectedAsFallback,
+  testOriginalHalfMassCutoffIsPreserved,
 ]
 
 for (const test of tests) test()

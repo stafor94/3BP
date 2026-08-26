@@ -1,9 +1,11 @@
 import * as THREE from 'three'
 import type { BodyState, Vec3 } from '../types'
 
-export const COLLISION_HANDOFF_DURATION_MS = 620
+export const COLLISION_HANDOFF_DURATION_MS = 820
+export const COLLISION_PRODUCT_REVEAL_DELAY_MS = 70
+export const COLLISION_PRODUCT_REVEAL_DURATION_MS = 660
 const MAX_ACTIVE_HANDOFFS = 8
-const PARTICLE_COUNT = 44
+const PARTICLE_COUNT = 72
 
 type HandoffVisual = {
   source: BodyState
@@ -76,15 +78,28 @@ const handoffFragmentShader = `
     float fine = valueNoise(normal * 12.5 - seedOffset * 1.7);
     float breakupNoise = broad * 0.68 + fine * 0.32;
 
-    float breakupEdge = mix(0.08, 0.92, smoothstep(0.0, 1.0, uProgress));
-    float survivingSurface = 1.0 - smoothstep(breakupEdge - 0.15, breakupEdge + 0.12, breakupNoise);
+    // Start with the complete outgoing surface and move the fracture threshold
+    // upward through the noise field. The previous implementation moved this in
+    // the opposite direction, which discarded most of the body on the first frame.
+    float breakupProgress = smoothstep(0.05, 1.0, uProgress);
+    float breakupEdge = mix(-0.14, 1.14, breakupProgress);
+    float survivingSurface = smoothstep(
+      breakupEdge - 0.11,
+      breakupEdge + 0.13,
+      breakupNoise
+    );
+    float fractureBand = 1.0 - smoothstep(
+      0.035,
+      0.17,
+      abs(breakupNoise - breakupEdge)
+    );
     float rim = pow(1.0 - max(dot(worldNormal, viewDirection), 0.0), 2.0);
-    float fractureGlow = smoothstep(breakupEdge - 0.24, breakupEdge + 0.02, breakupNoise) * survivingSurface;
-    float alpha = uOpacity * survivingSurface * (0.74 + rim * 0.26);
+    float fractureGlow = fractureBand * smoothstep(0.04, 0.42, uProgress);
+    float alpha = uOpacity * survivingSurface * (0.76 + rim * 0.24);
     if (alpha <= 0.004) discard;
 
-    vec3 hot = mix(uColor, vec3(1.0, 0.92, 0.78), 0.48);
-    vec3 color = mix(uColor, hot, clamp(fractureGlow * 0.82 + rim * 0.14, 0.0, 1.0));
+    vec3 hot = mix(uColor, vec3(1.0, 0.91, 0.75), 0.58);
+    vec3 color = mix(uColor, hot, clamp(fractureGlow * 0.92 + rim * 0.12, 0.0, 1.0));
     gl_FragColor = vec4(color, alpha);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -127,6 +142,20 @@ function smooth01(value: number) {
 
 export function getCollisionHandoffProgress(elapsedMs: number) {
   return smooth01(elapsedMs / COLLISION_HANDOFF_DURATION_MS)
+}
+
+export function getCollisionHandoffParticleProgress(elapsedMs: number) {
+  const progress = getCollisionHandoffProgress(elapsedMs)
+  return smooth01((progress - 0.1) / 0.9)
+}
+
+export function getCollisionProductRevealProgress(elapsedMs: number) {
+  if (elapsedMs <= COLLISION_PRODUCT_REVEAL_DELAY_MS) return 0
+  const activeDuration = Math.max(
+    1,
+    COLLISION_PRODUCT_REVEAL_DURATION_MS - COLLISION_PRODUCT_REVEAL_DELAY_MS,
+  )
+  return smooth01((elapsedMs - COLLISION_PRODUCT_REVEAL_DELAY_MS) / activeDuration)
 }
 
 function getBodySeed(id: string) {
@@ -220,7 +249,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     const material = new THREE.ShaderMaterial({
       uniforms: {
         uColor: { value: new THREE.Color(source.color) },
-        uOpacity: { value: 0.92 },
+        uOpacity: { value: 0.98 },
         uProgress: { value: 0 },
         uSeed: { value: getBodySeed(source.id) * 1000 },
       },
@@ -244,7 +273,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
       makeDirection(source.id, index),
     )
     const particleSpeeds = Array.from({ length: PARTICLE_COUNT }, (_, index) =>
-      0.56 + seededValue(getBodySeed(`${source.id}:speed:${index}`) * 31.7) * 1.18,
+      0.48 + seededValue(getBodySeed(`${source.id}:speed:${index}`) * 31.7) * 1.12,
     )
     const particleGeometry = new THREE.BufferGeometry()
     particleGeometry.setAttribute(
@@ -253,7 +282,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     )
     const particleMaterial = new THREE.ShaderMaterial({
       uniforms: {
-        uColor: { value: new THREE.Color(source.color).lerp(new THREE.Color('#fff0d8'), 0.2) },
+        uColor: { value: new THREE.Color(source.color).lerp(new THREE.Color('#fff0d8'), 0.24) },
         uOpacity: { value: 0 },
         uPointSize: { value: 2.6 },
       },
@@ -287,9 +316,10 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
   const updateVisual = (visual: HandoffVisual, now: number) => {
     const elapsedMs = Math.max(0, now - visual.startedAt)
     const progress = getCollisionHandoffProgress(elapsedMs)
+    const particleProgress = getCollisionHandoffParticleProgress(elapsedMs)
     const elapsedSeconds = elapsedMs / 1000
     const source = visual.source
-    const driftScale = 0.22
+    const driftScale = 0.34
     const drift = {
       x: source.velocity.x * elapsedSeconds * driftScale,
       y: source.velocity.y * elapsedSeconds * driftScale,
@@ -301,14 +331,15 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
       source.position.y + drift.y,
       source.position.z + drift.z,
     )
-    const pulse = Math.sin(progress * Math.PI) * 0.035
+    const pulsePhase = Math.min(progress / 0.42, 1)
+    const pulse = Math.sin(pulsePhase * Math.PI) * 0.028 * (1 - progress)
     visual.mesh.scale.setScalar(
-      Math.max(source.radius, 0.005) * (1 - progress * 0.18 + pulse),
+      Math.max(source.radius, 0.005) * (1 + pulse - progress * 0.065),
     )
     visual.material.uniforms.uProgress.value = progress
-    visual.material.uniforms.uOpacity.value = Math.pow(1 - progress, 0.78) * 0.92
+    visual.material.uniforms.uOpacity.value = 0.98 * (1 - progress * 0.16)
 
-    const travel = source.radius * (0.12 + progress * 2.35)
+    const travel = source.radius * (0.7 + particleProgress * 2.15)
     for (let index = 0; index < PARTICLE_COUNT; index += 1) {
       const offset = index * 3
       const direction = visual.particleDirections[index]
@@ -319,9 +350,10 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     }
     const position = visual.particleGeometry.getAttribute('position') as THREE.BufferAttribute
     position.needsUpdate = true
-    visual.particleMaterial.uniforms.uOpacity.value =
-      Math.sin(progress * Math.PI) * Math.pow(1 - progress, 0.45) * 0.72
-    visual.particleMaterial.uniforms.uPointSize.value = 2.2 + (1 - progress) * 1.4
+    visual.particleMaterial.uniforms.uOpacity.value = particleProgress <= 0
+      ? 0
+      : Math.sin(particleProgress * Math.PI) * Math.pow(1 - particleProgress, 0.22) * 0.82
+    visual.particleMaterial.uniforms.uPointSize.value = 2.0 + (1 - particleProgress) * 1.4
 
     return elapsedMs >= COLLISION_HANDOFF_DURATION_MS
   }
