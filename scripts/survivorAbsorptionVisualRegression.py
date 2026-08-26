@@ -195,8 +195,12 @@ def main() -> None:
         names = ['02-150ms', '03-350ms', '04-700ms', '05-1100ms', '06-1600ms']
         for target, name in zip(CAPTURE_TARGETS, names):
             reset(driver)
-            trigger(driver)
+            # The visual event timestamp is created when the trigger is invoked,
+            # before React commit/stage polling completes. Start the wall-clock
+            # reference here as well so slow CI commit latency is not added on top
+            # of the requested 150/350ms event-relative capture offset.
             started_at = time.monotonic()
+            trigger(driver)
             wait_until(started_at, target)
             captures[name] = capture_canvas(driver, name)
 
@@ -221,7 +225,7 @@ def main() -> None:
         }
         payload = {
             'capture_targets_seconds': CAPTURE_TARGETS,
-            'capture_mode': 'independent-reset',
+            'capture_mode': 'independent-reset-event-relative',
             'baseline_primary': {
                 'center_x': center_x,
                 'center_y': center_y,
