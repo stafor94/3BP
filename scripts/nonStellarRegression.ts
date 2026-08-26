@@ -1,4 +1,6 @@
 import { stepBodies as stepCoreBodies } from '../src/physics/engine'
+import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
+import { findTrackingCandidate } from '../src/trackingSelection'
 import type { BodyState } from '../src/types'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -119,10 +121,62 @@ function testStellarImpactStillUsesPlasmaLanguage() {
   assert(resolved.length <= 28, 'stellar collision result must stay under the dynamic-body cap')
 }
 
+function testTinySubEscapeMoonGrazeUsesImpactorScaledMassLoss() {
+  // Reproduce the observed Janus/Luna scale: a 0.0019 moon grazing a 0.35
+  // planet at relative speed 2.412, about 0.85x their mutual escape speed.
+  const janus: BodyState = {
+    id: 'janus',
+    name: 'Janus',
+    color: '#647f95',
+    mass: 0.35,
+    radius: 0.0688,
+    position: { x: 0, y: 0, z: 0 },
+    velocity: { x: 0, y: 0, z: 0 },
+    bodyType: 'planet',
+  }
+  const luna: BodyState = {
+    id: 'luna',
+    name: 'Luna',
+    color: '#aaa49a',
+    mass: 0.0019,
+    radius: 0.0187,
+    position: { x: janus.radius + 0.0187 - 1e-6, y: 0, z: 0 },
+    velocity: { x: -0.21708, y: 2.4022115380623745, z: 0 },
+    bodyType: 'moon',
+  }
+  const initialMass = janus.mass + luna.mass
+  const resolved = stepFragmentAwareBodies([janus, luna], 1e-8)
+  const remnant = resolved.find((body) =>
+    body.bodyType === 'planet' && body.id.includes(janus.id) && body.id.includes(luna.id),
+  )
+
+  assert(remnant, 'tiny sub-escape moon graze should resolve to one planet remnant')
+  const escapedMass = initialMass - remnant.mass
+  assert(
+    escapedMass <= luna.mass * 0.35 + 1e-10,
+    'tiny sub-escape graze must cap escaped mass to a fraction of the impactor mass',
+  )
+  assert(
+    remnant.mass > janus.mass,
+    'the primary should gain mass after absorbing most of a tiny sub-escape moon',
+  )
+  assertClose(
+    totalMass(resolved),
+    initialMass,
+    1e-10,
+    'corrected tiny-impact absorption must conserve total represented mass',
+  )
+  assert(
+    findTrackingCandidate(resolved, janus.id)?.id === remnant.id,
+    'the larger absorber should transfer ordinary tracking continuity to the remnant',
+  )
+}
+
 const tests = [
   testPlanetCollisionRemainsSolidAndMassConserving,
   testMoonDisruptionDoesNotBecomeStellar,
   testStellarImpactStillUsesPlasmaLanguage,
+  testTinySubEscapeMoonGrazeUsesImpactorScaledMassLoss,
 ]
 
 for (const test of tests) test()

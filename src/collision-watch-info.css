@@ -1,7 +1,7 @@
 .collision-watch-info {
   position: absolute;
   z-index: 19;
-  top: 58px;
+  top: 63px;
   left: 50%;
   width: min(700px, calc(100% - 36px));
   padding: 5px 9px 6px;
@@ -181,7 +181,7 @@
 
 @media (max-width: 760px) {
   .collision-watch-info {
-    top: 54px;
+    top: 59px;
     width: calc(100% - 20px);
     padding: 5px 7px 6px;
   }

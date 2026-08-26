@@ -56,8 +56,9 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const physicalStellar = stellar && !syntheticStellar
 
   if (kind === 'contactFlash') {
-    // Synthetic overlap flashes build toward contact. Physical flashes start at
-    // the impact peak and collapse quickly, avoiding a lingering flare blade.
+    // Synthetic overlap flashes build toward contact. Physical stellar flashes
+    // start at the impact peak. Solid-body flashes stay compact and broad so an
+    // impact reads as a local burst instead of a white beam across the survivor.
     const syntheticBuild = syntheticStellar ? smooth01(progress / 0.72) : 0
     const rise = syntheticStellar
       ? 0.14 + syntheticBuild * 0.86
@@ -95,9 +96,9 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           ? stellarOutcome === 'hitAndRun'
             ? 0.82
             : 0.9
-          : 0.92,
-      innerGlow: syntheticStellar ? 0.48 : physicalStellar ? 0.72 : 0.9,
-      outerGlow: syntheticStellar ? 0.18 : physicalStellar ? 0.22 : 0.26,
+          : 0.78,
+      innerGlow: syntheticStellar ? 0.48 : physicalStellar ? 0.72 : 0.68,
+      outerGlow: syntheticStellar ? 0.18 : physicalStellar ? 0.22 : 0.14,
       visualRadius: syntheticStellar
         ? clamp(body.radius * (0.76 + progress * 0.14), 0.05, 0.13)
         : physicalStellar
@@ -106,14 +107,22 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
               0.085,
               0.25,
             )
-          : clamp(body.radius * 0.42, 0.052, 0.13),
-      anisotropicStretch: clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : physicalStellar ? 3.05 : 3.2),
-      widthScale: clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66),
+          : clamp(body.radius * 0.32, 0.038, 0.082),
+      anisotropicStretch: stellar
+        ? clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : 3.05)
+        : clamp(rawStretch, 1.4, 1.95),
+      widthScale: stellar
+        ? clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66)
+        : clamp(rawWidth, 0.58, 0.82),
       tailLength: 0,
-      pulseStrength: clamp(visual?.pulseStrength ?? (physicalStellar ? 0.055 : 0.16), 0, physicalStellar ? 0.075 : 0.2),
+      pulseStrength: stellar
+        ? clamp(visual?.pulseStrength ?? (physicalStellar ? 0.055 : 0.16), 0, physicalStellar ? 0.075 : 0.2)
+        : clamp(visual?.pulseStrength ?? 0.07, 0, 0.08),
       brightness: syntheticStellar
         ? (visual?.brightness ?? 1.35) * (0.76 + syntheticBuild * 0.24)
-        : (visual?.brightness ?? (physicalStellar ? 2.08 : 1.5)) * outcomeBrightnessBoost,
+        : physicalStellar
+          ? (visual?.brightness ?? 2.08) * outcomeBrightnessBoost
+          : clamp(visual?.brightness ?? 1.28, 0, 1.5),
       turbulence: visual?.turbulence ?? (physicalStellar ? 0.72 : 0.2),
       cooling: syntheticStellar ? progress * 0.1 : smooth01(progress),
     }
@@ -290,15 +299,15 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     kind,
     progress,
     fadeAlpha: decay,
-    baseOpacity: 0.66,
-    innerGlow: 0.68,
-    outerGlow: 0.12,
-    visualRadius: clamp(body.radius * 0.76, 0.012, 0.032),
-    anisotropicStretch: visual?.stretch ?? 1.9,
-    widthScale: visual?.widthScale ?? 0.48,
-    tailLength: visual?.tailLength ?? 0.48,
-    pulseStrength: visual?.pulseStrength ?? 0.08,
-    brightness: visual?.brightness ?? 0.92,
+    baseOpacity: 0.54,
+    innerGlow: 0.5,
+    outerGlow: 0.08,
+    visualRadius: clamp(body.radius * 0.62, 0.01, 0.025),
+    anisotropicStretch: clamp(visual?.stretch ?? 1.45, 1.1, 1.55),
+    widthScale: clamp(visual?.widthScale ?? 0.68, 0.6, 0.82),
+    tailLength: clamp(visual?.tailLength ?? 0.16, 0.08, 0.22),
+    pulseStrength: clamp(visual?.pulseStrength ?? 0.035, 0, 0.045),
+    brightness: clamp(visual?.brightness ?? 0.88, 0, 1.08),
     turbulence: visual?.turbulence ?? 0.3,
     cooling: smooth01(progress),
   }

@@ -23,6 +23,8 @@ const STELLAR_MERGE_COMPRESSION_END_PROGRESS = 0.55
 const CONTACT_RESOLUTION_OVERLAP = 1e-6
 const CONTACT_RESOLUTION_DT = 1e-8
 const TRACKING_G = 1
+const EXTREME_MASS_RATIO_ABSORPTION_MAX_RATIO = 0.02
+const EXTREME_MASS_RATIO_ABSORPTION_MAX_SPEED_RATIO = 1.05
 
 // Large solid fragments behave as long-lived asteroids. Keep the cap deliberately
 // small so N-body cost remains predictable even after many collisions.
@@ -144,7 +146,8 @@ function finalizePhysicalBodies(input: BodyState[], stepped: BodyState[], dt: nu
 
 function advancePhysicalBodies(input: BodyState[], dt: number) {
   const stepped = stepPhysicsBodies(input, dt)
-  const withTrackingContinuity = attachAbsorptionTrackingContinuity(input, stepped, dt)
+  const withMassCorrection = normalizeExtremeMassRatioAbsorption(input, stepped, dt)
+  const withTrackingContinuity = attachAbsorptionTrackingContinuity(input, withMassCorrection, dt)
   return finalizePhysicalBodies(input, withTrackingContinuity, dt)
 }
 
@@ -231,6 +234,142 @@ function getTrackingCollisionGeometry(a: BodyState, b: BodyState): TrackingColli
   }
 }
 
+function isExtremeMassRatioLowEnergyAbsorption(
+  a: BodyState,
+  b: BodyState,
+  geometry = getTrackingCollisionGeometry(a, b),
+) {
+  const typeA = getEffectiveBodyType(a)
+  const typeB = getEffectiveBodyType(b)
+  const hasPlanet = typeA === 'planet' || typeB === 'planet'
+  const hasMoon = typeA === 'moon' || typeB === 'moon'
+  if (!hasPlanet || !hasMoon || typeA === typeB) return false
+
+  const massRatio = Math.min(a.mass, b.mass) / Math.max(a.mass, b.mass, 1e-9)
+  return massRatio < EXTREME_MASS_RATIO_ABSORPTION_MAX_RATIO &&
+    geometry.speedRatio <= EXTREME_MASS_RATIO_ABSORPTION_MAX_SPEED_RATIO
+}
+
+function getExtremeMassRatioEjectaFraction(
+  a: BodyState,
+  b: BodyState,
+  geometry: TrackingCollisionGeometry,
+) {
+  const totalMass = Math.max(a.mass + b.mass, 1e-9)
+  const smallerMassFraction = Math.min(a.mass, b.mass) / totalMass
+  const strippedFractionOfImpactor = Math.min(
+    0.35,
+    Math.max(
+      0.12,
+      0.12 + geometry.speedRatio * 0.14 + geometry.headOn * 0.06 + geometry.grazing * 0.04,
+    ),
+  )
+  return smallerMassFraction * strippedFractionOfImpactor
+}
+
+function normalizeExtremeMassRatioAbsorption(
+  input: BodyState[],
+  stepped: BodyState[],
+  dt: number,
+) {
+  const collisionPair = findNewCollisionPair(input, stepped, dt)
+  if (!collisionPair) return stepped
+
+  const { bodyA, bodyB } = collisionPair
+  const mode = inferCollisionPresentationMode(stepped, bodyA, bodyB)
+  if (mode !== 'merge') return stepped
+
+  const geometry = getTrackingCollisionGeometry(bodyA, bodyB)
+  if (!isExtremeMassRatioLowEnergyAbsorption(bodyA, bodyB, geometry)) return stepped
+
+  const remnant = stepped.find((body) =>
+    body.bodyType !== 'effect' &&
+    body.bodyType !== 'fragment' &&
+    body.id !== bodyA.id &&
+    body.id !== bodyB.id &&
+    isBodyDescendedFrom(body.id, bodyA.id) &&
+    isBodyDescendedFrom(body.id, bodyB.id),
+  )
+  if (!remnant) return stepped
+
+  const totalMass = bodyA.mass + bodyB.mass
+  const targetEjectaFraction = getExtremeMassRatioEjectaFraction(bodyA, bodyB, geometry)
+  const targetEjectaMass = totalMass * targetEjectaFraction
+  const currentMassLoss = Math.max(0, totalMass - remnant.mass)
+
+  // The core fallback merge formula is based on total system mass. For a tiny,
+  // sub-escape impactor that can remove several times the impactor's own mass
+  // from the primary. Reclassify this effective outcome as absorption and cap
+  // escaped mass to a speed/geometry-dependent fraction of the small impactor.
+  if (currentMassLoss <= targetEjectaMass + 1e-12) return stepped
+
+  const ejecta = stepped.filter((body) =>
+    body !== remnant &&
+    body.mass > 0 &&
+    (body.bodyType === 'fragment' || body.bodyType === 'effect') &&
+    isBodyDescendedFrom(body.id, bodyA.id) &&
+    isBodyDescendedFrom(body.id, bodyB.id),
+  )
+  const representedEjectaMass = ejecta.reduce((sum, body) => sum + body.mass, 0)
+  const ejectaScale = representedEjectaMass > targetEjectaMass && representedEjectaMass > 1e-12
+    ? targetEjectaMass / representedEjectaMass
+    : 1
+  const radiusScale = Math.cbrt(ejectaScale)
+  const scaledStepped = stepped.map((body) => (
+    ejecta.includes(body)
+      ? { ...body, mass: body.mass * ejectaScale, radius: body.radius * radiusScale }
+      : body
+  ))
+  const scaledEjecta = scaledStepped.filter((body) =>
+    body.id !== remnant.id &&
+    body.mass > 0 &&
+    (body.bodyType === 'fragment' || body.bodyType === 'effect') &&
+    isBodyDescendedFrom(body.id, bodyA.id) &&
+    isBodyDescendedFrom(body.id, bodyB.id),
+  )
+  const representedScaledMass = scaledEjecta.reduce((sum, body) => sum + body.mass, 0)
+  const representedMomentum = scaledEjecta.reduce(
+    (sum, body) => ({
+      x: sum.x + body.velocity.x * body.mass,
+      y: sum.y + body.velocity.y * body.mass,
+      z: sum.z + body.velocity.z * body.mass,
+    }),
+    { x: 0, y: 0, z: 0 },
+  )
+  const missingEjectaMass = Math.max(0, targetEjectaMass - representedScaledMass)
+  const centerVelocity = getCenterVelocity(bodyA, bodyB)
+  const totalMomentum = {
+    x: bodyA.velocity.x * bodyA.mass + bodyB.velocity.x * bodyB.mass,
+    y: bodyA.velocity.y * bodyA.mass + bodyB.velocity.y * bodyB.mass,
+    z: bodyA.velocity.z * bodyA.mass + bodyB.velocity.z * bodyB.mass,
+  }
+  const remnantMass = Math.max(totalMass - targetEjectaMass, totalMass * 0.05)
+  const remnantVelocity = {
+    x: (
+      totalMomentum.x - representedMomentum.x - centerVelocity.x * missingEjectaMass
+    ) / remnantMass,
+    y: (
+      totalMomentum.y - representedMomentum.y - centerVelocity.y * missingEjectaMass
+    ) / remnantMass,
+    z: (
+      totalMomentum.z - representedMomentum.z - centerVelocity.z * missingEjectaMass
+    ) / remnantMass,
+  }
+  const totalVolume = bodyA.radius ** 3 + bodyB.radius ** 3
+  const remnantRadius = Math.cbrt(Math.max(totalVolume * (1 - targetEjectaFraction), 1e-12))
+
+  return scaledStepped.map((body) => (
+    body.id === remnant.id
+      ? {
+          ...body,
+          mass: remnantMass,
+          radius: remnantRadius,
+          velocity: remnantVelocity,
+        }
+      : body
+  ))
+}
+
 function isAbsorptionCollision(
   a: BodyState,
   b: BodyState,
@@ -260,9 +399,12 @@ function isAbsorptionCollision(
   const massRatio = Math.min(a.mass, b.mass) / Math.max(a.mass, b.mass, 1e-9)
   if (massRatio >= 0.28) return false
 
-  // Mirror the planet-moon absorption gate from the core engine so ordinary
-  // tracking never treats an energetic merge/disruption as an absorption.
+  // Preserve the normal planet-moon absorption gate, but also treat extreme
+  // mass-ratio sub-escape encounters as absorption even when the impact is very
+  // grazing. Those contacts are captured instead of becoming a destructive
+  // total-mass-based generic merge.
   const geometry = getTrackingCollisionGeometry(a, b)
+  if (isExtremeMassRatioLowEnergyAbsorption(a, b, geometry)) return true
   return geometry.grazing < 0.72 && geometry.speedRatio < 2.05
 }
 

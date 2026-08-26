@@ -6,6 +6,31 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.18.11] - 2026-08-26
+
+### Added
+- `package.json`의 현재 버전과 `CHANGELOG.md` 최상단 릴리스 버전이 다르면 빌드와 PR CI가 실패하도록 버전 정합성 회귀 검사를 추가했습니다.
+
+### Changed
+- 질량비가 2% 미만이고 상대속도가 상호 탈출속도의 1.05배 이하인 행성-위성 접촉은 극단적 질량차의 저에너지 흡수로 보정하고, 방출 질량을 전체 계 질량이 아니라 작은 충돌체 질량의 12~35% 범위로 제한했습니다.
+- 비항성 충돌의 접촉 섬광과 스파크를 더 작고 두껍고 짧게 조정해 충돌 지점을 가로지르는 긴 흰색 빔 대신 국소적인 충격·파편 연출로 보이도록 개선했습니다.
+- 상단 충돌 정보 패널을 기존 위치에서 5px 아래로 이동해 상단 상태 UI와의 간격을 확보했습니다.
+
+### Fixed
+- Janus 0.3500 / Luna 0.0019 수준의 극단적 질량차 충돌에서 작은 충돌체보다 훨씬 많은 질량이 주 천체에서 사라질 수 있던 전체 질량 기반 방출량 오류를 수정했습니다.
+- 저에너지 흡수에서 엄격히 질량이 더 큰 흡수체의 추적 승계 정보를 잔존체에 전달해 ID가 바뀌어도 기존 50% 추적 제한을 변경하지 않은 채 정상 추적을 이어가도록 했습니다.
+- 현재 항성 렌더링이 거의 백색인 경우에도 충돌 관찰 카메라 시각 회귀가 주 천체를 색상에 의존하지 않고 밝은 photosphere 기준으로 검출하도록 수정했습니다.
+
+## [0.18.10] - 2026-08-26
+
+### Changed
+- 충돌 관찰 카메라를 일반 추적과 분리해 주 천체 반지름이 화면 너비의 약 1/9을 차지하도록 프레이밍하고, 반지름 변화 뒤에도 목표 거리의 1% 오차 이내까지 계속 수렴하도록 했습니다.
+- 항성 방출물의 생성 위치를 공통 접촉점이 아니라 결정적인 source-body 접촉 패치로 분산하고, 정면/스침 충돌의 방향성과 큰·작은 플라즈마 운동 차이를 강화했습니다.
+
+### Fixed
+- 엄격히 질량이 더 큰 흡수체를 추적 중일 때 흡수로 원본 ID가 잔존체 ID로 바뀌어도 물리 엔진이 명시한 `trackingContinuationIds`에 한해서 일반 추적을 잔존체로 이어가도록 복구했습니다.
+- 작은 피흡수체, 일반 merge/disrupt 결과, 파편·이펙트·무관 천체에는 일반 추적이 승계되지 않도록 기존 제한을 유지했습니다.
+
 ## [0.18.9] - 2026-08-26
 
 ### Changed
@@ -27,6 +52,46 @@
 
 ### Fixed
 - v0.18.7 상태로 배포된 초기 조건 설정 변경의 버전 증가와 변경 이력 기록이 누락된 문제를 바로잡았습니다.
+
+## [0.18.7] - 2026-08-26
+
+### Fixed
+- 실제 충돌 렌더 경로에 white-hot impact core, 넓은 halo, 양방향 plasma burst를 추가해 항성 합체 직전 두 원판이 그대로 노출되거나 잔존체가 너무 일찍 드러나던 문제를 보완했습니다.
+- 브라우저 픽셀 게이트를 강화해 충돌 topology 전환이 시각 효과로 충분히 가려지지 않으면 배포 전에 실패하도록 했습니다.
+
+## [0.18.6] - 2026-08-26
+
+### Fixed
+- 얇은 topology mask를 충돌 normal 축을 따라 배치되는 screen-space occlusion veil로 교체하고, shock plane과 양방향 plasma를 함께 유지해 잔존체 reveal 동안 두 항성의 topology 전환을 안정적으로 가리도록 했습니다.
+- mask 방향, 두 항성 전체 span 커버리지, alpha occlusion blending, retire timing을 회귀 검증하도록 보강했습니다.
+
+## [0.18.5] - 2026-08-26
+
+### Added
+- 항성-항성 topology handoff 위에 넓은 white-hot contact ridge, compression plane, 양방향 plasma를 직접 렌더링하는 전용 topology mask를 추가했습니다.
+
+### Changed
+- 잔존체가 처음 드러나는 구간까지 impact peak mask를 유지하고 render-layer geometry/opacity 회귀 검증을 추가했습니다.
+
+## [0.18.4] - 2026-08-26
+
+### Changed
+- 항성 합체의 pre-merge compression 단계부터 collision-watch impact를 시작하고 presentation bridge를 연장·plateau 처리해 실제 topology 전환까지 충돌 연출이 끊기지 않도록 했습니다.
+- synthetic pre-impact VFX에서 physical VFX로 넘어가는 topology masking을 강화하고 짧은 프레임 수 허용 대신 순서·타이밍 회귀 검증을 사용하도록 변경했습니다.
+
+## [0.18.3] - 2026-08-26
+
+### Changed
+- synthetic stellar flash·shear·plasma가 compression 진행도에 맞춰 점진적으로 형성되고 staged overlap 구간 안에서 plasma가 활성화되도록 연결했습니다.
+- glow 튜닝 값을 shader에 실제 반영하고 synthetic 연출에서 physical impact VFX로 넘어가는 handoff를 강화했습니다.
+
+## [0.18.2] - 2026-08-26
+
+### Changed
+- 항성-항성 접촉을 topology 결과가 드러나기 전에 반드시 보이는 impact envelope를 거치도록 하고 collision outcome별 VFX를 강화했습니다.
+
+### Fixed
+- exact-contact 상태에서도 topology masking이 유지되는지 회귀 검증을 추가하면서 비항성 충돌 동작은 기존 경로를 유지했습니다.
 
 ## [0.18.1] - 2026-08-26
 
