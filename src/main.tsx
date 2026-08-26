@@ -20,9 +20,13 @@ if (visualRegression === 'stellar-topology') {
   void import('./visualRegression/CollisionWatchVisualHarness').then(({ CollisionWatchVisualHarness }) => {
     root.render(<CollisionWatchVisualHarness />)
   })
-} else if (visualRegression === 'non-stellar-destruction') {
+} else if (visualRegression === 'non-stellar-destruction' || visualRegression === 'actual-disruption') {
   void import('./visualRegression/NonStellarDestructionVisualHarness').then(({ NonStellarDestructionVisualHarness }) => {
     root.render(<NonStellarDestructionVisualHarness />)
+  })
+} else if (visualRegression === 'survivor-absorption') {
+  void import('./visualRegression/SurvivorAbsorptionVisualHarness').then(({ SurvivorAbsorptionVisualHarness }) => {
+    root.render(<SurvivorAbsorptionVisualHarness />)
   })
 } else {
   root.render(
