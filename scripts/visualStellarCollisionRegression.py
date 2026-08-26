@@ -16,7 +16,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
-OUTPUT_DIR = Path('.visual-regression')
+OUTPUT_DIR = Path('visual-regression-artifacts')
 URL = os.environ.get(
     'VISUAL_TEST_URL',
     'http://127.0.0.1:4173/3BP/?visual-regression=stellar-topology',
@@ -126,9 +126,6 @@ def analyze(path: Path) -> FrameMetrics:
             spread = maximum - minimum
             luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
 
-            # The topology veil is deliberately near-white. Requiring both high
-            # luminance and low RGB spread distinguishes it from the orange/blue
-            # source photospheres and from most background stars.
             is_hot_neutral = luminance >= 178 and spread <= 58
             if is_hot_neutral:
                 hot_mask[y][x] = True
@@ -186,25 +183,41 @@ def make_driver() -> webdriver.Chrome:
     return webdriver.Chrome(options=options)
 
 
-def set_stage(driver: webdriver.Chrome, stage: str) -> None:
-    driver.execute_script('window.__setStellarVisualStage(arguments[0])', stage)
-    WebDriverWait(driver, 8).until(
-        lambda browser: browser.execute_script('return document.body.dataset.visualStage') == stage
-    )
-    # Wait for React to commit and for the live Three.js renderer to consume the
-    # new body array on at least two animation frames.
-    driver.execute_async_script(
+def set_stage(driver: webdriver.Chrome, stage: str) -> float:
+    # Do not use Selenium's default 500 ms polling here. The occlusion-retention
+    # window itself is only hundreds of milliseconds, so a coarse DOM poll can
+    # accidentally sample after the effect has correctly retired. Synchronize
+    # inside the browser on animation frames instead.
+    elapsed_ms = driver.execute_async_script(
         """
+        const stage = arguments[0];
         const done = arguments[arguments.length - 1];
-        requestAnimationFrame(() => requestAnimationFrame(() => done(true)));
-        """
+        const startedAt = performance.now();
+        window.__setStellarVisualStage(stage);
+
+        const waitForCommit = () => {
+          if (document.body.dataset.visualStage !== stage) {
+            requestAnimationFrame(waitForCommit);
+            return;
+          }
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            done(performance.now() - startedAt);
+          }));
+        };
+        requestAnimationFrame(waitForCommit);
+        """,
+        stage,
     )
+    elapsed = float(elapsed_ms)
+    assert_condition(elapsed < 180, f'visual stage transition was too slow for deterministic capture: {elapsed:.1f} ms')
+    return elapsed
 
 
 def capture_canvas(driver: webdriver.Chrome, name: str) -> tuple[Path, FrameMetrics]:
     canvas = driver.find_element(By.CSS_SELECTOR, '.simulation-view canvas')
     path = OUTPUT_DIR / f'{name}.png'
-    canvas.screenshot(str(path))
+    result = canvas.screenshot(str(path))
+    assert_condition(bool(result) and path.exists(), f'failed to capture browser canvas for {name}')
     metrics = analyze(path)
     return path, metrics
 
@@ -216,25 +229,22 @@ def validate(metrics: dict[str, FrameMetrics]) -> None:
     faded = metrics['remnant-faded']
 
     assert_condition(
-        peak.largest_component_area >= 900,
-        f'peak topology mask is not a substantial on-screen connected region: {peak.largest_component_area}px',
+        peak.largest_component_area >= max(900, int(separate.largest_component_area * 1.5)),
+        'peak topology mask does not form a substantially larger connected screen region than the source stars: '
+        f'separate={separate.largest_component_area}px peak={peak.largest_component_area}px',
     )
     assert_condition(
-        peak.largest_component_width >= 78,
-        f'peak topology mask is too narrow to hide the two-star handoff: {peak.largest_component_width}px',
+        peak.largest_component_width >= max(78, int(separate.largest_component_width * 1.5)),
+        'peak topology mask is not wide enough to bridge and cover both source silhouettes: '
+        f'separate={separate.largest_component_width}px peak={peak.largest_component_width}px',
     )
     assert_condition(
         peak.largest_component_height >= 32,
         f'peak topology mask is too thin to hide stellar silhouettes: {peak.largest_component_height}px',
     )
     assert_condition(
-        peak.hot_neutral_pixels >= max(900, int(separate.hot_neutral_pixels * 1.55)),
-        'peak frame does not gain enough near-white screen coverage over the unmasked two-star frame: '
-        f'separate={separate.hot_neutral_pixels}, peak={peak.hot_neutral_pixels}',
-    )
-    assert_condition(
-        peak.saturated_bright_fraction <= max(0.22, separate.saturated_bright_fraction * 0.92),
-        'source-star colored silhouettes remain too exposed at peak instead of being masked: '
+        peak.saturated_bright_fraction <= separate.saturated_bright_fraction * 0.55,
+        'source-star colored silhouettes remain too exposed at peak instead of being washed into the impact mask: '
         f'separate={separate.saturated_bright_fraction:.4f}, peak={peak.saturated_bright_fraction:.4f}',
     )
 
@@ -248,6 +258,11 @@ def validate(metrics: dict[str, FrameMetrics]) -> None:
         'topology veil disappears too early after the 2->1 switch: '
         f'peak={peak.largest_component_area}px retained={retained.largest_component_area}px',
     )
+    assert_condition(
+        retained.hot_neutral_pixels >= int(peak.hot_neutral_pixels * 0.4),
+        'the first remnant frame is not still visibly covered by the white-hot handoff mask: '
+        f'peak={peak.hot_neutral_pixels}px retained={retained.hot_neutral_pixels}px',
+    )
 
     assert_condition(
         faded.hot_neutral_pixels <= int(retained.hot_neutral_pixels * 0.78),
@@ -260,32 +275,37 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     driver = make_driver()
     metrics: dict[str, FrameMetrics] = {}
+    transition_ms: dict[str, float] = {}
 
     try:
         driver.set_page_load_timeout(20)
+        driver.set_script_timeout(10)
         driver.get(URL)
-        WebDriverWait(driver, 15).until(
+        WebDriverWait(driver, 15, poll_frequency=0.05).until(
             lambda browser: browser.execute_script('return typeof window.__setStellarVisualStage === "function"')
         )
-        WebDriverWait(driver, 15).until(
+        WebDriverWait(driver, 15, poll_frequency=0.05).until(
             lambda browser: len(browser.find_elements(By.CSS_SELECTOR, '.simulation-view canvas')) == 1
         )
-        time.sleep(0.2)
+        time.sleep(0.18)
 
         _, metrics['separate'] = capture_canvas(driver, '01-separate')
 
-        set_stage(driver, 'peak')
-        time.sleep(0.16)
+        transition_ms['peak'] = set_stage(driver, 'peak')
+        time.sleep(0.10)
         _, metrics['peak'] = capture_canvas(driver, '02-peak')
 
-        set_stage(driver, 'remnant')
-        time.sleep(0.055)
+        transition_ms['remnant'] = set_stage(driver, 'remnant')
+        time.sleep(0.02)
         _, metrics['remnant-retained'] = capture_canvas(driver, '03-remnant-retained')
 
         time.sleep(0.62)
         _, metrics['remnant-faded'] = capture_canvas(driver, '04-remnant-faded')
 
-        serialized = {name: asdict(value) for name, value in metrics.items()}
+        serialized = {
+            'transition_ms': transition_ms,
+            'frames': {name: asdict(value) for name, value in metrics.items()},
+        }
         (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(serialized, indent=2), encoding='utf-8')
         print(json.dumps(serialized, indent=2))
         validate(metrics)
