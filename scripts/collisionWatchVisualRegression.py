@@ -189,9 +189,10 @@ def main() -> None:
             lambda browser: len(browser.find_elements(By.CSS_SELECTOR, '.simulation-view canvas')) == 1
         )
 
-        # The renderer uses smooth collision-camera convergence. At 60 fps this is
-        # enough time to enter the 1% tolerance without hard-cutting the camera.
-        time.sleep(0.62)
+        # The renderer converges smoothly toward the collision-watch framing.
+        # Give slow/headless CI enough wall time to reach the same settled frame
+        # instead of sampling on the 18% diameter threshold boundary.
+        time.sleep(0.90)
         camera_path = capture_canvas(driver, '01-camera')
         camera_metrics = component_metrics(camera_path)
         payload['camera'] = camera_metrics
