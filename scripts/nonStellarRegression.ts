@@ -145,15 +145,105 @@ function testTinySubEscapeMoonGrazeUsesImpactorScaledMassLoss() {
     bodyType: 'moon',
   }
   const initialMass = janus.mass + luna.mass
+  const initialDelta = {
+    x: luna.position.x - janus.position.x,
+    y: luna.position.y - janus.position.y,
+    z: luna.position.z - janus.position.z,
+  }
+  const initialDistance = Math.hypot(initialDelta.x, initialDelta.y, initialDelta.z)
+  const initialNormal = {
+    x: initialDelta.x / initialDistance,
+    y: initialDelta.y / initialDistance,
+    z: initialDelta.z / initialDistance,
+  }
+  const contactPoint = {
+    x: (
+      janus.position.x + initialNormal.x * janus.radius +
+      luna.position.x - initialNormal.x * luna.radius
+    ) * 0.5,
+    y: (
+      janus.position.y + initialNormal.y * janus.radius +
+      luna.position.y - initialNormal.y * luna.radius
+    ) * 0.5,
+    z: (
+      janus.position.z + initialNormal.z * janus.radius +
+      luna.position.z - initialNormal.z * luna.radius
+    ) * 0.5,
+  }
+
   let resolved: BodyState[] = [janus, luna]
+  let observedAbsorptionShrink = false
+  let firstResolvedFrame: BodyState[] | null = null
   for (let step = 0; step < 24; step += 1) {
     resolved = stepFragmentAwareBodies(resolved, 0.0015)
+    const liveImpactor = resolved.find((body) => body.id === luna.id)
+    if (liveImpactor && liveImpactor.radius <= luna.radius * 0.82) {
+      observedAbsorptionShrink = true
+    }
+    const remnantNow = resolved.find((body) =>
+      body.bodyType === 'planet' && body.id.includes(janus.id) && body.id.includes(luna.id),
+    )
+    if (remnantNow && !firstResolvedFrame) {
+      firstResolvedFrame = resolved.map((body) => ({
+        ...body,
+        position: { ...body.position },
+        velocity: { ...body.velocity },
+        effectVisual: body.effectVisual
+          ? {
+              ...body.effectVisual,
+              direction: { ...body.effectVisual.direction },
+              normal: body.effectVisual.normal ? { ...body.effectVisual.normal } : undefined,
+            }
+          : undefined,
+      }))
+    }
   }
   const remnant = resolved.find((body) =>
     body.bodyType === 'planet' && body.id.includes(janus.id) && body.id.includes(luna.id),
   )
 
+  assert(
+    observedAbsorptionShrink,
+    'tiny absorbed impactor should visibly shrink before the physical replacement frame',
+  )
   assert(remnant, 'tiny sub-escape moon graze should resolve to one planet remnant after the contact presentation bridge')
+  assert(firstResolvedFrame, 'tiny absorption regression must capture the first physical result frame')
+  const firstRemnant = firstResolvedFrame.find((body) =>
+    body.bodyType === 'planet' && body.id.includes(janus.id) && body.id.includes(luna.id),
+  )
+  assert(firstRemnant, 'first physical absorption frame must contain the planet remnant')
+  const absorptionEjecta = firstResolvedFrame.filter((body) =>
+    body !== firstRemnant &&
+    body.mass > 0 &&
+    body.id.includes(janus.id) &&
+    body.id.includes(luna.id),
+  )
+  assert(absorptionEjecta.length > 0, 'tiny absorption should retain represented ejecta mass')
+  absorptionEjecta.forEach((body) => {
+    assert(
+      body.bodyType === 'effect' && body.name === 'Collision spark',
+      'tiny absorption ejecta must be transient compact effects instead of detached solid fragments',
+    )
+    assert(
+      (body.lifetime ?? Number.POSITIVE_INFINITY) <= 0.56,
+      'tiny absorption ejecta must fade quickly instead of lingering as late collision streaks',
+    )
+    assert(
+      (body.effectVisual?.stretch ?? Number.POSITIVE_INFINITY) <= 1.11 &&
+        (body.effectVisual?.tailLength ?? Number.POSITIVE_INFINITY) <= 0.081,
+      'tiny absorption ejecta must remain compact instead of rendering as long directional streaks',
+    )
+    const spawnDistance = Math.hypot(
+      body.position.x - contactPoint.x,
+      body.position.y - contactPoint.y,
+      body.position.z - contactPoint.z,
+    )
+    assert(
+      spawnDistance <= Math.max(janus.radius, luna.radius) * 0.22,
+      'tiny absorption ejecta must originate at the contact patch instead of popping in away from the body',
+    )
+  })
+
   const escapedMass = initialMass - remnant.mass
   assert(
     escapedMass <= luna.mass * 0.35 + 1e-10,
