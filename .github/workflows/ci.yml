@@ -15,7 +15,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-      - name: Apply pending survivor rendering fixes
+
+      - name: Apply pending v0.19.3 fixes
         if: github.event_name == 'push'
         run: |
           python - <<'PY'
@@ -68,6 +69,37 @@ jobs:
               '  color += vec3(1.0, 0.76, 0.46) * collisionImpactMask * uCollisionImpactFlash * 0.7;',
               1,
           )
+          text = text.replace(
+              'function applySurvivorImpact(material: THREE.ShaderMaterial, now: number) {',
+              'function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Object3D, now: number) {',
+              1,
+          )
+          old_direction = '''  const direction = material.uniforms.uCollisionImpactDirection?.value
+          if (direction instanceof THREE.Vector3) {
+            direction.set(
+              transition.contactNormal.x,
+              transition.contactNormal.y,
+              transition.contactNormal.z,
+            ).normalize()
+          }'''
+          new_direction = '''  const direction = material.uniforms.uCollisionImpactDirection?.value
+          if (direction instanceof THREE.Vector3) {
+            const worldQuaternion = new THREE.Quaternion()
+            object.getWorldQuaternion(worldQuaternion)
+            direction.set(
+              transition.contactNormal.x,
+              transition.contactNormal.y,
+              transition.contactNormal.z,
+            ).applyQuaternion(worldQuaternion.invert()).normalize()
+          }'''
+          if old_direction not in text:
+              raise SystemExit('survivor impact direction block not found')
+          text = text.replace(old_direction, new_direction, 1)
+          text = text.replace(
+              '      applySurvivorImpact(material, now)',
+              '      applySurvivorImpact(material, object, now)',
+              1,
+          )
           bridge.write_text(text, encoding='utf-8')
 
           regression = Path('scripts/nonStellarDestructionVisualRegression.py')
@@ -75,22 +107,17 @@ jobs:
           text = text.replace('wait_until(destruction_started_at, 2.10)', 'wait_until(destruction_started_at, 2.25)', 1)
           text = text.replace("'final_debris': 2.10,", "'final_debris': 2.25,", 1)
           regression.write_text(text, encoding='utf-8')
-          PY
-      - name: Prepare v0.19.3 changelog locally
-        if: github.event_name == 'push'
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('CHANGELOG.md')
-          text = path.read_text(encoding='utf-8')
+
+          changelog = Path('CHANGELOG.md')
+          text = changelog.read_text(encoding='utf-8')
           heading = '## [0.19.3] - 2026-08-26'
           if heading not in text:
-              lines = [
+              section = '\n'.join([
                   heading,
                   '',
                   '### Changed',
                   '- 비항성 충돌의 시각 outcome을 `survivor`, `absorbed`, `disrupted`, `merged-survivor`로 분리하고, ID lineage는 충돌 결과 연결에만 사용하며 파괴 판정 근거로 사용하지 않도록 변경했습니다.',
-                  '- 실제 `disrupted` 천체의 1.5초 handoff는 접촉 법선 기준으로 균열이 시작해 주변으로 전파된 뒤 구조 붕괴와 파편 reveal로 이어지도록 변경했습니다.',
+                  '- 실제 `disrupted` 천체의 1.5초 handoff는 실제 접촉 법선에서 균열이 시작해 주변으로 전파된 뒤 구조 붕괴와 파편 reveal로 이어지도록 변경했습니다.',
                   '- 흡수 충돌의 작은 피흡수체는 전체 구면 dissolve 대신 접촉면 쪽으로 압축·소멸되는 짧은 전환을 사용하도록 분리했습니다.',
                   '',
                   '### Fixed',
@@ -98,17 +125,19 @@ jobs:
                   '- 생존 천체에는 destruction snapshot·전역 crack·global discard·opacity fade를 생성하지 않고, 실제 접촉점 주변 약 10% 구면 범위에만 700ms 이내의 국소 impact 흔적을 적용하도록 수정했습니다.',
                   '- 충돌 후 살아남은 큰 천체 위에 동일 크기의 검은 shell/ghost sphere가 겹치던 현상을 제거했습니다.',
                   '- survivor의 표면 정체성 seed와 렌더 body lookup seed를 분리해 흡수 후 비항성 천체가 self-luminous/glow 상태로 고착될 수 있던 경로를 제거했습니다.',
+                  '- world-space contact normal을 body mesh local-space로 변환해 회전된 천체에서도 국소 충돌 흔적이 실제 접촉면에 고정되도록 수정했습니다.',
                   '',
                   '### Added',
                   '- survivor absorption과 actual disruption을 분리 검증하는 브라우저 시각 회귀를 추가하고 contact/150/350/700/1100/1600ms 단계 캡처 및 survivor 반대 hemisphere 변화 검사를 추가했습니다.',
                   '',
                   '',
-              ]
+              ])
               marker = '## [0.19.2] - 2026-08-26'
               if marker not in text:
                   raise SystemExit('v0.19.2 changelog marker not found')
-              path.write_text(text.replace(marker, '\n'.join(lines) + marker, 1), encoding='utf-8')
+              changelog.write_text(text.replace(marker, section + marker, 1), encoding='utf-8')
           PY
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -128,15 +157,13 @@ jobs:
       - name: Start production preview
         run: |
           npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/3bp-preview.log 2>&1 &
-          echo $! > /tmp/3bp-preview.pid
           for attempt in {1..30}; do
-            if curl -fsS http://127.0.0.1:4173/3BP/ >/dev/null; then
-              exit 0
-            fi
+            curl -fsS http://127.0.0.1:4173/3BP/ >/dev/null && exit 0
             sleep 1
           done
           cat /tmp/3bp-preview.log
           exit 1
+
       - name: Stellar collision browser visual regression
         run: python scripts/visualStellarCollisionRegression.py
       - name: Strict stellar collision visual gate
@@ -148,55 +175,29 @@ jobs:
       - name: Survivor absorption browser visual regression
         run: python scripts/survivorAbsorptionVisualRegression.py
       - name: Actual disruption browser visual regression
+        if: always()
         run: python scripts/actualDisruptionVisualRegression.py
-      - name: Upload stellar collision visual captures
+
+      - name: Upload visual captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-collision-visual-regression
-          path: visual-regression-artifacts
+          name: collision-visual-regressions
+          path: |
+            visual-regression-artifacts
+            collision-watch-visual-artifacts
+            non-stellar-destruction-visual-artifacts
+            survivor-absorption-visual-artifacts
+            actual-disruption-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
-      - name: Upload collision watch visual captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: collision-watch-visual-regression
-          path: collision-watch-visual-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload non-stellar destruction visual captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: non-stellar-destruction-visual-regression
-          path: non-stellar-destruction-visual-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload survivor absorption visual captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: survivor-absorption-visual-regression
-          path: survivor-absorption-visual-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload actual disruption visual captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: actual-disruption-visual-regression
-          path: actual-disruption-visual-artifacts
-          if-no-files-found: warn
-          retention-days: 7
+
       - name: Commit validated v0.19.3 changes
         if: github.event_name == 'push' && success()
         run: |
-          if git diff --quiet -- CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts scripts/nonStellarDestructionVisualRegression.py; then
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts scripts/nonStellarDestructionVisualRegression.py
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m "fix: keep survivor impacts local and surface-stable"
           git push
