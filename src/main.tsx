@@ -28,6 +28,10 @@ if (visualRegression === 'stellar-topology') {
   void import('./visualRegression/SurvivorAbsorptionVisualHarness').then(({ SurvivorAbsorptionVisualHarness }) => {
     root.render(<SurvivorAbsorptionVisualHarness />)
   })
+} else if (visualRegression === 'absorption-continuity') {
+  void import('./visualRegression/AbsorptionContinuityVisualHarness').then(({ AbsorptionContinuityVisualHarness }) => {
+    root.render(<AbsorptionContinuityVisualHarness />)
+  })
 } else {
   root.render(
     <StrictMode>

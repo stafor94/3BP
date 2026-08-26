@@ -25,6 +25,11 @@ const CONTACT_RESOLUTION_DT = 1e-8
 const TRACKING_G = 1
 const EXTREME_MASS_RATIO_ABSORPTION_MAX_RATIO = 0.02
 const EXTREME_MASS_RATIO_ABSORPTION_MAX_SPEED_RATIO = 1.05
+const ABSORPTION_SINK_START_PROGRESS = 0.18
+const ABSORPTION_COLLAPSE_START_PROGRESS = 0.32
+const ABSORPTION_SINK_FRACTION = 0.44
+const ABSORPTION_MIN_RADIUS_SCALE = 0.06
+const ABSORPTION_EJECTA_LIFETIME = 0.55
 
 // Large solid fragments behave as long-lived asteroids. Keep the cap deliberately
 // small so N-body cost remains predictable even after many collisions.
@@ -131,7 +136,7 @@ function finalizePhysicalBodies(input: BodyState[], stepped: BodyState[], dt: nu
       if (body.bodyType === 'effect' && body.name === COLLISION_SPARK_NAME) {
         return {
           ...body,
-          lifetime: 0.9,
+          lifetime: Math.min(body.lifetime ?? 0.9, 0.9),
         }
       }
 
@@ -146,7 +151,12 @@ function finalizePhysicalBodies(input: BodyState[], stepped: BodyState[], dt: nu
 
 function advancePhysicalBodies(input: BodyState[], dt: number) {
   const stepped = stepPhysicsBodies(input, dt)
-  const withMassCorrection = normalizeExtremeMassRatioAbsorption(input, stepped, dt)
+  const withLocalizedAbsorptionEjecta = localizeExtremeAbsorptionEjecta(input, stepped, dt)
+  const withMassCorrection = normalizeExtremeMassRatioAbsorption(
+    input,
+    withLocalizedAbsorptionEjecta,
+    dt,
+  )
   const withTrackingContinuity = attachAbsorptionTrackingContinuity(input, withMassCorrection, dt)
   return finalizePhysicalBodies(input, withTrackingContinuity, dt)
 }
@@ -408,6 +418,135 @@ function isAbsorptionCollision(
   return geometry.grazing < 0.72 && geometry.speedRatio < 2.05
 }
 
+function normalizeDirection(value: Vec3, fallback: Vec3): Vec3 {
+  const length = Math.hypot(value.x, value.y, value.z)
+  if (length > 1e-10) {
+    return { x: value.x / length, y: value.y / length, z: value.z / length }
+  }
+  const fallbackLength = Math.hypot(fallback.x, fallback.y, fallback.z)
+  if (fallbackLength > 1e-10) {
+    return {
+      x: fallback.x / fallbackLength,
+      y: fallback.y / fallbackLength,
+      z: fallback.z / fallbackLength,
+    }
+  }
+  return { x: 1, y: 0, z: 0 }
+}
+
+function localizeExtremeAbsorptionEjecta(
+  input: BodyState[],
+  stepped: BodyState[],
+  dt: number,
+): BodyState[] {
+  const collisionPair = findNewCollisionPair(input, stepped, dt)
+  if (!collisionPair) return stepped
+
+  const { bodyA, bodyB } = collisionPair
+  const mode = inferCollisionPresentationMode(stepped, bodyA, bodyB)
+  if (mode !== 'merge') return stepped
+  if (
+    getEffectiveBodyType(bodyA) === 'star' ||
+    getEffectiveBodyType(bodyB) === 'star'
+  ) return stepped
+
+  const geometry = getTrackingCollisionGeometry(bodyA, bodyB)
+  if (!isExtremeMassRatioLowEnergyAbsorption(bodyA, bodyB, geometry)) return stepped
+
+  const remnant = stepped.find((body) =>
+    body.bodyType !== 'effect' &&
+    body.bodyType !== 'fragment' &&
+    body.id !== bodyA.id &&
+    body.id !== bodyB.id &&
+    isBodyDescendedFrom(body.id, bodyA.id) &&
+    isBodyDescendedFrom(body.id, bodyB.id),
+  )
+  if (!remnant) return stepped
+
+  const delta = {
+    x: bodyB.position.x - bodyA.position.x,
+    y: bodyB.position.y - bodyA.position.y,
+    z: bodyB.position.z - bodyA.position.z,
+  }
+  const relativeVelocity = {
+    x: bodyB.velocity.x - bodyA.velocity.x,
+    y: bodyB.velocity.y - bodyA.velocity.y,
+    z: bodyB.velocity.z - bodyA.velocity.z,
+  }
+  const normal = normalizeDirection(delta, relativeVelocity)
+  const surfaceA = {
+    x: bodyA.position.x + normal.x * bodyA.radius,
+    y: bodyA.position.y + normal.y * bodyA.radius,
+    z: bodyA.position.z + normal.z * bodyA.radius,
+  }
+  const surfaceB = {
+    x: bodyB.position.x - normal.x * bodyB.radius,
+    y: bodyB.position.y - normal.y * bodyB.radius,
+    z: bodyB.position.z - normal.z * bodyB.radius,
+  }
+  const contactPoint = {
+    x: (surfaceA.x + surfaceB.x) * 0.5,
+    y: (surfaceA.y + surfaceB.y) * 0.5,
+    z: (surfaceA.z + surfaceB.z) * 0.5,
+  }
+  const totalMass = Math.max(bodyA.mass + bodyB.mass, 1e-9)
+  const centerPosition = {
+    x: (bodyA.position.x * bodyA.mass + bodyB.position.x * bodyB.mass) / totalMass,
+    y: (bodyA.position.y * bodyA.mass + bodyB.position.y * bodyB.mass) / totalMass,
+    z: (bodyA.position.z * bodyA.mass + bodyB.position.z * bodyB.mass) / totalMass,
+  }
+  const centerVelocity = getCenterVelocity(bodyA, bodyB)
+  const minRadius = Math.max(Math.min(bodyA.radius, bodyB.radius), 1e-6)
+
+  return stepped.map((body) => {
+    const isEjecta = body !== remnant &&
+      body.mass > 0 &&
+      (body.bodyType === 'fragment' || body.bodyType === 'effect') &&
+      isBodyDescendedFrom(body.id, bodyA.id) &&
+      isBodyDescendedFrom(body.id, bodyB.id)
+    if (!isEjecta) return body
+
+    const displacement = {
+      x: body.position.x - centerPosition.x,
+      y: body.position.y - centerPosition.y,
+      z: body.position.z - centerPosition.z,
+    }
+    const velocityDelta = {
+      x: body.velocity.x - centerVelocity.x,
+      y: body.velocity.y - centerVelocity.y,
+      z: body.velocity.z - centerVelocity.z,
+    }
+    const direction = normalizeDirection(displacement, velocityDelta)
+    const radiusFraction = Math.min(1, Math.max(0, body.radius / minRadius))
+    const spawnOffset = minRadius * (0.055 + radiusFraction * 0.025)
+
+    return {
+      ...body,
+      name: COLLISION_SPARK_NAME,
+      bodyType: 'effect' as const,
+      position: {
+        x: contactPoint.x + direction.x * spawnOffset,
+        y: contactPoint.y + direction.y * spawnOffset,
+        z: contactPoint.z + direction.z * spawnOffset,
+      },
+      age: 0,
+      lifetime: ABSORPTION_EJECTA_LIFETIME,
+      effectVisual: {
+        ...(body.effectVisual ?? {}),
+        kind: 'collisionSpark',
+        direction: { ...direction },
+        normal: { ...normal },
+        stretch: 1.1,
+        widthScale: 0.82,
+        tailLength: 0.08,
+        brightness: 0.58,
+        turbulence: 0.08,
+        pulseStrength: 0.01,
+      },
+    }
+  })
+}
+
 function attachAbsorptionTrackingContinuity(
   input: BodyState[],
   stepped: BodyState[],
@@ -615,6 +754,39 @@ function animateCollider(
   }
 }
 
+function animateAbsorbedCollider(
+  body: BodyState,
+  impactPosition: Vec3,
+  absorberImpactPosition: Vec3,
+  progress: number,
+) {
+  const sinkProgress = smoothstep01(
+    (progress - ABSORPTION_SINK_START_PROGRESS) /
+      Math.max(1e-6, 1 - ABSORPTION_SINK_START_PROGRESS),
+  )
+  const collapseProgress = smoothstep01(
+    (progress - ABSORPTION_COLLAPSE_START_PROGRESS) /
+      Math.max(1e-6, 1 - ABSORPTION_COLLAPSE_START_PROGRESS),
+  )
+  const position = {
+    x: impactPosition.x +
+      (absorberImpactPosition.x - impactPosition.x) * sinkProgress * ABSORPTION_SINK_FRACTION,
+    y: impactPosition.y +
+      (absorberImpactPosition.y - impactPosition.y) * sinkProgress * ABSORPTION_SINK_FRACTION,
+    z: impactPosition.z +
+      (absorberImpactPosition.z - impactPosition.z) * sinkProgress * ABSORPTION_SINK_FRACTION,
+  }
+  const radiusScale = Math.max(
+    ABSORPTION_MIN_RADIUS_SCALE,
+    1 - collapseProgress * (1 - ABSORPTION_MIN_RADIUS_SCALE),
+  )
+
+  return {
+    ...animateCollider(body, position),
+    radius: body.radius * radiusScale,
+  }
+}
+
 function getTransitionBodies(transition: CollisionTransition) {
   const bodyA = transition.sourceBodies.find((body) => body.id === transition.bodyAId)
   const bodyB = transition.sourceBodies.find((body) => body.id === transition.bodyBId)
@@ -642,17 +814,47 @@ function buildCollisionImpactFrame(transition: CollisionTransition) {
     overlap,
   )
 
+  const nonStellarAbsorption =
+    isAbsorptionCollision(pair.bodyA, pair.bodyB, transition.mode) &&
+    getEffectiveBodyType(pair.bodyA) !== 'star' &&
+    getEffectiveBodyType(pair.bodyB) !== 'star'
+  const absorbedId = nonStellarAbsorption
+    ? pair.bodyA.mass < pair.bodyB.mass
+      ? pair.bodyA.id
+      : pair.bodyB.mass < pair.bodyA.mass
+        ? pair.bodyB.id
+        : null
+    : null
+  const absorberImpactPosition = absorbedId === pair.bodyA.id
+    ? impactPositions.bodyB
+    : impactPositions.bodyA
+
   return transition.sourceBodies
     .map((body) => {
       if (body.id === pair.bodyA.id) {
-        return animateCollider(body, impactPositions.bodyA)
+        return body.id === absorbedId
+          ? animateAbsorbedCollider(
+              body,
+              impactPositions.bodyA,
+              absorberImpactPosition,
+              progress,
+            )
+          : animateCollider(body, impactPositions.bodyA)
       }
       if (body.id === pair.bodyB.id) {
-        return animateCollider(body, impactPositions.bodyB)
+        return body.id === absorbedId
+          ? animateAbsorbedCollider(
+              body,
+              impactPositions.bodyB,
+              absorberImpactPosition,
+              progress,
+            )
+          : animateCollider(body, impactPositions.bodyB)
       }
       return advanceDisplayBody(body, transition.elapsed)
     })
     .filter((body) => !isExpiredEffect(body))
+
 }
 
 function buildContactPhysicalFrame(transition: CollisionTransition) {

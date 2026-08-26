@@ -256,18 +256,25 @@ def main() -> None:
             ratio = surface_counts[name] / baseline_count
             require(0.82 <= ratio <= 1.18, f'{name}: survivor silhouette/surface area changed excessively: ratio={ratio:.3f}')
 
+        settled_names = ['04-700ms', '05-1100ms', '06-1600ms']
+        settled_cap = [impact[name]['mean_difference'] for name in settled_names]
+        settled_floor = min(settled_cap)
         require(
-            impact['02-150ms']['mean_difference'] >= 4.0,
-            '150ms contact cap must show a visible local collision response',
+            impact['02-150ms']['mean_difference'] - settled_floor >= 2.0,
+            '150ms contact cap must rise visibly above the settled camera/lighting baseline',
         )
         require(
-            impact['03-350ms']['mean_difference'] >= 2.0,
-            '350ms contact cap must retain a visible local impact trace',
+            impact['03-350ms']['mean_difference'] - settled_floor >= 1.0,
+            '350ms contact cap must retain a visible local impact trace above the settled baseline',
         )
-        for name in ['04-700ms', '05-1100ms', '06-1600ms']:
+        require(
+            max(settled_cap) - min(settled_cap) <= 0.75,
+            'survivor contact cap must converge by 700ms instead of retaining an evolving impact effect',
+        )
+        for name in settled_names:
             require(
-                impact[name]['mean_difference'] <= 1.0,
-                f'{name}: survivor impact should have faded from the contact cap',
+                impact[name]['mean_difference'] <= opposite[name]['mean_difference'] + 2.0,
+                f'{name}: settled contact cap remains materially above the unaffected hemisphere baseline',
             )
         print('survivor absorption browser visual regression: ok')
     except Exception:
