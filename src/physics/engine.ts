@@ -550,6 +550,84 @@ function getStellarEjectaBias(a: BodyState, b: BodyState, geometry: CollisionGeo
   }
 }
 
+function projectToCollisionPlane(value: Vec3, geometry: CollisionGeometry, fallback: Vec3) {
+  return normalize(
+    sub(value, scale(geometry.normal, dot(value, geometry.normal))),
+    fallback,
+  )
+}
+
+function getStableEjectaSeed(a: BodyState, b: BodyState, geometry: CollisionGeometry) {
+  const scalar = (value: number) => Number.isFinite(value) ? value.toFixed(9) : String(value)
+  return [
+    a.id,
+    b.id,
+    scalar(a.position.x),
+    scalar(a.position.y),
+    scalar(a.position.z),
+    scalar(b.position.x),
+    scalar(b.position.y),
+    scalar(b.position.z),
+    scalar(a.velocity.x),
+    scalar(a.velocity.y),
+    scalar(a.velocity.z),
+    scalar(b.velocity.x),
+    scalar(b.velocity.y),
+    scalar(b.velocity.z),
+    scalar(geometry.grazing),
+    scalar(geometry.headOn),
+  ].join(':')
+}
+
+function selectStellarEjectaSource(
+  seed: string,
+  index: number,
+  geometry: CollisionGeometry,
+  stellarBias: StellarEjectaBias,
+) {
+  const smallerSourceProbability = clamp(
+    0.55 + stellarBias.massAsymmetry * 0.25 + geometry.grazing * 0.05,
+    0.55,
+    0.85,
+  )
+  return seededScalar(`${seed}:source:${index}`) < smallerSourceProbability
+    ? stellarBias.smaller
+    : stellarBias.larger
+}
+
+function getStellarEjectaSpawnPosition(
+  source: BodyState,
+  a: BodyState,
+  geometry: CollisionGeometry,
+  seed: string,
+  index: number,
+  is2d: boolean,
+  large: boolean,
+  ejectaRadius: number,
+) {
+  const contactNormal = source === a ? geometry.normal : scale(geometry.normal, -1)
+  const patchScale = large ? 0.13 : 0.22
+  const tangentOffset = (seededScalar(`${seed}:patch-tangent:${index}`) * 2 - 1) *
+    patchScale * (0.8 + geometry.grazing * 0.45)
+  let patchDirection = add(contactNormal, scale(geometry.tangent, tangentOffset))
+
+  if (!is2d) {
+    const referenceAxis: Vec3 = Math.abs(contactNormal.z) < 0.86
+      ? { x: 0, y: 0, z: 1 }
+      : { x: 0, y: 1, z: 0 }
+    const binormal = normalize(cross(contactNormal, geometry.tangent), cross(contactNormal, referenceAxis))
+    const binormalOffset = (seededScalar(`${seed}:patch-binormal:${index}`) * 2 - 1) *
+      (large ? 0.11 : 0.2) * (0.85 + geometry.headOn * 0.25)
+    patchDirection = add(patchDirection, scale(binormal, binormalOffset))
+  }
+
+  const surfaceDirection = normalize(patchDirection, contactNormal)
+  const surfacePoint = add(source.position, scale(surfaceDirection, source.radius))
+  const surfaceLift = source.radius * (0.006 + seededScalar(`${seed}:patch-lift:${index}`) * 0.008) +
+    ejectaRadius * (large ? 0.08 : 0.14)
+  return add(surfacePoint, scale(surfaceDirection, surfaceLift))
+}
+
 function makeCollisionFlash(
   a: BodyState,
   b: BodyState,
@@ -753,6 +831,7 @@ function getEjectaDirection(
   is2d: boolean,
   geometry: CollisionGeometry,
   stellarBias?: StellarEjectaBias,
+  large = false,
 ) {
   const randomDirection = seededUnit(seed, index, is2d)
   const randomProjected = sub(randomDirection, scale(geometry.normal, dot(randomDirection, geometry.normal)))
@@ -783,43 +862,58 @@ function getEjectaDirection(
 
   const { massAsymmetry, strippedDirection, relativeDirection, dominantTangentSign } = stellarBias
   const speedEnergy = clamp(geometry.speedRatio / 2.6, 0, 1)
+  const planarStripped = projectToCollisionPlane(strippedDirection, geometry, geometry.tangent)
+  const planarRelative = projectToCollisionPlane(relativeDirection, geometry, geometry.tangent)
 
   if (geometry.grazing > 0.6) {
-    // Most of a grazing stellar spray follows one sheared tangent direction.
-    // A minority counter-stream prevents a mechanically perfect one-sided fan.
-    const counterStream = index % 4 === 3
+    // Grazing collisions are stripping events: most streams share one dominant
+    // tangent direction, while only a sparse minority forms a counter-stream.
+    const counterStream = index % 5 === 4
     const sign = counterStream ? -dominantTangentSign : dominantTangentSign
-    const tangentWeight = clamp(0.64 + geometry.grazing * 0.2 + speedEnergy * 0.05, 0.68, 0.9)
-    const strippedWeight = 0.08 + massAsymmetry * 0.2
-    const relativeWeight = 0.05 + speedEnergy * 0.08
+    const tangentWeight = large
+      ? clamp(0.78 + geometry.grazing * 0.14 + speedEnergy * 0.03, 0.84, 0.95)
+      : clamp(0.73 + geometry.grazing * 0.16 + speedEnergy * 0.03, 0.79, 0.93)
+    const strippedWeight = 0.07 + massAsymmetry * 0.13
+    const relativeWeight = 0.035 + speedEnergy * 0.045
     const normalSign = index % 3 === 0 ? 1 : -1
-    const normalWeight = 0.025 + geometry.grazing * 0.035
-    const randomWeight = clamp(1 - tangentWeight - strippedWeight - relativeWeight, 0.06, 0.16)
+    const normalWeight = large
+      ? 0.01 + speedEnergy * 0.012
+      : 0.016 + speedEnergy * 0.02
+    const randomWeight = large ? 0.035 : 0.075
+    const alignedSplash = dot(splashRandom, geometry.tangent) * sign < 0
+      ? scale(splashRandom, -1)
+      : splashRandom
     return normalize(
       add(
         add(
-          add(scale(geometry.tangent, sign * tangentWeight), scale(strippedDirection, strippedWeight)),
-          add(scale(relativeDirection, relativeWeight), scale(geometry.normal, normalSign * normalWeight)),
+          add(scale(geometry.tangent, sign * tangentWeight), scale(planarStripped, strippedWeight)),
+          add(scale(planarRelative, relativeWeight), scale(geometry.normal, normalSign * normalWeight)),
         ),
-        scale(splashRandom, randomWeight),
+        scale(alignedSplash, randomWeight),
       ),
       scale(geometry.tangent, sign),
     )
   }
 
   if (geometry.headOn > 0.7) {
-    // Head-on collisions vent sideways from the compressed contact layer. Keep
-    // the spray short/thick in visuals, but derive its axis from the contact tangent.
+    // Vent compressed material mostly inside the plane perpendicular to the
+    // collision normal. In 2D this becomes the two ±tangent splash directions;
+    // in 3D seeded in-plane turbulence prevents a perfectly symmetric ring.
     const sign = index % 2 === 0 ? 1 : -1
-    const tangentWeight = 0.62 + geometry.headOn * 0.12
-    const randomWeight = 0.14 + speedEnergy * 0.05
-    const strippedWeight = 0.08 + massAsymmetry * 0.12
-    const normalWeight = 0.04 + speedEnergy * 0.035
+    const alignedSplash = dot(splashRandom, geometry.tangent) * sign < 0
+      ? scale(splashRandom, -1)
+      : splashRandom
+    const tangentWeight = large ? 0.64 : 0.52
+    const splashWeight = large ? 0.23 : 0.36
+    const strippedWeight = 0.055 + massAsymmetry * 0.075
+    const normalWeight = large
+      ? 0.012 + speedEnergy * 0.014
+      : 0.018 + speedEnergy * 0.02
     return normalize(
       add(
-        add(scale(geometry.tangent, sign * tangentWeight), scale(splashRandom, randomWeight)),
+        add(scale(geometry.tangent, sign * tangentWeight), scale(alignedSplash, splashWeight)),
         add(
-          scale(strippedDirection, strippedWeight),
+          scale(planarStripped, strippedWeight),
           scale(geometry.normal, (index % 3 === 0 ? 1 : -1) * normalWeight),
         ),
       ),
@@ -827,11 +921,11 @@ function getEjectaDirection(
     )
   }
 
-  const sign = index % 3 === 2 ? -dominantTangentSign : dominantTangentSign
+  const sign = index % 4 === 3 ? -dominantTangentSign : dominantTangentSign
   return normalize(
     add(
-      add(scale(geometry.tangent, sign * 0.48), scale(strippedDirection, 0.22 + massAsymmetry * 0.16)),
-      add(scale(relativeDirection, 0.12 + speedEnergy * 0.08), scale(splashRandom, 0.1)),
+      add(scale(geometry.tangent, sign * 0.58), scale(planarStripped, 0.2 + massAsymmetry * 0.12)),
+      add(scale(planarRelative, 0.1 + speedEnergy * 0.06), scale(splashRandom, large ? 0.05 : 0.1)),
     ),
     geometry.tangent,
   )
@@ -846,6 +940,7 @@ function makeStellarEffectVisual(
   count: number,
   largeCount: number,
   stellarBias: StellarEjectaBias,
+  source: BodyState,
   decision: CollisionDecision,
   seed: string,
 ): EffectVisualState {
@@ -854,12 +949,11 @@ function makeStellarEffectVisual(
   const stellarOutcome = decision.stellarOutcome
   const speedEnergy = clamp(geometry.speedRatio / 2.6, 0, 1)
   const geometryStretch = geometry.grazing * 2.4 - geometry.headOn * 0.45
-  const sizeStretch = large ? 0.15 : 0.58
+  const sizeStretch = large ? 0.02 : 0.64
   const variance = seededScalar(`${seed}:shape:${index}`)
   const widthVariance = seededScalar(`${seed}:width:${index}`)
   const tailVariance = seededScalar(`${seed}:tail:${index}`)
   const phaseOffset = seededScalar(`${seed}:phase:${index}`)
-  const sourceBias = stellarBias.massAsymmetry
   const outcomeTailBoost = stellarOutcome === 'hitAndRun'
     ? 0.34
     : stellarOutcome === 'partialDisruption'
@@ -882,12 +976,13 @@ function makeStellarEffectVisual(
       stellarCollision ? 6.8 : 5.8,
     ),
     widthScale: clamp(
-      0.92 - geometry.grazing * 0.35 + geometry.headOn * 0.12 + (widthVariance - 0.5) * 0.18,
+      0.92 - geometry.grazing * 0.35 + geometry.headOn * 0.12 + (widthVariance - 0.5) * 0.18 +
+        (large ? 0.07 : -0.035),
       0.42,
       1.08,
     ),
     tailLength: clamp(
-      0.38 + geometry.grazing * 0.72 + speedEnergy * 0.34 + (large ? 0.08 : 0.28) +
+      0.38 + geometry.grazing * 0.72 + speedEnergy * 0.34 + (large ? 0.02 : 0.34) +
         tailVariance * 0.22 + (stellarCollision ? 0.12 : 0) + outcomeTailBoost,
       0.35,
       1.9,
@@ -899,14 +994,14 @@ function makeStellarEffectVisual(
       stellarCollision ? 1.78 : 1.48,
     ),
     turbulence: clamp(
-      0.38 + geometry.grazing * 0.27 + speedEnergy * 0.2 + (large ? 0.04 : 0.14) +
+      0.38 + geometry.grazing * 0.27 + speedEnergy * 0.2 + (large ? -0.035 : 0.18) +
         (stellarCollision ? 0.08 : 0) + (stellarOutcome === 'partialDisruption' ? 0.08 : 0),
-      0.38,
+      0.34,
       1,
     ),
     pulseStrength: 0.035 + (1 - index / Math.max(count - 1, 1)) * 0.055,
     phaseOffset,
-    secondaryColor: index % 3 === 0 || sourceBias < 0.32
+    secondaryColor: source === stellarBias.smaller
       ? stellarBias.larger.color
       : stellarBias.smaller.color,
     temperatureBias: speedEnergy,
@@ -946,7 +1041,10 @@ function makeEjecta(
   )
   if (count <= 0) return []
 
-  const seed = `${a.id}:${b.id}:${serial}`
+  // Keep IDs serialised for uniqueness, but derive all ejecta randomness from
+  // collision state so replaying the same initial state produces the same patch,
+  // source selection, directions, speeds, and visual variation.
+  const seed = getStableEjectaSeed(a, b, geometry)
   const largeCount = stellarEjecta
     ? Math.min(
         count,
@@ -965,7 +1063,6 @@ function makeEjecta(
   const weightTotal = weights.reduce((sum, value) => sum + value, 0)
   const centerPosition = centerOfMassPosition(a, b)
   const centerVelocity = centerOfMassVelocity(a, b)
-  const contactPosition = collisionContactPoint(a, b, geometry.normal)
   const is2d =
     Math.abs(a.position.z) + Math.abs(b.position.z) + Math.abs(a.velocity.z) + Math.abs(b.velocity.z) < 1e-8
   const kickRatio = decision.mode === 'disrupt'
@@ -982,30 +1079,42 @@ function makeEjecta(
   ) * (stellarEjecta ? 1 + speedEnergy * 0.14 + geometry.grazing * 0.12 : 1)
   const contactScale = Math.max(a.radius, b.radius)
   const solidSpawnDistance = contactScale * (decision.mode === 'hitRun' ? 1.7 : 1.55)
-  const plasmaSpawnDistance = Math.min(a.radius, b.radius) * (0.08 + geometry.grazing * 0.08)
 
   return weights.map((weight, index) => {
     const share = weight / weightTotal
     const mass = requestedMass * share
     const volume = requestedVolume * share
     const radius = Math.cbrt(Math.max(volume, 1e-12))
-    const direction = getEjectaDirection(seed, index, is2d, geometry, stellarBias)
-    const speedNoise = 0.78 + seededScalar(`${seed}:speed:${index}`) * 0.72
-    const velocity = add(centerVelocity, scale(direction, baseKick * speedNoise))
-    const position = stellarEjecta
-      ? add(contactPosition, scale(direction, plasmaSpawnDistance + radius * 0.45))
-      : add(centerPosition, scale(direction, solidSpawnDistance + radius * 2.5))
+    const large = stellarEjecta && index < largeCount
+    const direction = getEjectaDirection(seed, index, is2d, geometry, stellarBias, large)
     const tiny = radius < MIN_PERSISTENT_FRAGMENT_RADIUS || mass < MIN_PERSISTENT_FRAGMENT_MASS
 
     if (stellarEjecta && stellarBias) {
-      const strippedSourceChance = 0.52 + stellarBias.massAsymmetry * 0.34
-      const source = seededScalar(`${seed}:source:${index}`) < strippedSourceChance
-        ? stellarBias.smaller
-        : stellarBias.larger
+      const source = selectStellarEjectaSource(seed, index, geometry, stellarBias)
+      const inheritedSourceWeight = large ? 0.82 : 0.62
+      const inheritedVelocity = add(
+        scale(source.velocity, inheritedSourceWeight),
+        scale(centerVelocity, 1 - inheritedSourceWeight),
+      )
+      const kickScale = large
+        ? 0.72 + seededScalar(`${seed}:speed:${index}`) * 0.34
+        : 0.98 + seededScalar(`${seed}:speed:${index}`) * 0.52
+      const velocity = add(inheritedVelocity, scale(direction, baseKick * kickScale))
+      const travelDirection = normalize(sub(velocity, centerVelocity), direction)
+      const position = getStellarEjectaSpawnPosition(
+        source,
+        a,
+        geometry,
+        seed,
+        index,
+        is2d,
+        large,
+        radius,
+      )
       const lifetimeNoise = seededScalar(`${seed}:life:${index}`)
       const lifetime = clamp(
         STELLAR_PLASMA_LIFETIME +
-          (index < largeCount ? 0.18 : -0.08) +
+          (large ? 0.18 : -0.08) +
           speedEnergy * 0.22 +
           lifetimeNoise * 0.2 +
           (stellarCollision ? 0.12 : -0.08),
@@ -1028,17 +1137,21 @@ function makeEjecta(
           a,
           b,
           geometry,
-          direction,
+          travelDirection,
           index,
           count,
           largeCount,
           stellarBias,
+          source,
           decision,
           seed,
         ),
       }
     }
 
+    const speedNoise = 0.78 + seededScalar(`${seed}:speed:${index}`) * 0.72
+    const velocity = add(centerVelocity, scale(direction, baseKick * speedNoise))
+    const position = add(centerPosition, scale(direction, solidSpawnDistance + radius * 2.5))
     const source = index % 2 === 0 ? a : b
     return {
       id: `${a.id}+${b.id}+${tiny ? 'fx' : 'frag'}${serial}-${index}`,
