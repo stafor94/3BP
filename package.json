@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "check:version": "node scripts/versioningRegression.mjs",
     "check:physics": "node scripts/runPhysicsRegression.mjs",
-    "build": "npm run check:physics && tsc -b && vite build",
+    "build": "npm run check:version && npm run check:physics && tsc -b && vite build",
     "preview": "vite preview",
     "bump:patch": "npm version patch --no-git-tag-version",
     "bump:minor": "npm version minor --no-git-tag-version",
