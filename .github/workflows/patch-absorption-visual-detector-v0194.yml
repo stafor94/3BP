@@ -1,0 +1,179 @@
+name: Patch absorption continuity visual detector v0.19.4
+
+on:
+  push:
+    branches:
+      - fix/absorption-pop-continuity-v0.19.4
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ contains(github.event.head_commit.message, '[patch-absorption-detector]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/absorption-pop-continuity-v0.19.4
+      - name: Correct browser visual detector
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/absorptionContinuityVisualRegression.py')
+          text = path.read_text(encoding='utf-8')
+
+          start = text.index('def cyan_pixels(path: Path) -> int:\n')
+          end = text.index('\n\ndef main() -> None:\n', start)
+          replacement = '''def primary_geometry(path: Path) -> tuple[float, float, float]:
+              image = Image.open(path).convert('RGB')
+              width, height = image.size
+              points: list[tuple[int, int]] = []
+              for y in range(int(height * 0.20), int(height * 0.80)):
+                  for x in range(int(width * 0.25), int(width * 0.75)):
+                      r, g, b = image.getpixel((x, y))
+                      if r >= 28 and r >= g * 1.08 and r >= b * 1.15:
+                          points.append((x, y))
+              require(len(points) >= 500, 'baseline primary body is not detectable')
+              center_x = sum(x for x, _ in points) / len(points)
+              center_y = sum(y for _, y in points) / len(points)
+              radius = max(
+                  max(x for x, _ in points) - center_x,
+                  center_x - min(x for x, _ in points),
+              )
+              return center_x, center_y, radius
+
+
+          def visible_impactor_pixels(
+              path: Path,
+              geometry: tuple[float, float, float],
+          ) -> int:
+              image = Image.open(path).convert('RGB')
+              width, height = image.size
+              center_x, center_y, radius = geometry
+              x0 = max(0, int(center_x + radius * 0.65))
+              x1 = min(width, int(center_x + radius * 2.10) + 1)
+              y0 = max(0, int(center_y - radius * 0.90))
+              y1 = min(height, int(center_y + radius * 0.90) + 1)
+              count = 0
+              for y in range(y0, y1):
+                  for x in range(x0, x1):
+                      r, g, b = image.getpixel((x, y))
+                      brightest = max(r, g, b)
+                      darkest = min(r, g, b)
+                      if 15 <= brightest <= 90 and brightest - darkest <= 25:
+                          count += 1
+              return count
+
+
+          def annular_changed_fraction(
+              before_path: Path,
+              after_path: Path,
+              geometry: tuple[float, float, float],
+          ) -> float:
+              before = Image.open(before_path).convert('RGB')
+              after = Image.open(after_path).convert('RGB')
+              center_x, center_y, radius = geometry
+              changed = 0
+              samples = 0
+              inner = radius * 1.40
+              outer = radius * 2.50
+              x0 = max(0, int(center_x - outer))
+              x1 = min(before.width, int(center_x + outer) + 1)
+              y0 = max(0, int(center_y - outer))
+              y1 = min(before.height, int(center_y + outer) + 1)
+              for y in range(y0, y1):
+                  for x in range(x0, x1):
+                      distance = math.hypot(x - center_x, y - center_y)
+                      if distance < inner or distance > outer:
+                          continue
+                      a = before.getpixel((x, y))
+                      b = after.getpixel((x, y))
+                      mean_difference = sum(abs(a[i] - b[i]) for i in range(3)) / 3.0
+                      samples += 1
+                      if mean_difference > 8.0:
+                          changed += 1
+              require(samples > 0, 'annular visual comparison mask is empty')
+              return changed / samples
+          '''
+          text = text[:start] + replacement + text[end:]
+
+          text = text.replace(
+              "        cyan_counts: dict[int, int] = {}\n",
+              "",
+          )
+          text = text.replace(
+              "            cyan_counts[step] = cyan_pixels(captures[step])\n",
+              "",
+          )
+          text = text.replace(
+              "        step16_components = detached_component_metrics(captures[16])\n        time.sleep(0.75)\n        post_fade = capture_canvas(driver, '17-post-fade')\n        post_fade_components = detached_component_metrics(post_fade)\n",
+              "        geometry = primary_geometry(captures[0])\n        impactor_counts = {\n            step: visible_impactor_pixels(path, geometry)\n            for step, path in captures.items()\n        }\n        time.sleep(0.75)\n        post_fade = capture_canvas(driver, '17-post-fade')\n        result_pop_fraction = annular_changed_fraction(captures[15], captures[16], geometry)\n        late_effect_fraction = annular_changed_fraction(captures[16], post_fade, geometry)\n",
+          )
+          text = text.replace(
+              "            'cyan_pixels': cyan_counts,\n            'step16_components': step16_components,\n            'post_fade_components': post_fade_components,\n",
+              "            'baseline_primary_geometry': {\n                'center_x': geometry[0],\n                'center_y': geometry[1],\n                'radius': geometry[2],\n            },\n            'visible_impactor_pixels': impactor_counts,\n            'result_pop_changed_fraction': result_pop_fraction,\n            'late_effect_changed_fraction': late_effect_fraction,\n",
+          )
+
+          old_assertions = '''        require(
+              cyan_counts[0] >= 20,
+              'baseline impactor is not visibly detectable in the browser capture',
+          )
+          require(
+              cyan_counts[15] < cyan_counts[0] * 0.42,
+              'browser capture must show the small body visually collapsing before it disappears',
+          )
+          require(
+              int(step16_components['detached_count']) <= 1,
+              'physical result frame contains detached bright pop-in components away from the contact body',
+          )
+          require(
+              int(post_fade_components['detached_count']) == 0 or
+              float(post_fade_components['max_detached_aspect']) <= 2.6,
+              'late post-impact frame contains a detached elongated special-effect streak',
+          )
+          '''
+          new_assertions = '''        require(
+              impactor_counts[0] >= 500,
+              'baseline impactor is not visibly detectable in its local browser ROI',
+          )
+          require(
+              impactor_counts[8] < impactor_counts[0] * 0.90,
+              'browser capture must begin reducing the visible impactor before handoff',
+          )
+          require(
+              impactor_counts[12] < impactor_counts[0] * 0.65,
+              'browser capture must continue reducing the visible impactor during absorption',
+          )
+          require(
+              impactor_counts[15] < impactor_counts[0] * 0.45,
+              'browser capture must show the small body mostly sunk/collapsed before replacement',
+          )
+          require(
+              result_pop_fraction <= 0.01,
+              f'physical result frame introduced detached visual pop outside the contact body: {result_pop_fraction:.4f}',
+          )
+          require(
+              late_effect_fraction <= 0.01,
+              f'late post-impact frame introduced detached/elongated effect activity: {late_effect_fraction:.4f}',
+          )
+          '''
+          if old_assertions not in text:
+              raise SystemExit('expected absorption continuity assertion block was not found')
+          text = text.replace(old_assertions, new_assertions)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate patched detector syntax
+        run: python -m py_compile scripts/absorptionContinuityVisualRegression.py
+      - name: Commit detector fix and remove patch workflow
+        shell: bash
+        run: |
+          git config user.name "stafor94"
+          git config user.email "stafor@naver.com"
+          git rm .github/workflows/patch-absorption-visual-detector-v0194.yml
+          git add scripts/absorptionContinuityVisualRegression.py
+          git commit -m "test: measure absorption continuity in contact-local ROI"
+          git push origin HEAD:fix/absorption-pop-continuity-v0.19.4
