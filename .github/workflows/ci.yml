@@ -74,27 +74,23 @@ jobs:
               'function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Object3D, now: number) {',
               1,
           )
-          old_direction = '''  const direction = material.uniforms.uCollisionImpactDirection?.value
-          if (direction instanceof THREE.Vector3) {
-            direction.set(
-              transition.contactNormal.x,
-              transition.contactNormal.y,
-              transition.contactNormal.z,
-            ).normalize()
-          }'''
-          new_direction = '''  const direction = material.uniforms.uCollisionImpactDirection?.value
-          if (direction instanceof THREE.Vector3) {
-            const worldQuaternion = new THREE.Quaternion()
-            object.getWorldQuaternion(worldQuaternion)
-            direction.set(
-              transition.contactNormal.x,
-              transition.contactNormal.y,
-              transition.contactNormal.z,
-            ).applyQuaternion(worldQuaternion.invert()).normalize()
-          }'''
-          if old_direction not in text:
-              raise SystemExit('survivor impact direction block not found')
-          text = text.replace(old_direction, new_direction, 1)
+          start = text.index('function applySurvivorImpact(')
+          end = text.index('function applyCollisionProductReveal(', start)
+          block = text[start:end]
+          needle = '  const direction = material.uniforms.uCollisionImpactDirection?.value\n  if (direction instanceof THREE.Vector3) {'
+          replacement = needle + '\n    const worldQuaternion = new THREE.Quaternion()\n    object.getWorldQuaternion(worldQuaternion)'
+          if needle not in block:
+              raise SystemExit('survivor impact direction start not found')
+          block = block.replace(needle, replacement, 1)
+          normal_end = '    ).normalize()'
+          if normal_end not in block:
+              raise SystemExit('survivor impact normalize not found')
+          block = block.replace(
+              normal_end,
+              '    ).applyQuaternion(worldQuaternion.invert()).normalize()',
+              1,
+          )
+          text = text[:start] + block + text[end:]
           text = text.replace(
               '      applySurvivorImpact(material, now)',
               '      applySurvivorImpact(material, object, now)',
