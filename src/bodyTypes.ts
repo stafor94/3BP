@@ -1,10 +1,25 @@
 import { withComputedStellarState } from './starColors'
 import { getResolvedSurfaceProfile } from './surfacePresets'
-import type { BodyState, BodyType, PresetId } from './types'
+import type { BodyState, BodyType, PresetId, StellarEvolutionStage } from './types'
 
 export type UserBodyType = Extract<BodyType, 'star' | 'planet' | 'moon'>
 
 export const USER_BODY_TYPES: UserBodyType[] = ['star', 'planet', 'moon']
+
+type RuntimeStellarState = {
+  id: string
+  mass: number
+  stage: StellarEvolutionStage
+  phase01: number
+  radiusScale: number
+}
+
+// Collision results are created in the physics layer as fresh BodyState objects.
+// Keep a small lineage cache here so a new stellar remnant can inherit the
+// dominant progenitor's evolution state instead of silently resetting to a
+// main-sequence default. Preset/editor stars carry explicit state and therefore
+// continuously refresh this cache on load/reset.
+const runtimeStellarStateById = new Map<string, RuntimeStellarState>()
 
 const PRESET_BODY_TYPES: Record<PresetId, UserBodyType[]> = {
   singleDrift: ['star'],
@@ -72,8 +87,42 @@ export function inferUserBodyType(body: BodyState): UserBodyType {
   return 'moon'
 }
 
+function isBodyDescendedFrom(bodyId: string, ancestorId: string) {
+  const bodyParts = new Set(bodyId.split('+'))
+  return ancestorId.split('+').every((part) => bodyParts.has(part))
+}
+
+function ensureRuntimeStellarEvolution(body: BodyState) {
+  const explicitStage = body.stellarEvolutionStage
+  const explicitPhase = body.stellarEvolutionPhase01
+  const explicitRadiusScale = body.stellarRadiusScale
+
+  if (explicitStage === undefined) {
+    const inherited = Array.from(runtimeStellarStateById.values())
+      .filter((candidate) => candidate.id !== body.id && isBodyDescendedFrom(body.id, candidate.id))
+      .sort((a, b) => b.mass - a.mass)[0]
+
+    body.stellarEvolutionStage = inherited?.stage ?? 'mainSequence'
+    body.stellarEvolutionPhase01 = inherited?.phase01 ?? explicitPhase ?? 0.5
+    body.stellarRadiusScale = inherited?.radiusScale ?? explicitRadiusScale ?? 1
+  } else {
+    body.stellarEvolutionPhase01 = explicitPhase ?? 0.5
+    body.stellarRadiusScale = explicitRadiusScale ?? 1
+  }
+
+  runtimeStellarStateById.set(body.id, {
+    id: body.id,
+    mass: body.mass,
+    stage: body.stellarEvolutionStage,
+    phase01: body.stellarEvolutionPhase01,
+    radiusScale: body.stellarRadiusScale,
+  })
+}
+
 export function getEffectiveBodyType(body: BodyState): BodyType {
-  return body.bodyType ?? inferUserBodyType(body)
+  const type = body.bodyType ?? inferUserBodyType(body)
+  if (type === 'star') ensureRuntimeStellarEvolution(body)
+  return type
 }
 
 function defaultStellarPhase(body: BodyState, index: number) {
@@ -88,7 +137,7 @@ export function normalizeBodyForType(
   stellarPhase01?: number,
 ): BodyState {
   if (type === 'star') {
-    return withComputedStellarState({
+    const normalized = withComputedStellarState({
       ...body,
       bodyType: 'star',
       stellarEvolutionStage: body.stellarEvolutionStage ?? 'mainSequence',
@@ -98,6 +147,8 @@ export function normalizeBodyForType(
       surfaceVariant01: undefined,
       atmospherePresetId: undefined,
     })
+    ensureRuntimeStellarEvolution(normalized)
+    return normalized
   }
 
   if (type === 'planet' || type === 'moon' || type === 'fragment') {
