@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { installBodyLighting, syncBodyLightingState } from '../rendering/bodyLighting'
 import {
+  installLiveCollisionVfxBridge,
+  syncLiveCollisionVfxState,
+} from '../rendering/liveCollisionVfxBridge'
+import {
   createSimulationRenderer,
   type CollisionCameraFocus,
   type SimulationRenderState,
 } from '../rendering/simulationRenderer'
-import {
-  installStellarTopologyOcclusion,
-  syncStellarTopologyOcclusionState,
-} from '../rendering/stellarTopologyOccluder'
 import type { BodyState, TrailSampleBatch } from '../types'
 
 type Props = {
@@ -55,15 +55,17 @@ export function SimulationView({
     collisionCameraFocus,
   }
   syncBodyLightingState(bodies)
-  syncStellarTopologyOcclusionState(bodies)
+  syncLiveCollisionVfxState(bodies)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     installBodyLighting()
-    installStellarTopologyOcclusion()
+    // Install after body lighting so the bridge wraps the body material's real
+    // onBeforeRender callback instead of relying on WebGLRenderer.prototype.render.
+    installLiveCollisionVfxBridge()
     syncBodyLightingState(renderStateRef.current.bodies)
-    syncStellarTopologyOcclusionState(renderStateRef.current.bodies)
+    syncLiveCollisionVfxState(renderStateRef.current.bodies)
     return createSimulationRenderer(host, () => renderStateRef.current)
   }, [])
 
