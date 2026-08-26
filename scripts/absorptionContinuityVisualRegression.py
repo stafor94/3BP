@@ -175,18 +175,76 @@ def detached_component_metrics(path: Path) -> dict[str, object]:
     }
 
 
-def cyan_pixels(path: Path) -> int:
+def primary_geometry(path: Path) -> tuple[float, float, float]:
     image = Image.open(path).convert('RGB')
     width, height = image.size
-    x0, x1 = int(width * 0.25), int(width * 0.75)
-    y0, y1 = int(height * 0.20), int(height * 0.80)
+    points: list[tuple[int, int]] = []
+    for y in range(int(height * 0.20), int(height * 0.80)):
+        for x in range(int(width * 0.25), int(width * 0.75)):
+            r, g, b = image.getpixel((x, y))
+            if r >= 28 and r >= g * 1.08 and r >= b * 1.15:
+                points.append((x, y))
+    require(len(points) >= 500, 'baseline primary body is not detectable')
+    center_x = sum(x for x, _ in points) / len(points)
+    center_y = sum(y for _, y in points) / len(points)
+    radius = max(
+        max(x for x, _ in points) - center_x,
+        center_x - min(x for x, _ in points),
+    )
+    return center_x, center_y, radius
+
+
+def visible_impactor_pixels(
+    path: Path,
+    geometry: tuple[float, float, float],
+) -> int:
+    image = Image.open(path).convert('RGB')
+    width, height = image.size
+    center_x, center_y, radius = geometry
+    x0 = max(0, int(center_x + radius * 0.65))
+    x1 = min(width, int(center_x + radius * 2.10) + 1)
+    y0 = max(0, int(center_y - radius * 0.90))
+    y1 = min(height, int(center_y + radius * 0.90) + 1)
     count = 0
     for y in range(y0, y1):
         for x in range(x0, x1):
             r, g, b = image.getpixel((x, y))
-            if g >= 42 and b >= 48 and b >= r * 1.08 and g >= r * 1.04:
+            brightest = max(r, g, b)
+            darkest = min(r, g, b)
+            if 15 <= brightest <= 90 and brightest - darkest <= 25:
                 count += 1
     return count
+
+
+def annular_changed_fraction(
+    before_path: Path,
+    after_path: Path,
+    geometry: tuple[float, float, float],
+) -> float:
+    before = Image.open(before_path).convert('RGB')
+    after = Image.open(after_path).convert('RGB')
+    center_x, center_y, radius = geometry
+    changed = 0
+    samples = 0
+    inner = radius * 1.40
+    outer = radius * 2.50
+    x0 = max(0, int(center_x - outer))
+    x1 = min(before.width, int(center_x + outer) + 1)
+    y0 = max(0, int(center_y - outer))
+    y1 = min(before.height, int(center_y + outer) + 1)
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            distance = math.hypot(x - center_x, y - center_y)
+            if distance < inner or distance > outer:
+                continue
+            a = before.getpixel((x, y))
+            b = after.getpixel((x, y))
+            mean_difference = sum(abs(a[i] - b[i]) for i in range(3)) / 3.0
+            samples += 1
+            if mean_difference > 8.0:
+                changed += 1
+    require(samples > 0, 'annular visual comparison mask is empty')
+    return changed / samples
 
 
 def main() -> None:
@@ -208,26 +266,34 @@ def main() -> None:
 
         captures: dict[int, Path] = {}
         diagnostics: dict[int, dict[str, float | int | str]] = {}
-        cyan_counts: dict[int, int] = {}
         for step in CAPTURE_STEPS:
             set_visual_step(driver, step)
             name = f'{step:02d}-step'
             captures[step] = capture_canvas(driver, name)
             diagnostics[step] = read_diagnostics(driver)
-            cyan_counts[step] = cyan_pixels(captures[step])
 
-        step16_components = detached_component_metrics(captures[16])
+        geometry = primary_geometry(captures[0])
+        impactor_counts = {
+            step: visible_impactor_pixels(path, geometry)
+            for step, path in captures.items()
+        }
         time.sleep(0.75)
         post_fade = capture_canvas(driver, '17-post-fade')
-        post_fade_components = detached_component_metrics(post_fade)
+        result_pop_fraction = annular_changed_fraction(captures[15], captures[16], geometry)
+        late_effect_fraction = annular_changed_fraction(captures[16], post_fade, geometry)
 
         payload = {
             'physics_dt': 0.0015,
             'capture_steps': CAPTURE_STEPS,
             'diagnostics': diagnostics,
-            'cyan_pixels': cyan_counts,
-            'step16_components': step16_components,
-            'post_fade_components': post_fade_components,
+            'baseline_primary_geometry': {
+                'center_x': geometry[0],
+                'center_y': geometry[1],
+                'radius': geometry[2],
+            },
+            'visible_impactor_pixels': impactor_counts,
+            'result_pop_changed_fraction': result_pop_fraction,
+            'late_effect_changed_fraction': late_effect_fraction,
         }
         (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
         print(json.dumps(payload, indent=2))
@@ -269,21 +335,28 @@ def main() -> None:
             'absorption ejecta must remain compact rather than turning into long streak effects',
         )
         require(
-            cyan_counts[0] >= 20,
-            'baseline impactor is not visibly detectable in the browser capture',
+            impactor_counts[0] >= 500,
+            'baseline impactor is not visibly detectable in its local browser ROI',
         )
         require(
-            cyan_counts[15] < cyan_counts[0] * 0.42,
-            'browser capture must show the small body visually collapsing before it disappears',
+            impactor_counts[8] < impactor_counts[0] * 0.90,
+            'browser capture must begin reducing the visible impactor before handoff',
         )
         require(
-            int(step16_components['detached_count']) <= 1,
-            'physical result frame contains detached bright pop-in components away from the contact body',
+            impactor_counts[12] < impactor_counts[0] * 0.65,
+            'browser capture must continue reducing the visible impactor during absorption',
         )
         require(
-            int(post_fade_components['detached_count']) == 0 or
-            float(post_fade_components['max_detached_aspect']) <= 2.6,
-            'late post-impact frame contains a detached elongated special-effect streak',
+            impactor_counts[15] < impactor_counts[0] * 0.45,
+            'browser capture must show the small body mostly sunk/collapsed before replacement',
+        )
+        require(
+            result_pop_fraction <= 0.01,
+            f'physical result frame introduced detached visual pop outside the contact body: {result_pop_fraction:.4f}',
+        )
+        require(
+            late_effect_fraction <= 0.01,
+            f'late post-impact frame introduced detached/elongated effect activity: {late_effect_fraction:.4f}',
         )
         print('absorption continuity browser visual regression: ok')
     except Exception:
