@@ -1,9 +1,14 @@
 import * as THREE from 'three'
 import type { BodyState, Vec3 } from '../types'
 
-export const COLLISION_HANDOFF_DURATION_MS = 820
-export const COLLISION_PRODUCT_REVEAL_DELAY_MS = 70
-export const COLLISION_PRODUCT_REVEAL_DURATION_MS = 660
+export const COLLISION_HANDOFF_DURATION_MS = 1500
+export const COLLISION_IMPACT_HOLD_END_MS = 180
+export const COLLISION_FRACTURE_END_MS = 650
+export const COLLISION_BREAKUP_END_MS = 1100
+export const COLLISION_PRODUCT_REVEAL_DELAY_MS = 240
+export const COLLISION_PRODUCT_REVEAL_DURATION_MS = COLLISION_HANDOFF_DURATION_MS
+const COLLISION_DEBRIS_START_MS = 280
+const COLLISION_SOURCE_FADE_START_MS = 1080
 const MAX_ACTIVE_HANDOFFS = 8
 const PARTICLE_COUNT = 72
 
@@ -37,7 +42,7 @@ const handoffVertexShader = `
 const handoffFragmentShader = `
   uniform vec3 uColor;
   uniform float uOpacity;
-  uniform float uProgress;
+  uniform float uFractureProgress;
   uniform float uSeed;
 
   varying vec3 vObjectNormal;
@@ -69,6 +74,15 @@ const handoffFragmentShader = `
     );
   }
 
+  vec3 fractureOrigin(float seed) {
+    vec3 direction = vec3(
+      sin(seed * 0.071 + 0.8),
+      cos(seed * 0.113 + 1.7),
+      sin(seed * 0.157 + 2.6)
+    );
+    return normalize(direction + vec3(0.001, 0.002, 0.003));
+  }
+
   void main() {
     vec3 normal = normalize(vObjectNormal);
     vec3 worldNormal = normalize(vWorldNormal);
@@ -78,28 +92,33 @@ const handoffFragmentShader = `
     float fine = valueNoise(normal * 12.5 - seedOffset * 1.7);
     float breakupNoise = broad * 0.68 + fine * 0.32;
 
-    // Start with the complete outgoing surface and move the fracture threshold
-    // upward through the noise field. The previous implementation moved this in
-    // the opposite direction, which discarded most of the body on the first frame.
-    float breakupProgress = smoothstep(0.05, 1.0, uProgress);
-    float breakupEdge = mix(-0.14, 1.14, breakupProgress);
+    // Fracture begins at one deterministic contact-side patch and spreads across
+    // the original silhouette. uFractureProgress remains zero during impact hold,
+    // so the source surface is effectively intact for the opening phase.
+    float locality = 0.5 + 0.5 * dot(normal, fractureOrigin(uSeed));
+    float localizedProgress = clamp(
+      uFractureProgress * 1.24 - (1.0 - locality) * 0.34,
+      0.0,
+      1.0
+    );
+    float breakupEdge = mix(-0.30, 1.18, localizedProgress);
     float survivingSurface = smoothstep(
       breakupEdge - 0.11,
       breakupEdge + 0.13,
       breakupNoise
     );
     float fractureBand = 1.0 - smoothstep(
-      0.035,
-      0.17,
+      0.025,
+      0.15,
       abs(breakupNoise - breakupEdge)
     );
     float rim = pow(1.0 - max(dot(worldNormal, viewDirection), 0.0), 2.0);
-    float fractureGlow = fractureBand * smoothstep(0.04, 0.42, uProgress);
+    float fractureGlow = fractureBand * smoothstep(0.02, 0.48, localizedProgress);
     float alpha = uOpacity * survivingSurface * (0.76 + rim * 0.24);
     if (alpha <= 0.004) discard;
 
     vec3 hot = mix(uColor, vec3(1.0, 0.91, 0.75), 0.58);
-    vec3 color = mix(uColor, hot, clamp(fractureGlow * 0.92 + rim * 0.12, 0.0, 1.0));
+    vec3 color = mix(uColor, hot, clamp(fractureGlow * 0.96 + rim * 0.12, 0.0, 1.0));
     gl_FragColor = vec4(color, alpha);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -144,9 +163,28 @@ export function getCollisionHandoffProgress(elapsedMs: number) {
   return smooth01(elapsedMs / COLLISION_HANDOFF_DURATION_MS)
 }
 
+export function getCollisionHandoffFractureProgress(elapsedMs: number) {
+  if (elapsedMs <= COLLISION_IMPACT_HOLD_END_MS) return 0
+  return smooth01(
+    (elapsedMs - COLLISION_IMPACT_HOLD_END_MS) /
+      Math.max(1, COLLISION_BREAKUP_END_MS - COLLISION_IMPACT_HOLD_END_MS),
+  )
+}
+
+export function getCollisionHandoffSourceOpacity(elapsedMs: number) {
+  if (elapsedMs <= COLLISION_SOURCE_FADE_START_MS) return 0.99
+  return 0.99 * (1 - smooth01(
+    (elapsedMs - COLLISION_SOURCE_FADE_START_MS) /
+      Math.max(1, COLLISION_HANDOFF_DURATION_MS - COLLISION_SOURCE_FADE_START_MS),
+  ))
+}
+
 export function getCollisionHandoffParticleProgress(elapsedMs: number) {
-  const progress = getCollisionHandoffProgress(elapsedMs)
-  return smooth01((progress - 0.1) / 0.9)
+  if (elapsedMs <= COLLISION_DEBRIS_START_MS) return 0
+  return smooth01(
+    (elapsedMs - COLLISION_DEBRIS_START_MS) /
+      Math.max(1, COLLISION_HANDOFF_DURATION_MS - COLLISION_DEBRIS_START_MS),
+  )
 }
 
 export function getCollisionProductRevealProgress(elapsedMs: number) {
@@ -207,8 +245,8 @@ function isDescendantId(candidateId: string, sourceId: string) {
 
 function isRetirablePhysicalBody(body: BodyState) {
   // Stellar collisions already have a dedicated topology occlusion/remnant
-  // transition. Stacking this solid-body dissolve on top makes the remnant
-  // photosphere readable too early and weakens that higher-fidelity mask.
+  // transition. Stacking this solid-body breakup on top would damage the
+  // dedicated stellar presentation, so stars remain excluded here.
   return body.bodyType !== 'star' && body.bodyType !== 'effect' && body.bodyType !== 'fragment'
 }
 
@@ -249,8 +287,8 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     const material = new THREE.ShaderMaterial({
       uniforms: {
         uColor: { value: new THREE.Color(source.color) },
-        uOpacity: { value: 0.98 },
-        uProgress: { value: 0 },
+        uOpacity: { value: 0.99 },
+        uFractureProgress: { value: 0 },
         uSeed: { value: getBodySeed(source.id) * 1000 },
       },
       vertexShader: handoffVertexShader,
@@ -273,7 +311,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
       makeDirection(source.id, index),
     )
     const particleSpeeds = Array.from({ length: PARTICLE_COUNT }, (_, index) =>
-      0.48 + seededValue(getBodySeed(`${source.id}:speed:${index}`) * 31.7) * 1.12,
+      0.86 + seededValue(getBodySeed(`${source.id}:speed:${index}`) * 31.7) * 0.46,
     )
     const particleGeometry = new THREE.BufferGeometry()
     particleGeometry.setAttribute(
@@ -315,7 +353,8 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
 
   const updateVisual = (visual: HandoffVisual, now: number) => {
     const elapsedMs = Math.max(0, now - visual.startedAt)
-    const progress = getCollisionHandoffProgress(elapsedMs)
+    const overallProgress = getCollisionHandoffProgress(elapsedMs)
+    const fractureProgress = getCollisionHandoffFractureProgress(elapsedMs)
     const particleProgress = getCollisionHandoffParticleProgress(elapsedMs)
     const elapsedSeconds = elapsedMs / 1000
     const source = visual.source
@@ -331,15 +370,21 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
       source.position.y + drift.y,
       source.position.z + drift.z,
     )
-    const pulsePhase = Math.min(progress / 0.42, 1)
-    const pulse = Math.sin(pulsePhase * Math.PI) * 0.028 * (1 - progress)
-    visual.mesh.scale.setScalar(
-      Math.max(source.radius, 0.005) * (1 + pulse - progress * 0.065),
+    const impactPulseProgress = clamp01(elapsedMs / COLLISION_FRACTURE_END_MS)
+    const pulse = Math.sin(impactPulseProgress * Math.PI) * 0.018 * (1 - overallProgress)
+    const lateCollapse = smooth01(
+      (elapsedMs - COLLISION_BREAKUP_END_MS) /
+        Math.max(1, COLLISION_HANDOFF_DURATION_MS - COLLISION_BREAKUP_END_MS),
     )
-    visual.material.uniforms.uProgress.value = progress
-    visual.material.uniforms.uOpacity.value = 0.98 * (1 - progress * 0.16)
+    visual.mesh.scale.setScalar(
+      Math.max(source.radius, 0.005) * (1 + pulse - lateCollapse * 0.035),
+    )
+    visual.material.uniforms.uFractureProgress.value = fractureProgress
+    visual.material.uniforms.uOpacity.value = getCollisionHandoffSourceOpacity(elapsedMs)
 
-    const travel = source.radius * (0.7 + particleProgress * 2.15)
+    // Particles originate at the old surface and separate only after fracture is
+    // visibly underway; particleProgress is exactly zero for the first ~19%.
+    const travel = source.radius * (0.94 + particleProgress * 2.2)
     for (let index = 0; index < PARTICLE_COUNT; index += 1) {
       const offset = index * 3
       const direction = visual.particleDirections[index]
@@ -350,10 +395,11 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     }
     const position = visual.particleGeometry.getAttribute('position') as THREE.BufferAttribute
     position.needsUpdate = true
-    visual.particleMaterial.uniforms.uOpacity.value = particleProgress <= 0
+    const emissionEnvelope = particleProgress <= 0
       ? 0
-      : Math.sin(particleProgress * Math.PI) * Math.pow(1 - particleProgress, 0.22) * 0.82
-    visual.particleMaterial.uniforms.uPointSize.value = 2.0 + (1 - particleProgress) * 1.4
+      : Math.sin(particleProgress * Math.PI) * Math.pow(1 - particleProgress, 0.16)
+    visual.particleMaterial.uniforms.uOpacity.value = emissionEnvelope * 0.78
+    visual.particleMaterial.uniforms.uPointSize.value = 2.0 + (1 - particleProgress) * 1.25
 
     return elapsedMs >= COLLISION_HANDOFF_DURATION_MS
   }
