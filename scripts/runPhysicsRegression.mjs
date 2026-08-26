@@ -9,7 +9,9 @@ const outDir = resolve(root, '.tmp-physics-regression')
 const checks = [
   { source: 'physicsRegression.ts', output: 'physicsRegression.mjs' },
   { source: 'stellarCollisionRegression.ts', output: 'stellarCollisionRegression.mjs' },
+  { source: 'stellarEjectaRegression.ts', output: 'stellarEjectaRegression.mjs' },
   { source: 'collisionVfxRegression.ts', output: 'collisionVfxRegression.mjs' },
+  { source: 'collisionCameraFramingRegression.ts', output: 'collisionCameraFramingRegression.mjs' },
   { source: 'stellarRemnantTransitionRegression.ts', output: 'stellarRemnantTransitionRegression.mjs' },
   { source: 'stellarTopologyMaskRegression.ts', output: 'stellarTopologyMaskRegression.mjs' },
   { source: 'nonStellarRegression.ts', output: 'nonStellarRegression.mjs' },
