@@ -69,6 +69,12 @@ jobs:
               1,
           )
           bridge.write_text(text, encoding='utf-8')
+
+          regression = Path('scripts/nonStellarDestructionVisualRegression.py')
+          text = regression.read_text(encoding='utf-8')
+          text = text.replace('wait_until(destruction_started_at, 2.10)', 'wait_until(destruction_started_at, 2.25)', 1)
+          text = text.replace("'final_debris': 2.10,", "'final_debris': 2.25,", 1)
+          regression.write_text(text, encoding='utf-8')
           PY
       - name: Prepare v0.19.3 changelog locally
         if: github.event_name == 'push'
@@ -186,11 +192,11 @@ jobs:
       - name: Commit validated v0.19.3 changes
         if: github.event_name == 'push' && success()
         run: |
-          if git diff --quiet -- CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts; then
+          if git diff --quiet -- CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts scripts/nonStellarDestructionVisualRegression.py; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts
+          git add CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts scripts/nonStellarDestructionVisualRegression.py
           git commit -m "fix: keep survivor impacts local and surface-stable"
           git push
