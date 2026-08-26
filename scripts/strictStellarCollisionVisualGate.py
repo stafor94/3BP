@@ -56,9 +56,30 @@ def main() -> None:
         'remnant photosphere becomes too legible while the topology mask should still dominate',
     )
 
+    # The settled remnant photosphere is intentionally white-hot, so its own pixels remain
+    # in the hot-neutral mask after the impact envelope is gone. Requiring the total hot
+    # pixel count to fall close to zero therefore misclassifies a healthy single remnant as
+    # lingering impact VFX. Verify retirement by requiring a strong drop in brightness and,
+    # more importantly, contraction of the connected mask back toward a single-star footprint.
     require(
-        faded['hot_neutral_pixels'] <= retained['hot_neutral_pixels'] * 0.3,
-        'impact envelope remains too bright after its reveal window',
+        faded['hot_neutral_pixels'] <= retained['hot_neutral_pixels'] * 0.72,
+        'impact envelope remains too bright after its reveal window: '
+        f"retained={retained['hot_neutral_pixels']}px faded={faded['hot_neutral_pixels']}px",
+    )
+    require(
+        faded['largest_component_width'] <= retained['largest_component_width'] * 0.72,
+        'impact envelope remains too wide after its reveal window: '
+        f"retained={retained['largest_component_width']}px faded={faded['largest_component_width']}px",
+    )
+    require(
+        faded['largest_component_height'] <= retained['largest_component_height'] * 0.60,
+        'impact envelope remains too tall after its reveal window: '
+        f"retained={retained['largest_component_height']}px faded={faded['largest_component_height']}px",
+    )
+    require(
+        faded['largest_component_area'] <= retained['largest_component_area'] * 0.68,
+        'impact envelope retains too much screen area after its reveal window: '
+        f"retained={retained['largest_component_area']}px faded={faded['largest_component_area']}px",
     )
 
     print('strict stellar collision visual gate: ok')
