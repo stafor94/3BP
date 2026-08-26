@@ -53,6 +53,8 @@ function resolveTrackingSourceId(
 ) {
   if (!trackedBodyId) return null
 
+  const trackedCandidate = findTrackingCandidate(bodies, trackedBodyId)
+
   if (preferredSourceId) {
     const preferredSource = sourceBodies.find((body) => body.id === preferredSourceId)
     const preferredCandidate = preferredSource
@@ -60,7 +62,11 @@ function resolveTrackingSourceId(
       : null
     if (
       preferredCandidate &&
-      (preferredCandidate.id === trackedBodyId || preferredSourceId === trackedBodyId)
+      (
+        preferredCandidate.id === trackedBodyId ||
+        preferredSourceId === trackedBodyId ||
+        trackedCandidate?.id === preferredCandidate.id
+      )
     ) {
       return preferredSourceId
     }
@@ -69,9 +75,11 @@ function resolveTrackingSourceId(
   const exactSource = sourceBodies.find((body) => body.id === trackedBodyId)
   if (exactSource && findTrackingCandidate(bodies, exactSource.id)) return exactSource.id
 
-  return sourceBodies.find((source) =>
-    findTrackingCandidate(bodies, source.id)?.id === trackedBodyId,
-  )?.id ?? null
+  return sourceBodies.find((source) => {
+    const sourceCandidate = findTrackingCandidate(bodies, source.id)
+    return sourceCandidate?.id === trackedBodyId ||
+      (trackedCandidate !== null && sourceCandidate?.id === trackedCandidate.id)
+  })?.id ?? null
 }
 
 export function BodyTrackingRail({
@@ -134,7 +142,8 @@ export function BodyTrackingRail({
 
   // Validate before paint. App still resolves collision lineage for collision-watch
   // purposes, so this guard prevents an ordinary selection from visibly hopping to
-  // a disallowed descendant for even one frame.
+  // a disallowed descendant for even one frame. An already-authorized absorption
+  // lineage may change remnant ids again; resolve that lineage before clearing.
   useLayoutEffect(() => {
     if (!trackedBodyId) return
 
