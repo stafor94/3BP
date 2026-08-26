@@ -34,50 +34,50 @@ function testLivingOriginalBodyRemainsTrackable() {
   )
 }
 
-function testMergedDescendantKeepsSelectedLineage() {
-  const merged = makeBody('Alpha+Beta')
+function testGenericCollisionDescendantDoesNotInheritUserTracking() {
+  const merged = makeBody('Alpha+Beta', 'planet', 0.8)
   assert(
     findDirectTrackingCandidate([merged], 'Alpha') === null,
-    'a merged descendant must not count as the exact original body',
+    'a collision descendant must not count as the exact original body',
   )
   assert(
-    findTrackingCandidate([merged], 'Alpha')?.id === merged.id,
-    'a merged descendant must continue the selected source lineage',
-  )
-  assert(
-    findTrackingCandidate([merged], 'Beta')?.id === merged.id,
-    'either source lineage must remain trackable after a merge',
+    findTrackingCandidate([merged], 'Alpha') === null,
+    'generic collision lineage must not automatically inherit ordinary user tracking',
   )
 }
 
 function testExplicitAbsorptionContinuationStillWins() {
-  const remnant = makeBody('remnant')
+  const remnant = makeBody('Alpha+Beta', 'planet', 0.82)
   remnant.trackingContinuationIds = ['Alpha']
   assert(
     findTrackingCandidate([remnant], 'Alpha')?.id === remnant.id,
-    'an explicitly marked absorption remnant must inherit tracking',
+    'an explicitly marked absorption remnant must inherit authorized tracking',
   )
   assert(
     findTrackingCandidate([remnant], 'Beta') === null,
-    'explicit continuation must not invent an unrelated lineage',
+    'explicit continuation must not invent an unrelated source lineage',
   )
 }
 
-function testChainedCollisionKeepsAuthorizedLineage() {
-  const nextRemnant = makeBody('Alpha+Beta+Gamma')
-  nextRemnant.trackingContinuationIds = ['Alpha']
+function testChainedAbsorptionKeepsOnlyAuthorizedLineage() {
+  const nextRemnant = makeBody('Alpha+Beta+Gamma', 'planet', 0.78)
+  nextRemnant.trackingContinuationIds = ['Alpha', 'Alpha+Beta']
 
+  assert(
+    findTrackingCandidate([nextRemnant], 'Alpha')?.id === nextRemnant.id,
+    'authorized original source tracking must survive a chained absorption',
+  )
   assert(
     findTrackingCandidate([nextRemnant], 'Alpha+Beta')?.id === nextRemnant.id,
-    'a previous remnant lineage must follow a later collision descendant',
+    'the previous authorized remnant may continue through the next absorption',
   )
   assert(
-    findTrackingCandidate([nextRemnant], 'Beta+Delta') === null,
-    'chained tracking must not invent lineage parts that are not present',
+    findTrackingCandidate([nextRemnant], 'Beta') === null,
+    'unlisted collision participants must not inherit tracking through lineage alone',
   )
 }
 
-function testBothAbsorptionParticipantsCanFollowTheRemnant() {
+function testOnlyLargerAbsorberGetsPhysicsContinuation() {
   const large = makeBody('Large', 'planet', 1, 0.2)
   const small = makeBody('Small', 'moon', 0.1, 0.08)
   large.position = { x: -0.13, y: 0, z: 0 }
@@ -94,29 +94,29 @@ function testBothAbsorptionParticipantsCanFollowTheRemnant() {
     body.id.includes('Small'),
   )
 
-  assert(remnant, 'planet-moon absorption must produce a physical remnant after the contact presentation bridge')
+  assert(remnant, 'planet-moon absorption must produce a physical remnant after the contact bridge')
   assert(
     remnant.trackingContinuationIds?.includes('Large') === true,
-    'the physics layer may keep its explicit larger-absorber continuation metadata',
+    'the physics layer must keep the explicit larger-absorber continuation metadata',
   )
   assert(
     findTrackingCandidate(after, 'Large')?.id === remnant.id,
-    'tracking the larger absorber must continue onto the absorption remnant',
+    'tracking the larger absorber must continue onto the authorized remnant',
   )
   assert(
-    findTrackingCandidate(after, 'Small')?.id === remnant.id,
-    'tracking the absorbed source must stay on the surviving collision lineage instead of disengaging',
+    findTrackingCandidate(after, 'Small') === null,
+    'the absorbed source must not inherit ordinary tracking through generic lineage',
   )
 }
 
-function testDestroyedBodyFallsBackToLargestFragment() {
+function testDestroyedBodyNeverFallsBackToFragments() {
   const smallFragment = makeBody('Alpha+Beta+fragment-0', 'fragment', 0.02, 0.04)
-  const largeFragment = makeBody('Alpha+Beta+fragment-1', 'fragment', 0.08, 0.07)
+  const largeFragment = makeBody('Alpha+Beta+fragment-1', 'fragment', 0.8, 0.17)
   const effect = makeBody('Alpha+Beta+flash', 'effect', 0, 0.1)
 
   assert(
-    findTrackingCandidate([smallFragment, largeFragment, effect], 'Alpha')?.id === largeFragment.id,
-    'a destroyed body with only debris remaining must follow the largest surviving physical fragment',
+    findTrackingCandidate([smallFragment, largeFragment, effect], 'Alpha') === null,
+    'a disrupted body must not transfer ordinary tracking to even a large surviving fragment',
   )
   assert(
     findTrackingCandidate([effect], 'Alpha') === null,
@@ -124,12 +124,13 @@ function testDestroyedBodyFallsBackToLargestFragment() {
   )
 }
 
-function testPhysicalRemnantBeatsLargerFragment() {
-  const remnant = makeBody('Alpha+Beta', 'planet', 0.25, 0.15)
-  const fragment = makeBody('Alpha+Beta+fragment-0', 'fragment', 0.4, 0.18)
+function testFragmentCannotOverrideAuthorizedPhysicalRemnant() {
+  const remnant = makeBody('Alpha+Beta', 'planet', 0.61, 0.15)
+  remnant.trackingContinuationIds = ['Alpha']
+  const fragment = makeBody('Alpha+Beta+fragment-0', 'fragment', 0.9, 0.18)
   assert(
     findTrackingCandidate([fragment, remnant], 'Alpha')?.id === remnant.id,
-    'a surviving celestial remnant must be preferred over debris even when a fragment has more mass',
+    'only the authorized physical remnant may continue tracking even when a fragment is larger',
   )
 }
 
@@ -141,31 +142,55 @@ function testUnrelatedBodyIsNeverSelectedAsFallback() {
   )
 }
 
-function testOriginalHalfMassCutoffIsPreserved() {
+function testOriginalHalfMassCutoffIsInclusiveAtBoundary() {
   assert(
     isTrackingMassEligible(0.500001, 1),
     'a body retaining more than half of its original mass must remain trackable',
   )
   assert(
-    !isTrackingMassEligible(0.5, 1),
-    'a body at the existing half-mass cutoff must no longer be trackable',
+    isTrackingMassEligible(0.5, 1),
+    'a body at exactly half of its original mass must remain trackable',
   )
   assert(
-    !isTrackingMassEligible(0.49, 1),
-    'a body below half of its original mass must not be trackable',
+    !isTrackingMassEligible(0.499, 1),
+    'a body below half of its original mass must disengage immediately',
+  )
+}
+
+function testBelowHalfMassCannotUseAuthorizedDescendant() {
+  const remnant = makeBody('Alpha+Beta', 'planet', 0.49, 0.14)
+  remnant.trackingContinuationIds = ['Alpha']
+  const candidate = findTrackingCandidate([remnant], 'Alpha')
+  assert(candidate?.id === remnant.id, 'fixture must expose the authorized descendant before applying the mass gate')
+  assert(
+    !isTrackingMassEligible(candidate.mass, 1),
+    'the initial-mass gate must reject an authorized descendant below 50%',
+  )
+}
+
+function testBodyScaleEquivalentMassKeepsSameEligibilityRatio() {
+  assert(
+    isTrackingMassEligible(1.0, 2.0),
+    'scaling both the live candidate and captured baseline equally must preserve the 50% boundary',
+  )
+  assert(
+    !isTrackingMassEligible(0.98, 2.0),
+    'bodyScale must not reset the captured baseline to the current descendant mass',
   )
 }
 
 const tests = [
   testLivingOriginalBodyRemainsTrackable,
-  testMergedDescendantKeepsSelectedLineage,
+  testGenericCollisionDescendantDoesNotInheritUserTracking,
   testExplicitAbsorptionContinuationStillWins,
-  testChainedCollisionKeepsAuthorizedLineage,
-  testBothAbsorptionParticipantsCanFollowTheRemnant,
-  testDestroyedBodyFallsBackToLargestFragment,
-  testPhysicalRemnantBeatsLargerFragment,
+  testChainedAbsorptionKeepsOnlyAuthorizedLineage,
+  testOnlyLargerAbsorberGetsPhysicsContinuation,
+  testDestroyedBodyNeverFallsBackToFragments,
+  testFragmentCannotOverrideAuthorizedPhysicalRemnant,
   testUnrelatedBodyIsNeverSelectedAsFallback,
-  testOriginalHalfMassCutoffIsPreserved,
+  testOriginalHalfMassCutoffIsInclusiveAtBoundary,
+  testBelowHalfMassCannotUseAuthorizedDescendant,
+  testBodyScaleEquivalentMassKeepsSameEligibilityRatio,
 ]
 
 for (const test of tests) test()
