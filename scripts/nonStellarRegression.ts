@@ -145,12 +145,15 @@ function testTinySubEscapeMoonGrazeUsesImpactorScaledMassLoss() {
     bodyType: 'moon',
   }
   const initialMass = janus.mass + luna.mass
-  const resolved = stepFragmentAwareBodies([janus, luna], 1e-8)
+  let resolved: BodyState[] = [janus, luna]
+  for (let step = 0; step < 24; step += 1) {
+    resolved = stepFragmentAwareBodies(resolved, 0.0015)
+  }
   const remnant = resolved.find((body) =>
     body.bodyType === 'planet' && body.id.includes(janus.id) && body.id.includes(luna.id),
   )
 
-  assert(remnant, 'tiny sub-escape moon graze should resolve to one planet remnant')
+  assert(remnant, 'tiny sub-escape moon graze should resolve to one planet remnant after the contact presentation bridge')
   const escapedMass = initialMass - remnant.mass
   assert(
     escapedMass <= luna.mass * 0.35 + 1e-10,
