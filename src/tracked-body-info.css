@@ -1,0 +1,146 @@
+.viewport-speed-menu {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(100vw - 88px);
+}
+
+.viewport-tracked-body {
+  height: 40px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 12px;
+  border: 1px solid rgba(144, 169, 205, 0.17);
+  border-radius: 999px;
+  background: rgba(6, 10, 19, 0.7);
+  backdrop-filter: blur(16px);
+  color: #aab9cf;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tracked-body-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tracked-body-identity strong {
+  max-width: 128px;
+  overflow: hidden;
+  color: #edf3ff;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+}
+
+.tracked-body-type {
+  padding: 2px 5px;
+  border: 1px solid rgba(117, 148, 204, 0.28);
+  border-radius: 5px;
+  color: #c9d8f0;
+  background: rgba(59, 81, 124, 0.22);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.tracked-body-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: #71839d;
+}
+
+.tracked-body-metric::before {
+  content: '';
+  width: 1px;
+  height: 13px;
+  margin-right: 1px;
+  background: rgba(144, 169, 205, 0.16);
+}
+
+.tracked-body-metric b {
+  color: #c7d3e6;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.metric-short {
+  display: none;
+  color: #8294af;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+@media (max-width: 760px) {
+  .viewport-speed-menu {
+    gap: 6px;
+    max-width: calc(100vw - 70px);
+  }
+
+  .viewport-tracked-body {
+    height: 42px;
+    min-height: 42px;
+    max-width: calc(100vw - 228px);
+    gap: 7px;
+    padding: 5px 9px;
+    overflow: hidden;
+  }
+
+  .tracked-body-identity strong {
+    max-width: 92px;
+  }
+
+  .tracked-body-metric.radius {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .viewport-tracked-body {
+    max-width: calc(100vw - 214px);
+    gap: 5px;
+    padding-inline: 8px;
+  }
+
+  .tracked-body-identity {
+    gap: 4px;
+  }
+
+  .tracked-body-identity strong {
+    max-width: 64px;
+  }
+
+  .tracked-body-type {
+    padding-inline: 4px;
+  }
+
+  .metric-label {
+    display: none;
+  }
+
+  .metric-short {
+    display: inline;
+  }
+}
+
+@media (max-width: 410px) {
+  .viewport-tracked-body {
+    max-width: calc(100vw - 202px);
+  }
+
+  .tracked-body-type {
+    display: none;
+  }
+
+  .tracked-body-identity strong {
+    max-width: 52px;
+  }
+}

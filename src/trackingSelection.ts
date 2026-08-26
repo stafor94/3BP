@@ -1,7 +1,7 @@
 import type { BodyState } from './types'
 
 export function isTrackablePhysicalBody(body: BodyState) {
-  return body.bodyType !== 'fragment' && body.bodyType !== 'effect'
+  return body.bodyType !== 'effect'
 }
 
 export function findDirectTrackingCandidate(bodies: BodyState[], sourceId: string) {
@@ -15,32 +15,46 @@ function getSourceLineageIds(sourceId: string) {
   ])
 }
 
+function isLineageDescendant(candidateId: string, sourceId: string) {
+  const candidateParts = new Set(candidateId.split('+').map((part) => part.trim()).filter(Boolean))
+  const sourceParts = sourceId.split('+').map((part) => part.trim()).filter(Boolean)
+  return sourceParts.length > 0 && sourceParts.every((part) => candidateParts.has(part))
+}
+
+function selectBestTrackingCandidate(candidates: BodyState[]) {
+  return [...candidates].sort((a, b) => {
+    const aFragment = a.bodyType === 'fragment' ? 1 : 0
+    const bFragment = b.bodyType === 'fragment' ? 1 : 0
+    if (aFragment !== bFragment) return aFragment - bFragment
+    if (Math.abs(a.mass - b.mass) > 1e-12) return b.mass - a.mass
+    if (Math.abs(a.radius - b.radius) > 1e-12) return b.radius - a.radius
+    return a.id.localeCompare(b.id)
+  })[0] ?? null
+}
+
 /**
- * Ordinary/manual tracking prefers the exact selected physical body. If that
- * exact id disappeared during an absorption collision, only a physical remnant
- * explicitly marked by the physics layer as that body's tracking continuation
- * may inherit the selection. Generic merged descendants, fragments, effects,
- * and unrelated bodies are never selected as fallbacks.
- *
- * A tracked remnant id can itself become stale after a later absorption. In that
- * case, keep following only when the new physical remnant still carries an
- * explicit continuation id from the already-authorized tracked lineage. This
- * preserves the original tracking permission without turning generic merge ids
- * into an implicit fallback.
+ * Tracking follows the user's selected physical lineage until the user changes
+ * or clears the selection. Exact bodies win first, then explicit physics-layer
+ * continuations, then ordinary collision descendants. When a destructive
+ * collision leaves only fragments, the largest surviving fragment becomes the
+ * deterministic continuation instead of dropping tracking in the middle of the
+ * event. Rendering-only effect bodies are never valid tracking targets.
  */
 export function findTrackingCandidate(bodies: BodyState[], sourceId: string) {
   const exact = findDirectTrackingCandidate(bodies, sourceId)
   if (exact) return exact
 
-  const directContinuation = bodies.find((body) =>
-    isTrackablePhysicalBody(body) &&
-    body.trackingContinuationIds?.includes(sourceId),
-  )
-  if (directContinuation) return directContinuation
-
   const sourceLineageIds = getSourceLineageIds(sourceId)
-  return bodies.find((body) =>
+  const explicitContinuations = bodies.filter((body) =>
     isTrackablePhysicalBody(body) &&
     body.trackingContinuationIds?.some((continuationId) => sourceLineageIds.has(continuationId)),
-  ) ?? null
+  )
+  const explicit = selectBestTrackingCandidate(explicitContinuations)
+  if (explicit) return explicit
+
+  return selectBestTrackingCandidate(
+    bodies.filter((body) =>
+      isTrackablePhysicalBody(body) && isLineageDescendant(body.id, sourceId),
+    ),
+  )
 }

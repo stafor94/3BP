@@ -1,15 +1,18 @@
 import * as THREE from 'three'
 import type { BodyState } from '../types'
 import { createCollisionEffectsLayer } from './collisionEffectRenderer'
+import { createCollisionHandoffLayer } from './collisionHandoffLayer'
 import { createStellarImpactBurstLayer } from './stellarImpactBurstLayer'
 import { createStellarTopologyOcclusionLayer } from './stellarTopologyOccluder'
 
 type CollisionEffectsLayer = ReturnType<typeof createCollisionEffectsLayer>
+type CollisionHandoffLayer = ReturnType<typeof createCollisionHandoffLayer>
 type TopologyOcclusionLayer = ReturnType<typeof createStellarTopologyOcclusionLayer>
 type StellarImpactBurstLayer = ReturnType<typeof createStellarImpactBurstLayer>
 
 type LiveLayers = {
   collision: CollisionEffectsLayer
+  handoff: CollisionHandoffLayer
   topology: TopologyOcclusionLayer
   burst: StellarImpactBurstLayer
 }
@@ -41,6 +44,7 @@ function ensureLiveLayers(scene: THREE.Scene) {
 
   const created: LiveLayers = {
     collision: createCollisionEffectsLayer(scene),
+    handoff: createCollisionHandoffLayer(scene),
     topology: createStellarTopologyOcclusionLayer(scene),
     burst: createStellarImpactBurstLayer(scene),
   }
@@ -55,6 +59,7 @@ function updateLiveLayers(scene: THREE.Scene, camera: THREE.Camera) {
   // WebGLRenderer. Unlike the old WebGLRenderer.prototype.render monkeypatch,
   // it cannot be shadowed by the renderer instance's own render function.
   layers.collision.update(currentBodies, camera)
+  layers.handoff.update(currentBodies, now)
   layers.topology.update(currentBodies, camera, now)
   layers.burst.update(currentBodies, camera, now)
 }
