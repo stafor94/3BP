@@ -13,6 +13,7 @@ const checks = [
   { source: 'nonStellarRegression.ts', output: 'nonStellarRegression.mjs' },
   { source: 'trackingRegression.ts', output: 'trackingRegression.mjs' },
   { source: 'collisionWatchTimingRegression.ts', output: 'collisionWatchTimingRegression.mjs' },
+  { source: 'stellarEvolutionRegression.ts', output: 'stellarEvolutionRegression.mjs' },
 ]
 
 rmSync(outDir, { recursive: true, force: true })
