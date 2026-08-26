@@ -6,6 +6,24 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.3] - 2026-08-26
+
+### Changed
+- 비항성 충돌의 시각 outcome을 `survivor`, `absorbed`, `disrupted`, `merged-survivor`로 분리하고, ID lineage는 충돌 결과 연결에만 사용하며 파괴 판정 근거로 사용하지 않도록 변경했습니다.
+- 실제 `disrupted` 천체의 1.5초 handoff는 실제 접촉 법선에서 균열이 시작해 주변으로 전파된 뒤 구조 붕괴와 파편 reveal로 이어지도록 변경했습니다.
+- 흡수 충돌의 작은 피흡수체는 전체 구면 dissolve 대신 접촉면 쪽으로 압축·소멸되는 짧은 전환을 사용하도록 분리했습니다.
+
+### Fixed
+- 큰 천체가 작은 천체를 흡수해 대부분의 질량과 실루엣을 유지하는 경우에도 큰 천체 전체에 fracture/dissolve snapshot이 생성되던 문제를 수정했습니다.
+- 생존 천체에는 destruction snapshot·전역 crack·global discard·opacity fade를 생성하지 않고, 실제 접촉점 주변 약 10% 구면 범위에만 700ms 이내의 국소 impact 흔적을 적용하도록 수정했습니다.
+- 충돌 후 살아남은 큰 천체 위에 동일 크기의 검은 shell/ghost sphere가 겹치던 현상을 제거했습니다.
+- survivor의 표면 정체성 seed와 렌더 body lookup seed를 분리해 흡수 후 비항성 천체가 self-luminous/glow 상태로 고착될 수 있던 경로를 제거했습니다.
+- world-space contact normal을 body mesh local-space로 변환해 회전된 천체에서도 국소 충돌 흔적이 실제 접촉면에 고정되도록 수정했습니다.
+- bodyLighting이 최종 셰이더를 교체한 뒤 survivor impact 코드를 주입하도록 순서를 고쳐 국소 heat/crack가 실제 렌더 셰이더에서 누락되던 문제를 수정했습니다.
+
+### Added
+- survivor absorption과 actual disruption을 분리 검증하는 브라우저 시각 회귀를 추가하고 contact/150/350/700/1100/1600ms 단계 캡처 및 survivor 반대 hemisphere 변화 검사를 추가했습니다.
+
 ## [0.19.2] - 2026-08-26
 
 ### Changed

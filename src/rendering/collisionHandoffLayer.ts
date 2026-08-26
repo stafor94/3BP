@@ -1,5 +1,9 @@
 import * as THREE from 'three'
 import type { BodyState, Vec3 } from '../types'
+import {
+  findCollisionVisualTransitions,
+  type CollisionVisualTransition,
+} from './collisionVisualOutcome'
 
 export const COLLISION_HANDOFF_DURATION_MS = 1500
 export const COLLISION_IMPACT_HOLD_END_MS = 180
@@ -7,6 +11,7 @@ export const COLLISION_FRACTURE_END_MS = 650
 export const COLLISION_BREAKUP_END_MS = 1100
 export const COLLISION_PRODUCT_REVEAL_DELAY_MS = 240
 export const COLLISION_PRODUCT_REVEAL_DURATION_MS = COLLISION_HANDOFF_DURATION_MS
+export const COLLISION_ABSORPTION_DURATION_MS = 700
 const COLLISION_DEBRIS_START_MS = 280
 const COLLISION_SOURCE_FADE_START_MS = 1080
 const MAX_ACTIVE_HANDOFFS = 8
@@ -29,6 +34,17 @@ type HandoffVisual = {
   particlePositions: Float32Array
   particleDirections: Vec3[]
   particleSpeeds: number[]
+}
+
+type AbsorptionVisual = {
+  source: BodyState
+  startedAt: number
+  mesh: LiveBodyMesh
+  material: THREE.ShaderMaterial
+  baseOpacity: number
+  origin: THREE.Vector3
+  baseScale: THREE.Vector3
+  contactPoint: THREE.Vector3
 }
 
 const particleVertexShader = `
@@ -66,16 +82,14 @@ const preservedSurfaceFractureCode = `
   float handoffBroad = valueNoise(handoffNormal * 4.2 + handoffSeedOffset);
   float handoffFine = valueNoise(handoffNormal * 12.5 - handoffSeedOffset * 1.7);
   float handoffNoise = handoffBroad * 0.68 + handoffFine * 0.32;
-  vec3 handoffOrigin = normalize(vec3(
-    sin(uCollisionHandoffSeed * 0.071 + 0.8),
-    cos(uCollisionHandoffSeed * 0.113 + 1.7),
-    sin(uCollisionHandoffSeed * 0.157 + 2.6)
-  ) + vec3(0.001, 0.002, 0.003));
+  vec3 handoffOrigin = normalize(
+    uCollisionHandoffContactNormal + vec3(0.000001, 0.000002, 0.000003)
+  );
   float handoffLocality = 0.5 + 0.5 * dot(handoffNormal, handoffOrigin);
 
-  // Fracture is presentation-only during the 180-650ms phase. It begins at a
-  // small deterministic contact-side patch and spreads over the real surface,
-  // but it does not remove geometry yet.
+  // Destruction begins at the real contact side. The source remains intact
+  // during impact hold, then fracture reaches progressively farther from the
+  // contact patch before structural breakup is allowed to remove pixels.
   float handoffLocalProgress = clamp(
     uCollisionHandoffFracture * 1.06 - (1.0 - handoffLocality) * 0.62,
     0.0,
@@ -91,10 +105,8 @@ const preservedSurfaceFractureCode = `
     handoffCrack * smoothstep(0.035, 0.58, handoffLocalProgress);
   color = mix(color, vec3(1.0, 0.64, 0.30), handoffCrackStrength * 0.58);
 
-  // Structural loss is deliberately separate from fracture propagation. No
-  // source pixels are discarded before 650ms; at 780ms most of the original
-  // silhouette still survives. Only the later breakup phase opens large gaps,
-  // while the opacity fade retires the remaining shell near 1.5s.
+  // Geometry loss remains a late disruption-only phase. Survivor and
+  // merged-survivor bodies never instantiate this material at all.
   float handoffLocalBreakup = clamp(
     uCollisionHandoffBreakup * 1.05 - (1.0 - handoffLocality) * 0.12,
     0.0,
@@ -159,6 +171,15 @@ export function getCollisionProductRevealProgress(elapsedMs: number) {
   return smooth01((elapsedMs - COLLISION_PRODUCT_REVEAL_DELAY_MS) / activeDuration)
 }
 
+export function getCollisionAbsorptionProgress(elapsedMs: number) {
+  return smooth01(elapsedMs / COLLISION_ABSORPTION_DURATION_MS)
+}
+
+export function getCollisionAbsorptionOpacity(elapsedMs: number) {
+  if (elapsedMs <= 280) return 0.99
+  return 0.99 * (1 - smooth01((elapsedMs - 280) / (COLLISION_ABSORPTION_DURATION_MS - 280)))
+}
+
 function getBodySeed(id: string) {
   let hash = 2166136261
   for (let index = 0; index < id.length; index += 1) {
@@ -177,16 +198,29 @@ function seededValue(seed: number) {
   return value - Math.floor(value)
 }
 
-function makeDirection(sourceId: string, index: number): Vec3 {
+function normalizeVec3(value: Vec3): Vec3 {
+  const length = Math.hypot(value.x, value.y, value.z)
+  if (length <= 1e-10) return { x: 1, y: 0, z: 0 }
+  return { x: value.x / length, y: value.y / length, z: value.z / length }
+}
+
+function makeDirection(sourceId: string, index: number, contactNormal: Vec3): Vec3 {
   const base = getBodySeed(`${sourceId}:handoff:${index}`)
   const z = seededValue(base * 19.17 + index * 0.37) * 2 - 1
   const theta = seededValue(base * 41.31 + index * 1.73) * Math.PI * 2
   const radial = Math.sqrt(Math.max(0, 1 - z * z))
-  return {
+  const randomDirection = {
     x: Math.cos(theta) * radial,
     y: Math.sin(theta) * radial,
     z,
   }
+  const contact = normalizeVec3(contactNormal)
+  const contactBias = 0.36 + seededValue(base * 23.41 + index * 0.91) * 0.18
+  return normalizeVec3({
+    x: randomDirection.x * (1 - contactBias) + contact.x * contactBias,
+    y: randomDirection.y * (1 - contactBias) + contact.y * contactBias,
+    z: randomDirection.z * (1 - contactBias) + contact.z * contactBias,
+  })
 }
 
 function cloneBody(body: BodyState): BodyState {
@@ -200,32 +234,20 @@ function cloneBody(body: BodyState): BodyState {
   }
 }
 
-function getLineageParts(bodyId: string) {
-  return bodyId.split('+').map((part) => part.trim()).filter(Boolean)
-}
-
-function isDescendantId(candidateId: string, sourceId: string) {
-  const candidateParts = new Set(getLineageParts(candidateId))
-  const sourceParts = getLineageParts(sourceId)
-  return sourceParts.length > 0 && sourceParts.every((part) => candidateParts.has(part))
-}
-
 function isRetirablePhysicalBody(body: BodyState) {
-  // Stellar collisions use their dedicated topology transition. Fragments and
-  // effect cleanup must never create another full celestial handoff visual.
   return body.bodyType !== 'star' && body.bodyType !== 'effect' && body.bodyType !== 'fragment'
 }
 
 export function findCollisionHandoffSources(previous: BodyState[], current: BodyState[]) {
-  const currentIds = new Set(current.map((body) => body.id))
-  return previous.filter((source) => {
-    if (!isRetirablePhysicalBody(source) || currentIds.has(source.id)) return false
-    return current.some((candidate) =>
-      candidate.bodyType !== 'effect' &&
-      candidate.id !== source.id &&
-      isDescendantId(candidate.id, source.id),
-    )
-  })
+  return findCollisionVisualTransitions(previous, current)
+    .filter((transition) => transition.outcome === 'disrupted')
+    .map((transition) => transition.source)
+}
+
+export function findCollisionAbsorptionSources(previous: BodyState[], current: BodyState[]) {
+  return findCollisionVisualTransitions(previous, current)
+    .filter((transition) => transition.outcome === 'absorbed')
+    .map((transition) => transition.source)
 }
 
 function findLiveBodyMesh(scene: THREE.Scene, bodyId: string) {
@@ -233,8 +255,13 @@ function findLiveBodyMesh(scene: THREE.Scene, bodyId: string) {
   let found: LiveBodyMesh | undefined
 
   scene.traverse((object) => {
-    if (found || object.userData.collisionHandoffSnapshot) return
+    if (found || object.userData.collisionHandoffSnapshot || object.userData.collisionAbsorptionSnapshot) return
     if (!(object instanceof THREE.Mesh) || !(object.material instanceof THREE.ShaderMaterial)) return
+    const cachedBodyId = object.material.userData.simulationBodyId
+    if (cachedBodyId === bodyId) {
+      found = object as LiveBodyMesh
+      return
+    }
     const seed = object.material.uniforms.uSeed?.value
     if (typeof seed !== 'number' || Math.abs(seed - expectedSeed) > 1e-5) return
     found = object as LiveBodyMesh
@@ -243,12 +270,21 @@ function findLiveBodyMesh(scene: THREE.Scene, bodyId: string) {
   return found
 }
 
-function createPreservedSurfaceMaterial(sourceMaterial: THREE.ShaderMaterial, sourceId: string) {
+function createPreservedSurfaceMaterial(
+  sourceMaterial: THREE.ShaderMaterial,
+  sourceId: string,
+  contactNormal: Vec3,
+) {
   const material = sourceMaterial.clone()
   material.uniforms = THREE.UniformsUtils.clone(sourceMaterial.uniforms)
   material.uniforms.uCollisionHandoffFracture = { value: 0 }
   material.uniforms.uCollisionHandoffBreakup = { value: 0 }
   material.uniforms.uCollisionHandoffSeed = { value: getSimulationBodySeed(sourceId) }
+  material.uniforms.uCollisionHandoffContactNormal = {
+    value: new THREE.Vector3(contactNormal.x, contactNormal.y, contactNormal.z).normalize(),
+  }
+  if (material.uniforms.uCollisionImpactFlash) material.uniforms.uCollisionImpactFlash.value = 0
+  if (material.uniforms.uCollisionImpactHeat) material.uniforms.uCollisionImpactHeat.value = 0
   material.transparent = true
   material.depthWrite = false
 
@@ -257,6 +293,7 @@ function createPreservedSurfaceMaterial(sourceMaterial: THREE.ShaderMaterial, so
       uniform float uCollisionHandoffFracture;
       uniform float uCollisionHandoffBreakup;
       uniform float uCollisionHandoffSeed;
+      uniform vec3 uCollisionHandoffContactNormal;
     ${material.fragmentShader.replace(
       SOURCE_FRAGMENT_OUTPUT,
       `${preservedSurfaceFractureCode}\n  ${SOURCE_FRAGMENT_OUTPUT}`,
@@ -264,6 +301,16 @@ function createPreservedSurfaceMaterial(sourceMaterial: THREE.ShaderMaterial, so
     material.needsUpdate = true
   }
 
+  return material
+}
+
+function createAbsorptionMaterial(sourceMaterial: THREE.ShaderMaterial) {
+  const material = sourceMaterial.clone()
+  material.uniforms = THREE.UniformsUtils.clone(sourceMaterial.uniforms)
+  if (material.uniforms.uCollisionImpactFlash) material.uniforms.uCollisionImpactFlash.value = 0
+  if (material.uniforms.uCollisionImpactHeat) material.uniforms.uCollisionImpactHeat.value = 0
+  material.transparent = true
+  material.depthWrite = false
   return material
 }
 
@@ -277,6 +324,7 @@ function getParticleColor(material: THREE.ShaderMaterial, fallback: string) {
 
 export function createCollisionHandoffLayer(scene: THREE.Scene) {
   const active = new Map<string, HandoffVisual>()
+  const absorbing = new Map<string, AbsorptionVisual>()
   const lastLiveMeshById = new Map<string, LiveBodyMesh>()
   let previousBodies: BodyState[] | null = null
 
@@ -291,19 +339,33 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     active.delete(id)
   }
 
-  const createVisual = (source: BodyState, now: number) => {
-    if (active.has(source.id)) return
+  const disposeAbsorption = (id: string) => {
+    const visual = absorbing.get(id)
+    if (!visual) return
+    scene.remove(visual.mesh)
+    visual.mesh.geometry.dispose()
+    visual.material.dispose()
+    absorbing.delete(id)
+  }
+
+  const enforceActiveLimit = () => {
+    if (active.size + absorbing.size < MAX_ACTIVE_HANDOFFS) return
+    const candidates = [
+      ...[...active.entries()].map(([id, visual]) => ({ id, startedAt: visual.startedAt, kind: 'handoff' as const })),
+      ...[...absorbing.entries()].map(([id, visual]) => ({ id, startedAt: visual.startedAt, kind: 'absorption' as const })),
+    ].sort((a, b) => a.startedAt - b.startedAt)
+    const oldest = candidates[0]
+    if (!oldest) return
+    if (oldest.kind === 'handoff') disposeVisual(oldest.id)
+    else disposeAbsorption(oldest.id)
+  }
+
+  const createVisual = (transition: CollisionVisualTransition, now: number) => {
+    const source = transition.source
+    if (active.has(source.id) || absorbing.has(source.id)) return
     const sourceMesh = lastLiveMeshById.get(source.id)
-
-    // Never fabricate a generic replacement sphere. If the real live body mesh
-    // was not captured, skip the source ghost and allow the real products to
-    // reveal normally rather than showing a visibly unrelated object.
     if (!sourceMesh || !(sourceMesh.material instanceof THREE.ShaderMaterial)) return
-
-    if (active.size >= MAX_ACTIVE_HANDOFFS) {
-      const oldest = [...active.entries()].sort((a, b) => a[1].startedAt - b[1].startedAt)[0]
-      if (oldest) disposeVisual(oldest[0])
-    }
+    enforceActiveLimit()
 
     sourceMesh.updateWorldMatrix(true, false)
     const worldPosition = new THREE.Vector3()
@@ -312,7 +374,11 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     sourceMesh.matrixWorld.decompose(worldPosition, worldQuaternion, worldScale)
 
     const geometry = sourceMesh.geometry.clone()
-    const material = createPreservedSurfaceMaterial(sourceMesh.material, source.id)
+    const material = createPreservedSurfaceMaterial(
+      sourceMesh.material,
+      source.id,
+      transition.contactNormal,
+    )
     const baseOpacityValue = Number(material.uniforms.uOpacity?.value)
     const baseOpacity = Number.isFinite(baseOpacityValue) ? baseOpacityValue : 1
     const mesh = new THREE.Mesh(geometry, material)
@@ -331,7 +397,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     )
     const particlePositions = new Float32Array(PARTICLE_COUNT * 3)
     const particleDirections = Array.from({ length: PARTICLE_COUNT }, (_, index) =>
-      makeDirection(source.id, index),
+      makeDirection(source.id, index, transition.contactNormal),
     )
     const particleSpeeds = Array.from({ length: PARTICLE_COUNT }, (_, index) =>
       0.86 + seededValue(getBodySeed(`${source.id}:speed:${index}`) * 31.7) * 0.46,
@@ -380,15 +446,54 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     })
   }
 
+  const createAbsorptionVisual = (transition: CollisionVisualTransition, now: number) => {
+    const source = transition.source
+    if (active.has(source.id) || absorbing.has(source.id)) return
+    const sourceMesh = lastLiveMeshById.get(source.id)
+    if (!sourceMesh || !(sourceMesh.material instanceof THREE.ShaderMaterial)) return
+    enforceActiveLimit()
+
+    sourceMesh.updateWorldMatrix(true, false)
+    const worldPosition = new THREE.Vector3()
+    const worldQuaternion = new THREE.Quaternion()
+    const worldScale = new THREE.Vector3()
+    sourceMesh.matrixWorld.decompose(worldPosition, worldQuaternion, worldScale)
+
+    const geometry = sourceMesh.geometry.clone()
+    const material = createAbsorptionMaterial(sourceMesh.material)
+    const baseOpacityValue = Number(material.uniforms.uOpacity?.value)
+    const baseOpacity = Number.isFinite(baseOpacityValue) ? baseOpacityValue : 1
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.copy(worldPosition)
+    mesh.quaternion.copy(worldQuaternion)
+    mesh.scale.copy(worldScale)
+    mesh.frustumCulled = false
+    mesh.renderOrder = sourceMesh.renderOrder + 1
+    mesh.userData.collisionAbsorptionSnapshot = true
+    scene.add(mesh)
+
+    absorbing.set(source.id, {
+      source: cloneBody(source),
+      startedAt: now,
+      mesh,
+      material,
+      baseOpacity,
+      origin: worldPosition.clone(),
+      baseScale: worldScale.clone(),
+      contactPoint: new THREE.Vector3(
+        transition.contactPoint.x,
+        transition.contactPoint.y,
+        transition.contactPoint.z,
+      ),
+    })
+  }
+
   const updateVisual = (visual: HandoffVisual, now: number) => {
     const elapsedMs = Math.max(0, now - visual.startedAt)
     const fractureProgress = getCollisionHandoffFractureProgress(elapsedMs)
     const breakupProgress = getCollisionHandoffBreakupProgress(elapsedMs)
     const particleProgress = getCollisionHandoffParticleProgress(elapsedMs)
 
-    // Keep the preserved real surface locked to its exact collision transform.
-    // The prior implementation applied velocity drift to a fabricated sphere,
-    // which is what produced the huge flat-colored object crossing the camera.
     visual.material.uniforms.uCollisionHandoffFracture.value = fractureProgress
     visual.material.uniforms.uCollisionHandoffBreakup.value = breakupProgress
     if (visual.material.uniforms.uOpacity) {
@@ -417,6 +522,19 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     return elapsedMs >= COLLISION_HANDOFF_DURATION_MS
   }
 
+  const updateAbsorptionVisual = (visual: AbsorptionVisual, now: number) => {
+    const elapsedMs = Math.max(0, now - visual.startedAt)
+    const progress = getCollisionAbsorptionProgress(elapsedMs)
+    const moveProgress = smooth01(Math.min(1, progress * 1.12))
+    visual.mesh.position.lerpVectors(visual.origin, visual.contactPoint, moveProgress * 0.82)
+    visual.mesh.scale.copy(visual.baseScale).multiplyScalar(1 - progress * 0.82)
+    if (visual.material.uniforms.uOpacity) {
+      visual.material.uniforms.uOpacity.value =
+        visual.baseOpacity * getCollisionAbsorptionOpacity(elapsedMs)
+    }
+    return elapsedMs >= COLLISION_ABSORPTION_DURATION_MS
+  }
+
   const captureCurrentLiveMeshes = (bodies: BodyState[]) => {
     const nextIds = new Set<string>()
     bodies.forEach((body) => {
@@ -427,18 +545,24 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
       nextIds.add(body.id)
     })
     Array.from(lastLiveMeshById.keys()).forEach((id) => {
-      if (!nextIds.has(id) && !active.has(id)) lastLiveMeshById.delete(id)
+      if (!nextIds.has(id) && !active.has(id) && !absorbing.has(id)) lastLiveMeshById.delete(id)
     })
   }
 
   return {
     update(bodies: BodyState[], now = performance.now()) {
       if (previousBodies) {
-        findCollisionHandoffSources(previousBodies, bodies).forEach((source) => createVisual(source, now))
+        findCollisionVisualTransitions(previousBodies, bodies).forEach((transition) => {
+          if (transition.outcome === 'disrupted') createVisual(transition, now)
+          else if (transition.outcome === 'absorbed') createAbsorptionVisual(transition, now)
+        })
       }
 
       active.forEach((visual, id) => {
         if (updateVisual(visual, now)) disposeVisual(id)
+      })
+      absorbing.forEach((visual, id) => {
+        if (updateAbsorptionVisual(visual, now)) disposeAbsorption(id)
       })
 
       captureCurrentLiveMeshes(bodies)
@@ -446,6 +570,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     },
     dispose() {
       Array.from(active.keys()).forEach(disposeVisual)
+      Array.from(absorbing.keys()).forEach(disposeAbsorption)
       lastLiveMeshById.clear()
       previousBodies = null
     },
