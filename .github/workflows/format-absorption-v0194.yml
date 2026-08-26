@@ -1,0 +1,44 @@
+name: Format absorption continuity v0.19.4
+
+on:
+  push:
+    branches:
+      - fix/absorption-pop-continuity-v0.19.4
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: ${{ !contains(github.event.head_commit.message, '[absorption-formatted]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/absorption-pop-continuity-v0.19.4
+      - name: Normalize changed block
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/physics/fragmentAwareEngine.ts')
+          text = path.read_text()
+          start = text.index('  const nonStellarAbsorption =\n', text.index('function buildCollisionImpactFrame'))
+          end = text.index('\n\n}\n\nfunction buildContactPhysicalFrame', start)
+          clean = '''  const nonStellarAbsorption =\n    isAbsorptionCollision(pair.bodyA, pair.bodyB, transition.mode) &&\n    getEffectiveBodyType(pair.bodyA) !== 'star' &&\n    getEffectiveBodyType(pair.bodyB) !== 'star'\n  const absorbedId = nonStellarAbsorption\n    ? pair.bodyA.mass < pair.bodyB.mass\n      ? pair.bodyA.id\n      : pair.bodyB.mass < pair.bodyA.mass\n        ? pair.bodyB.id\n        : null\n    : null\n  const absorberImpactPosition = absorbedId === pair.bodyA.id\n    ? impactPositions.bodyB\n    : impactPositions.bodyA\n\n  return transition.sourceBodies\n    .map((body) => {\n      if (body.id === pair.bodyA.id) {\n        return body.id === absorbedId\n          ? animateAbsorbedCollider(\n              body,\n              impactPositions.bodyA,\n              absorberImpactPosition,\n              progress,\n            )\n          : animateCollider(body, impactPositions.bodyA)\n      }\n      if (body.id === pair.bodyB.id) {\n        return body.id === absorbedId\n          ? animateAbsorbedCollider(\n              body,\n              impactPositions.bodyB,\n              absorberImpactPosition,\n              progress,\n            )\n          : animateCollider(body, impactPositions.bodyB)\n      }\n      return advanceDisplayBody(body, transition.elapsed)\n    })\n    .filter((body) => !isExpiredEffect(body))'''
+          path.write_text(text[:start] + clean + text[end:])
+          Path('.github/workflows/format-absorption-v0194.yml').unlink()
+          PY
+      - name: Validate TypeScript and regressions
+        run: |
+          npm install
+          npm run build
+      - name: Commit formatting
+        shell: bash
+        run: |
+          git config user.name "stafor94"
+          git config user.email "stafor@naver.com"
+          git add -A
+          git commit -m "chore: normalize absorption continuity patch [absorption-formatted]"
+          git push origin HEAD:fix/absorption-pop-continuity-v0.19.4
