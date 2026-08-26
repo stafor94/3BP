@@ -6,6 +6,7 @@ import {
   COLLISION_PRODUCT_REVEAL_DELAY_MS,
   COLLISION_PRODUCT_REVEAL_DURATION_MS,
   findCollisionHandoffSources,
+  getCollisionHandoffBreakupProgress,
   getCollisionHandoffFractureProgress,
   getCollisionHandoffParticleProgress,
   getCollisionHandoffProgress,
@@ -56,6 +57,18 @@ function testSourceSurfaceSurvivesOpeningPhase() {
   assert(
     getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS + 120) > 0,
     'fracture propagation must begin before structural breakup',
+  )
+  assert(
+    getCollisionHandoffBreakupProgress(COLLISION_FRACTURE_END_MS) === 0,
+    'structural breakup must not remove source surface during the fracture-only phase',
+  )
+  assert(
+    getCollisionHandoffBreakupProgress(780) > 0 && getCollisionHandoffBreakupProgress(780) < 0.35,
+    'mid-breakup must begin gently so most of the original silhouette still survives near 780ms',
+  )
+  assert(
+    getCollisionHandoffBreakupProgress(COLLISION_BREAKUP_END_MS) === 1,
+    'structural breakup progression must complete at the configured 1100ms boundary',
   )
 }
 
