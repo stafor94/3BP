@@ -121,21 +121,32 @@ def whole_frame_difference(a: Path, b: Path) -> float:
     return sum(ImageStat.Stat(diff).mean) / 3.0
 
 
-def trigger(driver: webdriver.Chrome) -> None:
+def wait_for_stage(driver: webdriver.Chrome, stage: str) -> None:
     driver.execute_async_script(
         """
+        const stage = arguments[0];
         const done = arguments[arguments.length - 1];
-        window.__startSurvivorAbsorptionVisual();
         const waitForCommit = () => {
-          if (document.body.dataset.visualStage !== 'absorption') {
+          if (document.body.dataset.visualStage !== stage) {
             requestAnimationFrame(waitForCommit);
             return;
           }
           requestAnimationFrame(() => requestAnimationFrame(done));
         };
         requestAnimationFrame(waitForCommit);
-        """
+        """,
+        stage,
     )
+
+
+def trigger(driver: webdriver.Chrome) -> None:
+    driver.execute_script('window.__startSurvivorAbsorptionVisual()')
+    wait_for_stage(driver, 'absorption')
+
+
+def reset(driver: webdriver.Chrome) -> None:
+    driver.execute_script('window.__resetSurvivorAbsorptionVisual()')
+    wait_for_stage(driver, 'contact')
 
 
 def wait_until(started_at: float, target_seconds: float) -> None:
@@ -165,11 +176,12 @@ def main() -> None:
         center_x, center_y, min_x, max_x, min_y, max_y = body_geometry(baseline_points)
         opposite_mask = opposite_hemisphere_mask(baseline_points, center_x)
 
-        trigger(driver)
-        started_at = time.monotonic()
         captures: dict[str, Path] = {'contact': contact}
         names = ['02-150ms', '03-350ms', '04-700ms', '05-1100ms', '06-1600ms']
         for target, name in zip(CAPTURE_TARGETS, names):
+            reset(driver)
+            trigger(driver)
+            started_at = time.monotonic()
             wait_until(started_at, target)
             captures[name] = capture_canvas(driver, name)
 
@@ -189,6 +201,7 @@ def main() -> None:
         }
         payload = {
             'capture_targets_seconds': CAPTURE_TARGETS,
+            'capture_mode': 'independent-reset',
             'baseline_primary': {
                 'center_x': center_x,
                 'center_y': center_y,
