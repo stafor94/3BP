@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { SimulationView } from '../components/SimulationView'
 import type { BodyState } from '../types'
 
@@ -50,7 +50,6 @@ fragments.forEach((fragment, index) => {
 })
 
 const CONTACT_BODIES = [source, impactor, anchor]
-const RESULT_BODIES = [impactor, anchor, ...fragments]
 
 declare global {
   interface Window {
@@ -62,11 +61,33 @@ declare global {
 
 export function NonStellarDestructionVisualHarness() {
   const [stage, setStage] = useState<VisualStage>('contact')
-  const bodies = stage === 'contact' ? CONTACT_BODIES : RESULT_BODIES
+  const [destructionElapsedMs, setDestructionElapsedMs] = useState(0)
+
+  const bodies = useMemo(() => {
+    if (stage === 'contact') return CONTACT_BODIES
+    const elapsedSeconds = destructionElapsedMs / 1000
+    const movingFragments = fragments.map((fragment) => ({
+      ...fragment,
+      position: {
+        x: fragment.position.x + fragment.velocity.x * elapsedSeconds,
+        y: fragment.position.y + fragment.velocity.y * elapsedSeconds,
+        z: fragment.position.z + fragment.velocity.z * elapsedSeconds,
+      },
+      velocity: { ...fragment.velocity },
+      age: elapsedSeconds,
+    }))
+    return [impactor, anchor, ...movingFragments]
+  }, [stage, destructionElapsedMs])
 
   useEffect(() => {
-    window.__startNonStellarDestructionVisual = () => setStage('destruction')
-    window.__resetNonStellarDestructionVisual = () => setStage('contact')
+    window.__startNonStellarDestructionVisual = () => {
+      setDestructionElapsedMs(0)
+      setStage('destruction')
+    }
+    window.__resetNonStellarDestructionVisual = () => {
+      setStage('contact')
+      setDestructionElapsedMs(0)
+    }
     return () => {
       delete window.__startNonStellarDestructionVisual
       delete window.__resetNonStellarDestructionVisual
@@ -74,6 +95,18 @@ export function NonStellarDestructionVisualHarness() {
       delete document.body.dataset.visualStage
     }
   }, [])
+
+  useEffect(() => {
+    if (stage !== 'destruction') return
+    const startedAt = performance.now()
+    let animationFrame = 0
+    const tick = () => {
+      setDestructionElapsedMs(performance.now() - startedAt)
+      animationFrame = requestAnimationFrame(tick)
+    }
+    animationFrame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(animationFrame)
+  }, [stage])
 
   useEffect(() => {
     window.__nonStellarDestructionVisualStage = stage
@@ -88,7 +121,7 @@ export function NonStellarDestructionVisualHarness() {
     >
       <SimulationView
         bodies={bodies}
-        simulationTime={stage === 'contact' ? 0 : 0.03}
+        simulationTime={stage === 'contact' ? 0 : destructionElapsedMs / 1000}
         trailVersion={0}
         trailEnabled={false}
         trailDuration={8}
