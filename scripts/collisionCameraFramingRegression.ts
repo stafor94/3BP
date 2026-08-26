@@ -1,11 +1,15 @@
 import {
+  advanceCollisionCameraDistanceHandoff,
   calculatePerspectiveBodyDistance,
   calculateProjectedBodyRadiusPixels,
   COLLISION_CAMERA_DISTANCE_TOLERANCE,
+  COLLISION_CAMERA_HANDOFF_DURATION_MS,
+  COLLISION_CAMERA_MAX_DISTANCE_CHANGE_RATIO,
   COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION,
   getRenderedBodyRadius,
   isCollisionCameraDistanceConverged,
   TARGET_BODY_RADIUS_SCREEN_FRACTION,
+  type CollisionCameraDistanceHandoffState,
 } from '../src/rendering/cameraFraming'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -113,28 +117,76 @@ function testCollisionDistanceContinuesPastEighteenFramesUntilConverged() {
   )
 }
 
-function testRadiusChangeReentersConvergence() {
-  const originalDistance = getDistance(primaryRadius, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION)
-  const enlargedRadius = 0.43
-  const enlargedDesiredDistance = getDistance(enlargedRadius, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION)
+function testSmallRemnantCannotSnapCollisionDistanceInOneFrame() {
+  const sourceDistance = getDistance(primaryRadius, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION)
+  const tinyRemnantDistance = getDistance(0.03, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION)
+  const initial = advanceCollisionCameraDistanceHandoff(null, sourceDistance, 0)
+  const firstRemnantFrame = advanceCollisionCameraDistanceHandoff(initial.state, tinyRemnantDistance, 16)
+
+  assertClose(
+    firstRemnantFrame.value,
+    sourceDistance,
+    1e-12,
+    'source-to-small-remnant handoff must retain the pre-transition distance on the first frame',
+  )
+  assert(
+    firstRemnantFrame.state.handoffStartedAt === 16,
+    'a material source-to-remnant radius change must start a protected camera handoff',
+  )
+  assert(
+    COLLISION_CAMERA_HANDOFF_DURATION_MS === 1500,
+    'camera handoff protection must cover the full 1.5s destruction handoff',
+  )
+}
+
+function testCollisionDistanceFrameRateIsCappedDuringHandoff() {
+  const sourceDistance = getDistance(primaryRadius, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION)
+  const tinyRemnantDistance = getDistance(0.03, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION)
+  let result = advanceCollisionCameraDistanceHandoff(null, sourceDistance, 0)
+  let state: CollisionCameraDistanceHandoffState = result.state
+  let previousValue = result.value
+
+  for (let frame = 1; frame <= 120; frame += 1) {
+    result = advanceCollisionCameraDistanceHandoff(state, tinyRemnantDistance, frame * 16)
+    const allowedDelta = previousValue * COLLISION_CAMERA_MAX_DISTANCE_CHANGE_RATIO + 1e-12
+    assert(
+      Math.abs(result.value - previousValue) <= allowedDelta,
+      `collision camera distance changed too quickly on frame ${frame}`,
+    )
+    previousValue = result.value
+    state = result.state
+  }
 
   assert(
-    !isCollisionCameraDistanceConverged(originalDistance, enlargedDesiredDistance),
-    'a remnant radius change must make the old collision-camera distance non-converged',
+    previousValue > tinyRemnantDistance,
+    'protected camera handoff must approach a much smaller radius progressively rather than snap-fit instantly',
   )
+}
 
-  const converged = convergeDistance(originalDistance, enlargedDesiredDistance, 0.18)
-  const projectedRadius = calculateProjectedBodyRadiusPixels(
-    getRenderedBodyRadius(enlargedRadius, minRenderRadius),
-    converged.distance,
+function testNearbyLargeBodyProjectedSizeCannotJumpSeveralTimesAtRemnantReveal() {
+  const sourceDistance = getDistance(primaryRadius, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION)
+  const tinyRemnantDistance = getDistance(0.03, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION)
+  const initial = advanceCollisionCameraDistanceHandoff(null, sourceDistance, 0)
+  const next = advanceCollisionCameraDistanceHandoff(initial.state, tinyRemnantDistance, 16)
+  const nearbyLargeRadius = 0.24
+  const beforePixels = calculateProjectedBodyRadiusPixels(
+    nearbyLargeRadius,
+    Math.max(sourceDistance, nearbyLargeRadius + 1e-6),
     verticalFovDegrees,
     viewportWidth,
     viewportHeight,
   )
-  const projectedFraction = projectedRadius / viewportWidth
+  const afterPixels = calculateProjectedBodyRadiusPixels(
+    nearbyLargeRadius,
+    Math.max(next.value, nearbyLargeRadius + 1e-6),
+    verticalFovDegrees,
+    viewportWidth,
+    viewportHeight,
+  )
+
   assert(
-    Math.abs(projectedFraction - 1 / 9) <= COLLISION_CAMERA_DISTANCE_TOLERANCE * (1 / 9) * 1.2,
-    `radius-change reframe must settle near width/9, got fraction ${projectedFraction}`,
+    afterPixels / beforePixels < 1.08,
+    'small-fragment/remnant reveal must not make a nearby large body jump to several times its projected size',
   )
 }
 
@@ -156,7 +208,9 @@ function testEjectaExtentCannotChangePrimaryOnlyFraming() {
 
 testTrackingAndCollisionFractionsStaySeparated()
 testCollisionDistanceContinuesPastEighteenFramesUntilConverged()
-testRadiusChangeReentersConvergence()
+testSmallRemnantCannotSnapCollisionDistanceInOneFrame()
+testCollisionDistanceFrameRateIsCappedDuringHandoff()
+testNearbyLargeBodyProjectedSizeCannotJumpSeveralTimesAtRemnantReveal()
 testEjectaExtentCannotChangePrimaryOnlyFraming()
 
 console.log('collision camera framing regression checks passed')
