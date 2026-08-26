@@ -33,20 +33,32 @@ function testLivingOriginalBodyRemainsTrackable() {
   )
 }
 
-function testMergedDescendantNeverInheritsOrdinaryTracking() {
+function testUnmarkedMergedDescendantNeverInheritsOrdinaryTracking() {
   const merged = makeBody('Alpha+Beta')
-  merged.trackingContinuationIds = ['Alpha']
   assert(
     findDirectTrackingCandidate([merged], 'Alpha') === null,
     'a merged descendant must not count as the exact original body',
   )
   assert(
     findTrackingCandidate([merged], 'Alpha') === null,
-    'ordinary tracking must ignore absorption-continuity metadata',
+    'lineage-like ids alone must not transfer ordinary tracking',
   )
 }
 
-function testLargerAbsorberAlsoStopsOrdinaryTracking() {
+function testExplicitAbsorptionContinuationCanInheritTracking() {
+  const remnant = makeBody('Alpha+Beta')
+  remnant.trackingContinuationIds = ['Alpha']
+  assert(
+    findTrackingCandidate([remnant], 'Alpha')?.id === remnant.id,
+    'an explicitly marked absorption remnant must inherit tracking',
+  )
+  assert(
+    findTrackingCandidate([remnant], 'Beta') === null,
+    'an unmarked collision partner must not inherit tracking through the remnant',
+  )
+}
+
+function testLargerAbsorberContinuesOrdinaryTracking() {
   const large = makeBody('Large', 'planet', 1, 0.2)
   const small = makeBody('Small', 'moon', 0.1, 0.08)
   large.position = { x: -0.13, y: 0, z: 0 }
@@ -62,20 +74,29 @@ function testLargerAbsorberAlsoStopsOrdinaryTracking() {
 
   assert(remnant, 'planet-moon absorption must produce a physical remnant')
   assert(
-    findTrackingCandidate(after, 'Large') === null,
-    'even the larger absorber must stop ordinary tracking when its exact id disappears',
+    remnant.trackingContinuationIds?.includes('Large') === true,
+    'the larger absorber must be marked as an allowed tracking predecessor',
+  )
+  assert(
+    remnant.trackingContinuationIds?.includes('Small') !== true,
+    'the smaller absorbed body must not be marked as a tracking predecessor',
+  )
+  assert(
+    findTrackingCandidate(after, 'Large')?.id === remnant.id,
+    'tracking the larger absorber must continue onto the absorption remnant',
   )
   assert(
     findTrackingCandidate(after, 'Small') === null,
-    'the absorbed smaller body must stop ordinary tracking',
+    'tracking the smaller absorbed body must stop',
   )
 }
 
 function testDestroyedBodyDoesNotTransferTrackingToFragment() {
   const fragment = makeBody('Alpha', 'fragment')
+  fragment.trackingContinuationIds = ['Alpha']
   assert(
     findTrackingCandidate([fragment], 'Alpha') === null,
-    'a destroyed body must not keep tracking through a fragment that reuses its id',
+    'a destroyed body must not keep tracking through a fragment',
   )
 }
 
@@ -89,8 +110,9 @@ function testUnrelatedBodyIsNeverSelectedAsFallback() {
 
 const tests = [
   testLivingOriginalBodyRemainsTrackable,
-  testMergedDescendantNeverInheritsOrdinaryTracking,
-  testLargerAbsorberAlsoStopsOrdinaryTracking,
+  testUnmarkedMergedDescendantNeverInheritsOrdinaryTracking,
+  testExplicitAbsorptionContinuationCanInheritTracking,
+  testLargerAbsorberContinuesOrdinaryTracking,
   testDestroyedBodyDoesNotTransferTrackingToFragment,
   testUnrelatedBodyIsNeverSelectedAsFallback,
 ]
