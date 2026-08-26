@@ -64,6 +64,31 @@ function makeEffect(
   }
 }
 
+function makeSolidEffect(
+  kind: Extract<EffectVisualKind, 'contactFlash' | 'collisionSpark'>,
+  overrides: Partial<NonNullable<BodyState['effectVisual']>> = {},
+): BodyState {
+  return {
+    id: `regression:solid:${kind}`,
+    name: kind === 'contactFlash' ? 'Collision flash' : 'Collision spark',
+    color: '#9b8d7f',
+    mass: 0,
+    radius: kind === 'contactFlash' ? 0.13 : 0.035,
+    position: { x: 0, y: 0, z: 0 },
+    velocity: { x: 0, y: 0, z: 0 },
+    bodyType: 'effect',
+    age: 0.08,
+    lifetime: 0.72,
+    effectVisual: {
+      kind,
+      direction: { x: 0, y: 1, z: 0 },
+      normal: { x: 1, y: 0, z: 0 },
+      stellarCollision: false,
+      ...overrides,
+    },
+  }
+}
+
 function presentationFor(bodies: BodyState[]) {
   const pair = getStellarTopologyOcclusionPairs(bodies)[0]
   assert(pair, 'stellar overlap should produce a topology pair')
@@ -84,6 +109,35 @@ function testProfilesAvoidLensFlareAndBeamShapes() {
   assert(flash.widthScale >= 0.38, 'stellar flash must keep enough thickness to read as contact compression')
   assert(flash.outerGlow <= 0.22, 'stellar flash outer glow must remain subordinate to the impact surface')
   assert(flash.pulseStrength <= 0.075, 'stellar flash must not pulse like a lens-flare animation')
+
+  const solidFlash = getCollisionEffectProfile(makeSolidEffect('contactFlash', {
+    stretch: 3.8,
+    widthScale: 0.25,
+    brightness: 2.05,
+    pulseStrength: 0.26,
+  }))
+  assert(solidFlash.anisotropicStretch <= 1.95,
+    'solid-body contact flash must stay local instead of drawing a white beam through the body')
+  assert(solidFlash.widthScale >= 0.58,
+    'solid-body contact flash must remain broad enough to read as a burst')
+  assert(solidFlash.visualRadius <= 0.082,
+    'solid-body contact flash must stay bounded around the contact point')
+  assert(solidFlash.pulseStrength <= 0.08 && solidFlash.brightness <= 1.5,
+    'solid-body contact flash must avoid an overexposed flare pulse')
+
+  const solidSpark = getCollisionEffectProfile(makeSolidEffect('collisionSpark', {
+    stretch: 2.8,
+    widthScale: 0.35,
+    tailLength: 0.8,
+    pulseStrength: 0.12,
+    brightness: 1.4,
+  }))
+  assert(solidSpark.anisotropicStretch <= 1.55,
+    'solid collision sparks must stay compact instead of becoming long streaks')
+  assert(solidSpark.widthScale >= 0.6,
+    'solid collision sparks must retain fragment-like thickness')
+  assert(solidSpark.tailLength <= 0.22 && solidSpark.pulseStrength <= 0.045,
+    'solid collision sparks must use short subdued tails')
 
   const shear = getCollisionEffectProfile(makeEffect(
     'compressionShear',
