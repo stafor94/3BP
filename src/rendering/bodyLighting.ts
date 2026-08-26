@@ -101,6 +101,7 @@ const litBodyFragmentShader = `
   uniform vec3 uSecondaryColor;
   uniform vec3 uPolarColor;
   uniform float uSeed;
+  uniform float uSurfaceSeed;
   uniform float uDetailStrength;
   uniform float uRimStrength;
   uniform float uOpacity;
@@ -154,14 +155,14 @@ const litBodyFragmentShader = `
 
   float drawBodySurfaceDetail(vec3 objectNormal) {
     vec3 seedOffset = vec3(
-      uSeed * 0.071 + uSurfaceVariant * 2.71,
-      uSeed * 0.113 - uSurfaceVariant * 1.83,
-      uSeed * 0.157 + uSurfaceVariant * 1.19
+      uSurfaceSeed * 0.071 + uSurfaceVariant * 2.71,
+      uSurfaceSeed * 0.113 - uSurfaceVariant * 1.83,
+      uSurfaceSeed * 0.157 + uSurfaceVariant * 1.19
     );
     float broad = valueNoise(objectNormal * 3.4 + seedOffset);
     float medium = valueNoise(objectNormal * 7.2 - seedOffset * 1.1);
     float fine = valueNoise(objectNormal * 15.5 + seedOffset * 2.2);
-    float bands = 0.5 + 0.5 * sin((objectNormal.y * 6.8 + broad * 0.75 + uSeed * 0.013) * 6.2831853);
+    float bands = 0.5 + 0.5 * sin((objectNormal.y * 6.8 + broad * 0.75 + uSurfaceSeed * 0.013) * 6.2831853);
     float variation;
 
     if (uBodyKind < 0.5) {
@@ -190,9 +191,9 @@ const litBodyFragmentShader = `
 
   vec3 drawNonStellarAlbedo(vec3 objectNormal, float surfaceDetail) {
     vec3 seedOffset = vec3(
-      uSeed * 0.043 + uSurfaceVariant * 3.13,
-      uSeed * 0.079 - uSurfaceVariant * 2.37,
-      uSeed * 0.131 + uSurfaceVariant * 1.67
+      uSurfaceSeed * 0.043 + uSurfaceVariant * 3.13,
+      uSurfaceSeed * 0.079 - uSurfaceVariant * 2.37,
+      uSurfaceSeed * 0.131 + uSurfaceVariant * 1.67
     );
     float broad = valueNoise(objectNormal * 2.9 + seedOffset);
     float medium = valueNoise(objectNormal * 6.4 - seedOffset * 0.8);
@@ -200,7 +201,7 @@ const litBodyFragmentShader = `
     float bandWave = 0.5 + 0.5 * sin(
       objectNormal.y * (18.0 + uSurfaceVariant * 8.0) +
       broad * 3.2 +
-      uSeed * 0.07
+      uSurfaceSeed * 0.07
     );
     float terrain = clamp(broad * 0.63 + medium * 0.27 + fine * 0.1, 0.0, 1.0);
     terrain = clamp(terrain + (bandWave - 0.5) * uBandStrength * 0.82, 0.0, 1.0);
@@ -632,6 +633,7 @@ export function installBodyLighting() {
       fragmentShader: litBodyFragmentShader,
       uniforms: {
         ...values.uniforms,
+        uSurfaceSeed: { value: values.uniforms.uSeed.value },
         uSecondaryColor: { value: new THREE.Color('#ffffff') },
         uPolarColor: { value: new THREE.Color('#ffffff') },
         uSelfLuminous: { value: 1 },

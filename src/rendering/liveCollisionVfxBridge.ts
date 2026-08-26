@@ -69,7 +69,7 @@ const survivorImpactFragmentCode = `
   float collisionImpactFacing = dot(collisionImpactNormal, collisionImpactDirection);
   float collisionImpactMask = smoothstep(
     ${SURVIVOR_IMPACT_MIN_DOT.toFixed(2)},
-    0.955,
+    0.92,
     collisionImpactFacing
   );
   float collisionImpactNoise = valueNoise(
@@ -82,8 +82,8 @@ const survivorImpactFragmentCode = `
   );
   float collisionHeat = collisionImpactMask * uCollisionImpactHeat;
   float collisionCrack = collisionImpactCrack * collisionHeat;
-  color = mix(color, vec3(1.0, 0.34, 0.12), collisionHeat * 0.18 + collisionCrack * 0.28);
-  color += vec3(1.0, 0.76, 0.46) * collisionImpactMask * uCollisionImpactFlash * 0.5;
+  color = mix(color, vec3(1.0, 0.34, 0.12), collisionHeat * 0.34 + collisionCrack * 0.44);
+  color += vec3(1.0, 0.76, 0.46) * collisionImpactMask * uCollisionImpactFlash * 0.7;
 `
 
 let installed = false
@@ -205,7 +205,7 @@ function updateLiveLayers(scene: THREE.Scene, camera: THREE.Camera) {
   layers.burst.update(currentBodies, camera, now)
 }
 
-function applySurvivorImpact(material: THREE.ShaderMaterial, now: number) {
+function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Object3D, now: number) {
   const body = resolveMaterialBody(material)
   if (!body) return
   const transition = getSurvivorTransition(body.id)
@@ -215,16 +215,18 @@ function applySurvivorImpact(material: THREE.ShaderMaterial, now: number) {
   if (!event) return
   const identitySeed = surfaceIdentitySeedByBodyId.get(body.id) ?? getSimulationBodySeed(transition.source.id)
   surfaceIdentitySeedByBodyId.set(body.id, identitySeed)
-  if (material.uniforms.uSeed) material.uniforms.uSeed.value = identitySeed
+  if (material.uniforms.uSurfaceSeed) material.uniforms.uSurfaceSeed.value = identitySeed
   if (material.uniforms.uCollisionRevealScale) material.uniforms.uCollisionRevealScale.value = 1
 
   const direction = material.uniforms.uCollisionImpactDirection?.value
   if (direction instanceof THREE.Vector3) {
+    const worldQuaternion = new THREE.Quaternion()
+    object.getWorldQuaternion(worldQuaternion)
     direction.set(
       transition.contactNormal.x,
       transition.contactNormal.y,
       transition.contactNormal.z,
-    ).normalize()
+    ).applyQuaternion(worldQuaternion.invert()).normalize()
   }
   const { flash, heat } = getSurvivorImpactEnvelope(now - event.startedAt)
   if (material.uniforms.uCollisionImpactFlash) material.uniforms.uCollisionImpactFlash.value = flash
@@ -343,31 +345,7 @@ export function installLiveCollisionVfxBridge() {
 
   shaderPrototype.setValues = function setValuesWithLiveCollisionVfx(values: Record<string, any>) {
     const simulationBodyShader = isSimulationBodyShader(values)
-    const fragmentShader = simulationBodyShader && values.fragmentShader.includes(SOURCE_FRAGMENT_OUTPUT)
-      ? `
-          uniform vec3 uCollisionImpactDirection;
-          uniform float uCollisionImpactFlash;
-          uniform float uCollisionImpactHeat;
-        ${values.fragmentShader.replace(
-          SOURCE_FRAGMENT_OUTPUT,
-          `${survivorImpactFragmentCode}\n  ${SOURCE_FRAGMENT_OUTPUT}`,
-        )}`
-      : values.fragmentShader
-    const nextValues = simulationBodyShader
-      ? {
-          ...values,
-          vertexShader: collisionRevealVertexShader,
-          fragmentShader,
-          uniforms: {
-            ...values.uniforms,
-            uCollisionRevealScale: { value: 1 },
-            uCollisionImpactDirection: { value: new THREE.Vector3(1, 0, 0) },
-            uCollisionImpactFlash: { value: 0 },
-            uCollisionImpactHeat: { value: 0 },
-          },
-        }
-      : values
-    const result = previousSetValues.call(this, nextValues)
+    const result = previousSetValues.call(this, values)
     if (!simulationBodyShader) return result
 
     const material = this as THREE.ShaderMaterial & {
@@ -376,6 +354,27 @@ export function installLiveCollisionVfxBridge() {
     }
     if (material.__liveCollisionVfxBridgeInstalled) return result
     material.__liveCollisionVfxBridgeInstalled = true
+
+    material.vertexShader = collisionRevealVertexShader
+    material.uniforms.uCollisionRevealScale ??= { value: 1 }
+    material.uniforms.uCollisionImpactDirection ??= { value: new THREE.Vector3(1, 0, 0) }
+    material.uniforms.uCollisionImpactFlash ??= { value: 0 }
+    material.uniforms.uCollisionImpactHeat ??= { value: 0 }
+
+    if (
+      material.fragmentShader.includes(SOURCE_FRAGMENT_OUTPUT) &&
+      !material.fragmentShader.includes('uniform vec3 uCollisionImpactDirection;')
+    ) {
+      material.fragmentShader = `
+        uniform vec3 uCollisionImpactDirection;
+        uniform float uCollisionImpactFlash;
+        uniform float uCollisionImpactHeat;
+      ${material.fragmentShader.replace(
+        SOURCE_FRAGMENT_OUTPUT,
+        `${survivorImpactFragmentCode}\n  ${SOURCE_FRAGMENT_OUTPUT}`,
+      )}`
+    }
+    material.needsUpdate = true
 
     const previousOnBeforeRender = material.onBeforeRender
     material.onBeforeRender = function liveCollisionVfxBeforeBodyRender(
@@ -397,7 +396,7 @@ export function installLiveCollisionVfxBridge() {
         group,
       )
       const now = performance.now()
-      applySurvivorImpact(material, now)
+      applySurvivorImpact(material, object, now)
       applyCollisionProductReveal(material, now)
     }
 
