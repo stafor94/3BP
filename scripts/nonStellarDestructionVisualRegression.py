@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import time
@@ -74,6 +75,28 @@ def mean_difference(a: Path, b: Path) -> float:
     return sum(ImageStat.Stat(difference).mean) / 3.0
 
 
+def warm_surface_centroid(path: Path) -> tuple[float, float, int]:
+    image = Image.open(path).convert('RGB')
+    width, height = image.size
+    x0, x1 = int(width * 0.34), int(width * 0.66)
+    y0, y1 = int(height * 0.24), int(height * 0.76)
+    points: list[tuple[int, int]] = []
+
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            r, g, b = image.getpixel((x, y))
+            if r < 35:
+                continue
+            if r < g * 1.06 or r < b * 1.12:
+                continue
+            points.append((x, y))
+
+    require(len(points) >= 40, f'not enough warm source-surface pixels in {path.name}')
+    center_x = sum(x for x, _ in points) / len(points)
+    center_y = sum(y for _, y in points) / len(points)
+    return center_x, center_y, len(points)
+
+
 def trigger_destruction(driver: webdriver.Chrome) -> None:
     driver.execute_async_script(
         """
@@ -137,13 +160,34 @@ def main() -> None:
             'mid_to_reveal': mean_difference(middle, reveal),
             'reveal_to_final': mean_difference(reveal, final),
         }
+        contact_centroid = warm_surface_centroid(contact)
+        early_centroid = warm_surface_centroid(early)
+        early_surface_shift = math.dist(contact_centroid[:2], early_centroid[:2])
+
         payload['non_dark_pixels'] = energies
         payload['mean_frame_differences'] = differences
+        payload['warm_surface_centroid'] = {
+            'contact': {
+                'x': contact_centroid[0],
+                'y': contact_centroid[1],
+                'pixels': contact_centroid[2],
+            },
+            'early_fracture': {
+                'x': early_centroid[0],
+                'y': early_centroid[1],
+                'pixels': early_centroid[2],
+            },
+            'early_shift_px': early_surface_shift,
+        }
 
         require(energies['contact'] >= 700, 'contact capture is unexpectedly empty')
         require(
             energies['early_fracture'] >= energies['contact'] * 0.55,
             'the original solid surface disappeared too abruptly during early fracture',
+        )
+        require(
+            early_surface_shift <= 38.0,
+            'preserved source surface moved after destruction; possible synthetic handoff drift',
         )
         for stage, energy in energies.items():
             require(energy >= 450, f'{stage} capture is unexpectedly empty')
