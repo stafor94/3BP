@@ -1,15 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
+import { getEffectiveBodyType, normalizeBodyForType } from '../bodyTypes'
 import { translations, type Language } from '../i18n'
 import { PRESETS_BY_BODY_COUNT } from '../presets'
-import { formatStellarColorOption, getNearestStellarColor, STELLAR_COLOR_OPTIONS } from '../starColors'
+import {
+  getStellarComputedProperties,
+  STELLAR_EVOLUTION_STAGES,
+} from '../starColors'
+import {
+  ATMOSPHERE_PRESETS,
+  getResolvedSurfaceProfile,
+  getSurfacePreset,
+  getSurfacePresetsForBodyType,
+} from '../surfacePresets'
 import { findTrackingCandidate } from '../trackingSelection'
-import type { BodyCount, BodyState, PresetId, SpaceMode } from '../types'
+import type { BodyCount, BodyState, PresetId, SpaceMode, StellarEvolutionStage } from '../types'
 import { APP_VERSION } from '../version'
 import { BodyTypeSelector } from './BodyTypeSelector'
 import '../body-scale-controls.css'
 import '../mobile-controls.css'
 import '../version.css'
 import '../collision-watch-controls.css'
+import '../stellar-surface-controls.css'
 
 type Props = {
   bodies: BodyState[]
@@ -44,8 +55,35 @@ const SPACE_MODES: SpaceMode[] = ['2d', '3d']
 const TRACKING_MIN_MASS_RATIO = 0.5
 const vectorKeys = ['x', 'y', 'z'] as const
 
+const STAGE_LABELS: Record<Language, Record<StellarEvolutionStage, string>> = {
+  ko: {
+    protostar: '원시성',
+    mainSequence: '주계열성',
+    subgiant: '준거성',
+    giant: '거성',
+    supergiant: '초거성',
+    whiteDwarf: '백색왜성',
+  },
+  en: {
+    protostar: 'Protostar',
+    mainSequence: 'Main sequence',
+    subgiant: 'Subgiant',
+    giant: 'Giant',
+    supergiant: 'Supergiant',
+    whiteDwarf: 'White dwarf',
+  },
+}
+
 function formatNumberValue(value: number) {
   return Number.isFinite(value) ? String(Number(value.toFixed(6))) : '0'
+}
+
+function formatScientific(value: number) {
+  if (!Number.isFinite(value)) return '—'
+  if (Math.abs(value) >= 100000 || (Math.abs(value) > 0 && Math.abs(value) < 0.01)) {
+    return value.toExponential(2)
+  }
+  return Number(value.toFixed(2)).toLocaleString()
 }
 
 function clonePanelBody(body: BodyState): BodyState {
@@ -228,9 +266,10 @@ export function ControlPanel({
   }
 
   const handleBodyChange = (id: string, next: BodyState) => {
+    const normalized = normalizeBodyForType(next, getEffectiveBodyType(next))
     panelBodyScaleRef.current = bodyScale
-    setPanelBodies((current) => current.map((body) => (body.id === id ? clonePanelBody(next) : body)))
-    onBodyChange(id, next)
+    setPanelBodies((current) => current.map((body) => (body.id === id ? clonePanelBody(normalized) : body)))
+    onBodyChange(id, normalized)
   }
 
   const getTrackingState = (source: BodyState) => {
@@ -408,12 +447,20 @@ export function ControlPanel({
           {panelBodies.map((body) => {
             const { candidate, canTrack } = getTrackingState(body)
             const isTracked = trackingSourceId === body.id && trackedBodyId !== null
-            const stellarColor = getNearestStellarColor(body.color)
-            const bodyType = body.bodyType ?? 'planet'
+            const bodyType = getEffectiveBodyType(body)
+            const stellarProperties = bodyType === 'star' ? getStellarComputedProperties(body) : null
+            const surfaceProfile = bodyType === 'planet' || bodyType === 'moon'
+              ? getResolvedSurfaceProfile(body, bodyType)
+              : null
+            const displayColor = stellarProperties?.displayColor ?? surfaceProfile?.baseColor ?? body.color
+            const surfaceOptions = bodyType === 'planet' || bodyType === 'moon'
+              ? getSurfacePresetsForBodyType(bodyType)
+              : []
+
             return (
               <details className="body-card" key={body.id} open={panelBodies.length <= 3}>
                 <summary>
-                  <span className="body-dot" style={{ background: stellarColor.hex, color: stellarColor.hex }} />
+                  <span className="body-dot" style={{ background: displayColor, color: displayColor }} />
                   <span className="body-summary-type">{t[bodyType]}</span>
                   <strong>{body.name}</strong>
                   <span>{body.mass.toFixed(2)} M</span>
@@ -454,36 +501,163 @@ export function ControlPanel({
                     {t.name}
                     <input value={body.name} readOnly aria-readonly="true" title={body.name} />
                   </label>
-                  <div className="stellar-color-field">
-                    <span>{t.color}</span>
-                    <div className="stellar-color-picker" role="group" aria-label={t.color}>
-                      {STELLAR_COLOR_OPTIONS.map((option) => {
-                        const optionLabel = formatStellarColorOption(option, language)
-                        const active = stellarColor.spectralClass === option.spectralClass
-                        return (
-                          <button
-                            key={option.spectralClass}
-                            type="button"
-                            className={active ? 'active' : ''}
-                            style={{ backgroundColor: option.hex }}
-                            title={optionLabel}
-                            aria-label={optionLabel}
-                            aria-pressed={active}
-                            onClick={() => handleBodyChange(body.id, { ...body, color: option.hex })}
-                          />
-                        )
-                      })}
-                    </div>
-                  </div>
                   <label>
                     {t.mass}
-                    <NumberField value={body.mass} step={0.05} onChange={(mass) => handleBodyChange(body.id, { ...body, mass: Math.max(0.001, mass) })} />
-                  </label>
-                  <label>
-                    {t.radius}
-                    <NumberField value={body.radius} step={0.005} onChange={(radius) => handleBodyChange(body.id, { ...body, radius: Math.max(0.005, radius) })} />
+                    <NumberField
+                      value={body.mass}
+                      step={0.05}
+                      onChange={(mass) => handleBodyChange(body.id, { ...body, mass: Math.max(0.001, mass) })}
+                    />
                   </label>
                 </div>
+
+                {stellarProperties ? (
+                  <div className="stellar-editor">
+                    <label className="stellar-select-row">
+                      <span>{t.stellarEvolutionStage}</span>
+                      <select
+                        value={stellarProperties.stage}
+                        onChange={(event) => handleBodyChange(body.id, {
+                          ...body,
+                          stellarEvolutionStage: event.target.value as StellarEvolutionStage,
+                        })}
+                      >
+                        {STELLAR_EVOLUTION_STAGES.map((stage) => (
+                          <option key={stage} value={stage}>{STAGE_LABELS[language][stage]}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="stellar-range-row">
+                      <span>{t.stellarEvolutionPhase}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={stellarProperties.phase01}
+                        onChange={(event) => handleBodyChange(body.id, {
+                          ...body,
+                          stellarEvolutionPhase01: Number(event.target.value),
+                        })}
+                      />
+                      <output>{stellarProperties.phase01.toFixed(2)}</output>
+                    </label>
+
+                    <label className="stellar-range-row">
+                      <span>{t.stellarRadiusScale}</span>
+                      <input
+                        type="range"
+                        min="0.2"
+                        max="3"
+                        step="0.02"
+                        value={body.stellarRadiusScale ?? 1}
+                        onChange={(event) => handleBodyChange(body.id, {
+                          ...body,
+                          stellarRadiusScale: Number(event.target.value),
+                        })}
+                      />
+                      <output>{(body.stellarRadiusScale ?? 1).toFixed(2)}×</output>
+                    </label>
+
+                    <div className="stellar-readout-heading">{t.stellarProperties}</div>
+                    <dl className="stellar-readout-grid">
+                      <div>
+                        <dt>{t.estimatedLuminosity}</dt>
+                        <dd>{formatScientific(stellarProperties.luminositySolar)} L☉</dd>
+                      </div>
+                      <div>
+                        <dt>{t.estimatedRadius}</dt>
+                        <dd>{formatScientific(stellarProperties.radiusSolar)} R☉</dd>
+                      </div>
+                      <div>
+                        <dt>{t.coreTemperature}</dt>
+                        <dd>{formatScientific(stellarProperties.coreTemperatureK)} K</dd>
+                      </div>
+                      <div>
+                        <dt>{t.surfaceTemperature}</dt>
+                        <dd>{Math.round(stellarProperties.surfaceTemperatureK).toLocaleString()} K</dd>
+                      </div>
+                      <div>
+                        <dt>{t.spectralClass}</dt>
+                        <dd>{stellarProperties.spectralClass}</dd>
+                      </div>
+                      <div>
+                        <dt>{t.displayColor}</dt>
+                        <dd className="stellar-color-readout">
+                          <span style={{ backgroundColor: stellarProperties.displayColor }} />
+                          <code>{stellarProperties.displayColor.toUpperCase()}</code>
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                ) : (
+                  <div className="surface-editor">
+                    <label>
+                      {t.surfacePreset}
+                      <select
+                        value={surfaceProfile?.id ?? ''}
+                        onChange={(event) => {
+                          const selected = getSurfacePreset(event.target.value as BodyState['surfacePresetId'])
+                          handleBodyChange(body.id, {
+                            ...body,
+                            surfacePresetId: selected?.id,
+                            atmospherePresetId: bodyType === 'planet'
+                              ? selected?.defaultAtmosphere
+                              : body.atmospherePresetId,
+                          })
+                        }}
+                      >
+                        {surfaceOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {language === 'ko' ? option.nameKo : option.nameEn}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="surface-variation-row">
+                      <span>{t.surfaceVariation}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={body.surfaceVariant01 ?? 0.5}
+                        onChange={(event) => handleBodyChange(body.id, {
+                          ...body,
+                          surfaceVariant01: Number(event.target.value),
+                        })}
+                      />
+                      <output>{(body.surfaceVariant01 ?? 0.5).toFixed(2)}</output>
+                    </label>
+                    {bodyType === 'planet' && (
+                      <label>
+                        {t.atmosphere}
+                        <select
+                          value={body.atmospherePresetId ?? surfaceProfile?.defaultAtmosphere ?? 'none'}
+                          onChange={(event) => handleBodyChange(body.id, {
+                            ...body,
+                            atmospherePresetId: event.target.value as BodyState['atmospherePresetId'],
+                          })}
+                        >
+                          {ATMOSPHERE_PRESETS.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {language === 'ko' ? option.nameKo : option.nameEn}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <label>
+                      {t.radius}
+                      <NumberField
+                        value={body.radius}
+                        step={0.005}
+                        onChange={(radius) => handleBodyChange(body.id, { ...body, radius: Math.max(0.005, radius) })}
+                      />
+                    </label>
+                  </div>
+                )}
 
                 <span className="field-group-title">{t.position}</span>
                 <div className="vector-grid">
