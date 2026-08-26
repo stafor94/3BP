@@ -1,0 +1,68 @@
+name: Verify v0.19.5 collision camera tracking handoff
+
+on:
+  push:
+    branches:
+      - fix/collision-camera-tracking-handoff-v0.19.5
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install
+      - name: Version regression
+        run: npm run check:version
+      - name: Full physics regression
+        run: npm run check:physics
+      - name: TypeScript compile
+        run: npx tsc -b
+      - name: Vite build
+        run: npx vite build
+      - name: Install browser visual regression runtime
+        run: python -m pip install --disable-pip-version-check --quiet selenium==4.35.0 pillow==11.3.0
+      - name: Start production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/3bp-preview.log 2>&1 &
+          echo $! > /tmp/3bp-preview.pid
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/3BP/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/3bp-preview.log
+          exit 1
+      - name: Stellar collision browser visual regression
+        run: python scripts/visualStellarCollisionRegression.py
+      - name: Strict stellar collision visual gate
+        run: python scripts/strictStellarCollisionVisualGate.py
+      - name: Collision watch visual regression
+        run: python scripts/collisionWatchVisualRegression.py
+      - name: Collision camera to tracking handoff visual regression
+        run: python scripts/collisionCameraTrackingHandoffVisualRegression.py
+      - name: Non-stellar destruction visual regression
+        run: python scripts/nonStellarDestructionVisualRegression.py
+      - name: Survivor absorption visual regression
+        run: python scripts/survivorAbsorptionVisualRegression.py
+      - name: Absorption continuity visual regression
+        run: python scripts/absorptionContinuityVisualRegression.py
+      - name: Actual disruption visual regression
+        run: python scripts/actualDisruptionVisualRegression.py
+      - name: Upload collision camera tracking handoff artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-camera-tracking-handoff-release-gate
+          path: collision-camera-tracking-handoff-artifacts
+          if-no-files-found: warn
+          retention-days: 7
