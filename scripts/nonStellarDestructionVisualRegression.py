@@ -154,7 +154,9 @@ def main() -> None:
         middle = capture_canvas(driver, '03-mid-breakup')
         wait_until(destruction_started_at, 1.18)
         reveal = capture_canvas(driver, '04-result-reveal')
-        wait_until(destruction_started_at, 1.65)
+        # Capture final debris well after the 1.5s source handoff so the final
+        # frame proves that physical fragment separation continues after reveal.
+        wait_until(destruction_started_at, 2.10)
         final = capture_canvas(driver, '05-final-debris')
 
         captures = {
@@ -179,7 +181,7 @@ def main() -> None:
             'early_fracture': 0.30,
             'mid_breakup': 0.78,
             'result_reveal': 1.18,
-            'final_debris': 1.65,
+            'final_debris': 2.10,
         }
         payload['non_dark_pixels'] = energies
         payload['mean_frame_differences'] = differences
