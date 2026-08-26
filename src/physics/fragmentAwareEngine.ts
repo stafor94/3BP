@@ -7,11 +7,11 @@ import { stepBodies as stepPhysicsBodies } from './engine'
 const COLLISION_SPARK_NAME = 'Collision spark'
 const COLLISION_FLASH_NAME = 'Collision flash'
 
-// Collision-watch slow motion is real-time phase controlled in App.tsx. Stellar
-// collisions deliberately hold a much longer simulated impact bridge so 0.03x
-// observation has enough wall-clock time for compression, peak flash, topology
-// masking and handoff before the physical solver is allowed to reveal the result.
-const COLLISION_IMPACT_SIM_DURATION = 0.006
+// Collision-watch slow motion is real-time phase controlled in App.tsx. Keep a
+// visible contact bridge for solid-body collisions too so 0.03x observation has
+// enough wall-clock time to show compression/contact before the solver reveals
+// the remnant and ejecta.
+const COLLISION_IMPACT_SIM_DURATION = 0.024
 const STELLAR_HIT_RUN_IMPACT_SIM_DURATION = 0.018
 const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.024
 const STELLAR_PARTIAL_IMPACT_SIM_DURATION = 0.021
@@ -680,15 +680,6 @@ function buildContactPhysicalFrame(transition: CollisionTransition) {
     .filter((body) => !isExpiredEffect(body))
 }
 
-function isAtOrInsideContact(a: BodyState, b: BodyState) {
-  const distance = Math.hypot(
-    b.position.x - a.position.x,
-    b.position.y - a.position.y,
-    b.position.z - a.position.z,
-  )
-  return distance <= getCollisionContactDistance(a, b) + 1e-9
-}
-
 function resolveTransition(transition: CollisionTransition, overshoot: number) {
   const contactFrame = buildContactPhysicalFrame(transition)
   let resolved = advancePhysicalBodies(contactFrame, CONTACT_RESOLUTION_DT)
@@ -725,20 +716,10 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   const collisionPair = findNewCollisionPair(input, probedPhysicalBodies, dt)
   if (!collisionPair) return probedPhysicalBodies
 
-  // Preserve the legacy immediate-resolution path for non-stellar pairs that
-  // already begin at/inside contact. Only star↔star collisions need the forced
-  // presentation envelope; broadening this rule breaks absorption/tracking
-  // continuity for planet-moon and other resumed contact states.
-  if (
-    !isStellarPair(collisionPair.bodyA, collisionPair.bodyB) &&
-    isAtOrInsideContact(collisionPair.bodyA, collisionPair.bodyB)
-  ) {
-    return probedPhysicalBodies
-  }
-
-  // Star↔star collisions always cross the presentation envelope, even when the
-  // input frame starts exactly at or microscopically inside contact. This keeps
-  // both source silhouettes real until the topology-mask phase has peaked.
+  // Stage both crossing contacts and exact/shallow contact frames. Collision-watch
+  // replay can legitimately resume on the mathematical surface; resolving those
+  // frames immediately is what made solid-body impacts collapse into a single
+  // flash frame instead of showing the contact bridge.
   const mode = inferCollisionPresentationMode(
     probedPhysicalBodies,
     collisionPair.bodyA,
