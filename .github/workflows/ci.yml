@@ -47,6 +47,8 @@ jobs:
         run: python scripts/strictStellarCollisionVisualGate.py
       - name: Collision watch browser visual regression
         run: python scripts/collisionWatchVisualRegression.py
+      - name: Non-stellar destruction browser visual regression
+        run: python scripts/nonStellarDestructionVisualRegression.py
       - name: Upload stellar collision visual captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -61,5 +63,13 @@ jobs:
         with:
           name: collision-watch-visual-regression
           path: collision-watch-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload non-stellar destruction visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: non-stellar-destruction-visual-regression
+          path: non-stellar-destruction-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
