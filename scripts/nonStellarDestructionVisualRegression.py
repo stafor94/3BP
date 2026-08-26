@@ -75,6 +75,38 @@ def mean_difference(a: Path, b: Path) -> float:
     return sum(ImageStat.Stat(difference).mean) / 3.0
 
 
+def debris_region_difference(a: Path, b: Path) -> dict[str, float | int | list[int]]:
+    image_a = Image.open(a).convert('RGB')
+    image_b = Image.open(b).convert('RGB')
+    width, height = image_a.size
+    require(image_b.size == (width, height), 'debris comparison images have different sizes')
+
+    # The harness keeps the disrupted source/debris near the center while the
+    # rest of the canvas is mostly static space. Measure that physical debris
+    # region directly so a few thousand moving fragment pixels are not diluted
+    # by the full 900x557 canvas.
+    x0, x1 = int(width * 0.28), int(width * 0.72)
+    y0, y1 = int(height * 0.32), int(height * 0.68)
+    differences: list[float] = []
+    changed = 0
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            before = image_a.getpixel((x, y))
+            after = image_b.getpixel((x, y))
+            delta = sum(abs(before[index] - after[index]) for index in range(3)) / 3.0
+            differences.append(delta)
+            if delta >= 2.0:
+                changed += 1
+
+    require(bool(differences), 'debris comparison ROI is empty')
+    return {
+        'roi': [x0, y0, x1, y1],
+        'pixels': len(differences),
+        'mean_difference': sum(differences) / len(differences),
+        'changed_fraction': changed / len(differences),
+    }
+
+
 def warm_surface_centroid(path: Path) -> tuple[float, float, int]:
     image = Image.open(path).convert('RGB')
     width, height = image.size
@@ -173,6 +205,7 @@ def main() -> None:
             'mid_to_reveal': mean_difference(middle, reveal),
             'reveal_to_final': mean_difference(reveal, final),
         }
+        debris_motion = debris_region_difference(reveal, final)
         contact_centroid = warm_surface_centroid(contact)
         early_centroid = warm_surface_centroid(early)
         early_surface_shift = math.dist(contact_centroid[:2], early_centroid[:2])
@@ -185,6 +218,7 @@ def main() -> None:
         }
         payload['non_dark_pixels'] = energies
         payload['mean_frame_differences'] = differences
+        payload['post_reveal_debris_motion'] = debris_motion
         payload['warm_surface_centroid'] = {
             'contact': {
                 'x': contact_centroid[0],
@@ -232,8 +266,12 @@ def main() -> None:
             'result reveal must remain visually distinct from mid breakup',
         )
         require(
-            differences['reveal_to_final'] >= 0.08,
-            'final debris must continue evolving after result reveal',
+            float(debris_motion['mean_difference']) >= 0.25,
+            'final debris region must continue evolving after result reveal',
+        )
+        require(
+            float(debris_motion['changed_fraction']) >= 0.025,
+            'too few debris-region pixels changed after result reveal',
         )
 
         print('non-stellar destruction browser visual regression: ok')
