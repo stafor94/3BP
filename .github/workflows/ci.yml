@@ -15,6 +15,46 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Apply pending survivor surface identity fix
+        if: github.event_name == 'push'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          lighting = Path('src/rendering/bodyLighting.ts')
+          text = lighting.read_text(encoding='utf-8')
+          text = text.replace(
+              '  uniform float uSeed;\n  uniform float uDetailStrength;',
+              '  uniform float uSeed;\n  uniform float uSurfaceSeed;\n  uniform float uDetailStrength;',
+              1,
+          )
+          for old, new in [
+              ('uSeed * 0.071', 'uSurfaceSeed * 0.071'),
+              ('uSeed * 0.113', 'uSurfaceSeed * 0.113'),
+              ('uSeed * 0.157', 'uSurfaceSeed * 0.157'),
+              ('uSeed * 0.013', 'uSurfaceSeed * 0.013'),
+              ('uSeed * 0.043', 'uSurfaceSeed * 0.043'),
+              ('uSeed * 0.079', 'uSurfaceSeed * 0.079'),
+              ('uSeed * 0.131', 'uSurfaceSeed * 0.131'),
+              ('uSeed * 0.07', 'uSurfaceSeed * 0.07'),
+          ]:
+              text = text.replace(old, new)
+          text = text.replace(
+              '        ...values.uniforms,\n        uSecondaryColor:',
+              '        ...values.uniforms,\n        uSurfaceSeed: { value: values.uniforms.uSeed.value },\n        uSecondaryColor:',
+              1,
+          )
+          lighting.write_text(text, encoding='utf-8')
+
+          bridge = Path('src/rendering/liveCollisionVfxBridge.ts')
+          text = bridge.read_text(encoding='utf-8')
+          text = text.replace(
+              '  if (material.uniforms.uSeed) material.uniforms.uSeed.value = identitySeed',
+              '  if (material.uniforms.uSurfaceSeed) material.uniforms.uSurfaceSeed.value = identitySeed',
+              1,
+          )
+          bridge.write_text(text, encoding='utf-8')
+          PY
       - name: Prepare v0.19.3 changelog locally
         if: github.event_name == 'push'
         run: |
@@ -36,6 +76,7 @@ jobs:
                   '- 큰 천체가 작은 천체를 흡수해 대부분의 질량과 실루엣을 유지하는 경우에도 큰 천체 전체에 fracture/dissolve snapshot이 생성되던 문제를 수정했습니다.',
                   '- 생존 천체에는 destruction snapshot·전역 crack·global discard·opacity fade를 생성하지 않고, 실제 접촉점 주변 약 10% 구면 범위에만 700ms 이내의 국소 impact 흔적을 적용하도록 수정했습니다.',
                   '- 충돌 후 살아남은 큰 천체 위에 동일 크기의 검은 shell/ghost sphere가 겹치던 현상을 제거했습니다.',
+                  '- survivor의 표면 정체성 seed와 렌더 body lookup seed를 분리해 흡수 후 비항성 천체가 self-luminous/glow 상태로 고착될 수 있던 경로를 제거했습니다.',
                   '',
                   '### Added',
                   '- survivor absorption과 actual disruption을 분리 검증하는 브라우저 시각 회귀를 추가하고 contact/150/350/700/1100/1600ms 단계 캡처 및 survivor 반대 hemisphere 변화 검사를 추가했습니다.',
@@ -127,14 +168,14 @@ jobs:
           path: actual-disruption-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
-      - name: Commit validated v0.19.3 changelog
+      - name: Commit validated v0.19.3 changes
         if: github.event_name == 'push' && success()
         run: |
-          if git diff --quiet -- CHANGELOG.md; then
+          if git diff --quiet -- CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git commit -m "docs: add v0.19.3 changelog"
+          git add CHANGELOG.md src/rendering/bodyLighting.ts src/rendering/liveCollisionVfxBridge.ts
+          git commit -m "fix: separate survivor surface and body identity seeds"
           git push
