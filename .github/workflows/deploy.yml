@@ -28,6 +28,30 @@ jobs:
         run: npm install
       - name: Build
         run: npm run build
+      - name: Install browser visual regression runtime
+        run: python -m pip install --disable-pip-version-check --quiet selenium==4.35.0 pillow==11.3.0
+      - name: Start production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/3bp-preview.log 2>&1 &
+          echo $! > /tmp/3bp-preview.pid
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/3BP/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/3bp-preview.log
+          exit 1
+      - name: Stellar collision browser visual regression
+        run: python scripts/visualStellarCollisionRegression.py
+      - name: Upload stellar collision visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-collision-visual-regression
+          path: .visual-regression
+          if-no-files-found: warn
+          retention-days: 7
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

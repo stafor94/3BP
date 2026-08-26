@@ -9,11 +9,20 @@ import './tablet-panel-controls.css'
 import './version.css'
 import './top-overlay-controls.css'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <>
-      <App />
-      <div className="screen-app-version" aria-label={`version ${APP_VERSION}`}>v{APP_VERSION}</div>
-    </>
-  </StrictMode>,
-)
+const root = createRoot(document.getElementById('root')!)
+const visualRegression = new URLSearchParams(window.location.search).get('visual-regression')
+
+if (visualRegression === 'stellar-topology') {
+  void import('./visualRegression/StellarTopologyVisualHarness').then(({ StellarTopologyVisualHarness }) => {
+    root.render(<StellarTopologyVisualHarness />)
+  })
+} else {
+  root.render(
+    <StrictMode>
+      <>
+        <App />
+        <div className="screen-app-version" aria-label={`version ${APP_VERSION}`}>v{APP_VERSION}</div>
+      </>
+    </StrictMode>,
+  )
+}
