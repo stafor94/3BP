@@ -13,6 +13,12 @@ import {
   isCollisionCameraDistanceConverged,
 } from './cameraFraming'
 import { createFragmentGeometry } from './fragmentGeometry'
+import {
+  isCollisionCameraJustReleased,
+  resolveCameraMode,
+  shouldResetTrackingFocus,
+  type CameraMode,
+} from './trackingCameraHandoff'
 
 export type CollisionCameraFocus = {
   pairKey: string
@@ -29,6 +35,28 @@ export type SimulationRenderState = {
   trailSampleBatch: TrailSampleBatch
   trackedBodyId: string | null
   collisionCameraFocus: CollisionCameraFocus | null
+}
+
+export type SimulationCameraTelemetry = {
+  nowMs: number
+  mode: CameraMode
+  trackedBodyId: string | null
+  resolvedTrackedBodyId: string | null
+  collisionCameraFocused: boolean
+  collisionCameraJustReleased: boolean
+  trackingFocusNeedsReset: boolean
+  trackingFocusSettleFrames: number
+  cameraPosition: { x: number; y: number; z: number }
+  controlsTarget: { x: number; y: number; z: number }
+  trackedBodyPosition: { x: number; y: number; z: number } | null
+  trackedBodyNdc: { x: number; y: number; z: number } | null
+  cameraDistanceToTrackedBody: number | null
+  desiredCameraDistance: number | null
+  targetErrorToTrackedBody: number | null
+}
+
+export type SimulationRendererOptions = {
+  onCameraTelemetry?: (telemetry: SimulationCameraTelemetry) => void
 }
 
 type TrailPoint = {
@@ -659,7 +687,11 @@ function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTim
   ;(visual.trailRibbon.material.uniforms.uColor.value as THREE.Color).set(stellarColor)
 }
 
-export function createSimulationRenderer(host: HTMLDivElement, getState: () => SimulationRenderState) {
+export function createSimulationRenderer(
+  host: HTMLDivElement,
+  getState: () => SimulationRenderState,
+  options: SimulationRendererOptions = {},
+) {
   const initialState = getState()
   const scene = new THREE.Scene()
   scene.background = new THREE.Color('#03050a')
@@ -767,6 +799,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
   let observedCollisionMainSourceId: string | null = null
   let trackingFocusSettleFrames = 0
   let wasTrackingBody = false
+  let wasCollisionCameraFocused = false
 
   const clearTrail = (visual: VisualBody) => {
     visual.points = []
@@ -1012,6 +1045,53 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     controls.maxDistance = Math.min(RENDER_TUNING.camera.maxDistance, camera.far * 0.9)
   }
 
+  const emitCameraTelemetry = (
+    state: SimulationRenderState,
+    trackedBody: BodyState | undefined,
+    mode: CameraMode,
+    collisionCameraFocused: boolean,
+    collisionCameraJustReleased: boolean,
+    trackingFocusNeedsReset: boolean,
+  ) => {
+    const callback = options.onCameraTelemetry
+    if (!callback) return
+
+    const trackedPosition = trackedBody
+      ? new THREE.Vector3(trackedBody.position.x, trackedBody.position.y, trackedBody.position.z)
+      : null
+    const trackedBodyNdc = trackedPosition ? trackedPosition.clone() : null
+    if (trackedBodyNdc) {
+      camera.updateMatrixWorld()
+      trackedBodyNdc.project(camera)
+    }
+
+    callback({
+      nowMs: performance.now(),
+      mode,
+      trackedBodyId: state.trackedBodyId,
+      resolvedTrackedBodyId: trackedBody?.id ?? null,
+      collisionCameraFocused,
+      collisionCameraJustReleased,
+      trackingFocusNeedsReset,
+      trackingFocusSettleFrames,
+      cameraPosition: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      controlsTarget: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
+      trackedBodyPosition: trackedPosition
+        ? { x: trackedPosition.x, y: trackedPosition.y, z: trackedPosition.z }
+        : null,
+      trackedBodyNdc: trackedBodyNdc
+        ? { x: trackedBodyNdc.x, y: trackedBodyNdc.y, z: trackedBodyNdc.z }
+        : null,
+      cameraDistanceToTrackedBody: trackedPosition
+        ? camera.position.distanceTo(trackedPosition)
+        : null,
+      desiredCameraDistance: trackedBody ? getAutoCameraDistance(trackedBody) : null,
+      targetErrorToTrackedBody: trackedPosition
+        ? controls.target.distanceTo(trackedPosition)
+        : null,
+    })
+  }
+
   const resetAutoDistanceLimits = () => {
     controls.minDistance = RENDER_TUNING.camera.defaultMinDistance
     controls.maxDistance = RENDER_TUNING.camera.maxDistance
@@ -1229,15 +1309,26 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     const trackedBody = getTrackedBody(current, state.trackedBodyId)
     const trackingSelectionChanged = isTrackingSelectionChanged(state.trackedBodyId)
     const collisionCameraFocused = applyCollisionCameraFocus(state)
+    const collisionCameraJustReleased = isCollisionCameraJustReleased(
+      wasCollisionCameraFocused,
+      collisionCameraFocused,
+      trackedBody !== undefined,
+    )
+    const trackingFocusNeedsReset = shouldResetTrackingFocus(
+      trackingSelectionChanged,
+      collisionCameraJustReleased,
+    )
+    const cameraMode = resolveCameraMode(collisionCameraFocused, trackedBody !== undefined)
 
-    if (!collisionCameraFocused && trackedBody) {
-      applyTrackingCameraFocus(trackedBody, trackingSelectionChanged)
-    } else if (!collisionCameraFocused && (wasTrackingBody || trackingSelectionChanged)) {
+    if (cameraMode === 'tracking' && trackedBody) {
+      applyTrackingCameraFocus(trackedBody, trackingFocusNeedsReset)
+    } else if (cameraMode === 'preserve' && (wasTrackingBody || trackingSelectionChanged)) {
       resetAutoDistanceLimits()
       trackingFocusSettleFrames = 0
       wasTrackingBody = false
     }
     observedTrackedBodyId = state.trackedBodyId
+    wasCollisionCameraFocused = collisionCameraFocused
 
     if (observedTrailVersion !== state.trailVersion) {
       Array.from(visuals.keys()).forEach(removeVisual)
@@ -1303,6 +1394,14 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     })
 
     controls.update()
+    emitCameraTelemetry(
+      state,
+      trackedBody,
+      cameraMode,
+      collisionCameraFocused,
+      collisionCameraJustReleased,
+      trackingFocusNeedsReset,
+    )
     renderer.render(scene, camera)
   }
 

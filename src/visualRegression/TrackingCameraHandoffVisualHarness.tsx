@@ -1,0 +1,169 @@
+import { useEffect, useRef } from 'react'
+import {
+  createSimulationRenderer,
+  type SimulationCameraTelemetry,
+  type SimulationRenderState,
+} from '../rendering/simulationRenderer'
+import type { BodyState } from '../types'
+
+type HandoffStage = 'tracking' | 'collision' | 'release'
+type TimedCameraTelemetry = SimulationCameraTelemetry & { elapsedMs: number }
+
+const SOURCE_ID = 'handoff-a'
+const REMNANT_ID = 'handoff-a+handoff-b'
+
+function makeBody(
+  id: string,
+  mass: number,
+  radius: number,
+  position: BodyState['position'],
+  velocity: BodyState['velocity'],
+  color: string,
+): BodyState {
+  return {
+    id,
+    name: id,
+    mass,
+    radius,
+    position,
+    velocity,
+    color,
+    bodyType: 'planet',
+  }
+}
+
+const sourceA = makeBody(
+  SOURCE_ID,
+  1,
+  0.3,
+  { x: 0, y: 0, z: 0 },
+  { x: 0, y: 0, z: 0 },
+  '#f0aa68',
+)
+const sourceB = makeBody(
+  'handoff-b',
+  0.35,
+  0.18,
+  { x: 0.58, y: 0.12, z: 0 },
+  { x: 0, y: 0.4, z: 0 },
+  '#83afff',
+)
+const remnant = makeBody(
+  REMNANT_ID,
+  0.76,
+  0.31,
+  { x: 0.035, y: 0.01, z: 0 },
+  { x: 0.02, y: 0, z: 0 },
+  '#f0aa68',
+)
+remnant.trackingContinuationIds = [SOURCE_ID]
+
+function makeState(stage: HandoffStage): SimulationRenderState {
+  const common = {
+    simulationTime: stage === 'release' ? 1 : 0,
+    trailVersion: 0,
+    trailEnabled: false,
+    trailDuration: 8,
+    trailSampleBatch: { sequence: 0, samples: [] },
+    trackedBodyId: SOURCE_ID,
+  }
+
+  if (stage === 'collision') {
+    return {
+      ...common,
+      bodies: [sourceA, sourceB],
+      collisionCameraFocus: {
+        pairKey: `${sourceA.id}~${sourceB.id}`,
+        bodyAId: sourceA.id,
+        bodyBId: sourceB.id,
+      },
+    }
+  }
+
+  return {
+    ...common,
+    bodies: stage === 'release' ? [remnant] : [sourceA],
+    collisionCameraFocus: null,
+  }
+}
+
+function isHandoffStage(value: string): value is HandoffStage {
+  return value === 'tracking' || value === 'collision' || value === 'release'
+}
+
+declare global {
+  interface Window {
+    __setTrackingCameraHandoffStage?: (stage: string) => void
+    __trackingCameraHandoffStage?: string
+    __trackingCameraHandoffTelemetry?: SimulationCameraTelemetry
+    __trackingCameraHandoffSamples?: TimedCameraTelemetry[]
+  }
+}
+
+export function TrackingCameraHandoffVisualHarness() {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+
+    let currentState = makeState('tracking')
+    let releaseStartedAt: number | null = null
+    let releaseArmed = false
+    const releaseSamples: TimedCameraTelemetry[] = []
+
+    const dispose = createSimulationRenderer(
+      host,
+      () => currentState,
+      {
+        onCameraTelemetry: (telemetry) => {
+          window.__trackingCameraHandoffTelemetry = telemetry
+          if (releaseArmed && telemetry.collisionCameraJustReleased) {
+            releaseStartedAt = telemetry.nowMs
+            releaseArmed = false
+            releaseSamples.length = 0
+          }
+          if (releaseStartedAt !== null) {
+            releaseSamples.push({
+              ...telemetry,
+              elapsedMs: telemetry.nowMs - releaseStartedAt,
+            })
+            if (releaseSamples.length > 180) releaseSamples.shift()
+            window.__trackingCameraHandoffSamples = [...releaseSamples]
+          }
+        },
+      },
+    )
+
+    window.__setTrackingCameraHandoffStage = (nextStage: string) => {
+      if (!isHandoffStage(nextStage)) throw new Error(`Unknown tracking handoff visual stage: ${nextStage}`)
+      if (nextStage === 'release') {
+        releaseStartedAt = null
+        releaseArmed = true
+        releaseSamples.length = 0
+        window.__trackingCameraHandoffSamples = []
+      }
+      currentState = makeState(nextStage)
+      window.__trackingCameraHandoffStage = nextStage
+      document.body.dataset.visualStage = nextStage
+    }
+    window.__setTrackingCameraHandoffStage('tracking')
+
+    return () => {
+      dispose()
+      delete window.__setTrackingCameraHandoffStage
+      delete window.__trackingCameraHandoffStage
+      delete window.__trackingCameraHandoffTelemetry
+      delete window.__trackingCameraHandoffSamples
+      delete document.body.dataset.visualStage
+    }
+  }, [])
+
+  return (
+    <div
+      data-visual-regression="tracking-camera-handoff"
+      ref={hostRef}
+      style={{ position: 'fixed', inset: 0, background: '#03050a', overflow: 'hidden' }}
+    />
+  )
+}
