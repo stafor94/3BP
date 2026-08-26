@@ -103,6 +103,13 @@ function testProfilesAvoidLensFlareAndBeamShapes() {
     1.8,
     { stretch: 6.8, widthScale: 0.42, tailLength: 1.9 },
   ))
+  const partialPlasma = getCollisionEffectProfile(makeEffect(
+    'stellarPlasma',
+    'partialDisruption',
+    0.45,
+    1.8,
+    { stretch: 6.8, widthScale: 0.42, tailLength: 1.9 },
+  ))
   const hitRunPlasma = getCollisionEffectProfile(makeEffect(
     'stellarPlasma',
     'hitAndRun',
@@ -111,11 +118,16 @@ function testProfilesAvoidLensFlareAndBeamShapes() {
     { stretch: 6.8, widthScale: 0.42, tailLength: 1.9 },
   ))
   assert(mergePlasma.anisotropicStretch <= 2.9, 'merge plasma must remain cloud/plume-like instead of beam-like')
+  assert(partialPlasma.anisotropicStretch <= 3.25, 'partial stripping plasma must remain bounded')
   assert(hitRunPlasma.anisotropicStretch <= 3.5, 'grazing plasma may be longer but must remain bounded')
   assert(mergePlasma.widthScale >= 0.58 && hitRunPlasma.widthScale >= 0.58,
     'stellar plasma must remain visibly broad')
   assert(mergePlasma.tailLength <= 0.82, 'merge ejecta tail must be compact')
-  assert(hitRunPlasma.tailLength > mergePlasma.tailLength && hitRunPlasma.tailLength <= 1.02,
+  assert(
+    mergePlasma.tailLength < partialPlasma.tailLength && partialPlasma.tailLength < hitRunPlasma.tailLength,
+    'merge, partial stripping, and hit-and-run must keep distinct plume-length profiles',
+  )
+  assert(hitRunPlasma.tailLength <= 1.02,
     'hit-and-run must keep a longer tangential plume without reverting to a beam')
 
   const shell = getCollisionEffectProfile(makeEffect(
@@ -150,6 +162,23 @@ function testBurstVariationTracksCollisionGeometry() {
     'head-on impact must remain broader than a grazing spray')
   assert(dot(grazing.primaryDirection, grazing.secondaryDirection) > -0.995,
     'primary and secondary plumes must not form a perfectly symmetric two-tail axis')
+}
+
+function testImpactSpeedChangesBurstEnergy() {
+  const lowSpeedBodies = [
+    makeStar('speed-low-a', 1, 0.3, { x: -0.27, y: 0, z: 0 }, { x: 0.15, y: 0, z: 0 }, '#ffd36b'),
+    makeStar('speed-low-b', 1, 0.3, { x: 0.27, y: 0, z: 0 }, { x: -0.15, y: 0, z: 0 }, '#7ea7ff'),
+  ]
+  const highSpeedBodies = [
+    makeStar('speed-high-a', 1, 0.3, { x: -0.27, y: 0, z: 0 }, { x: 1.5, y: 0, z: 0 }, '#ffd36b'),
+    makeStar('speed-high-b', 1, 0.3, { x: 0.27, y: 0, z: 0 }, { x: -1.5, y: 0, z: 0 }, '#7ea7ff'),
+  ]
+
+  const lowSpeed = presentationFor(lowSpeedBodies)
+  const highSpeed = presentationFor(highSpeedBodies)
+  assert(highSpeed.speed01 > lowSpeed.speed01, 'higher relative speed must raise the collision VFX energy factor')
+  assert(highSpeed.primaryLengthScale > lowSpeed.primaryLengthScale,
+    'higher relative speed must increase ejecta travel/scale without changing collision physics')
 }
 
 function testUnequalMassCreatesStrongerAsymmetry() {
@@ -212,6 +241,7 @@ function testPreviewParticleBudgetRemainsBounded() {
 
 testProfilesAvoidLensFlareAndBeamShapes()
 testBurstVariationTracksCollisionGeometry()
+testImpactSpeedChangesBurstEnergy()
 testUnequalMassCreatesStrongerAsymmetry()
 testSyntheticEjectaIsDeterministicAndDimensionAware()
 testPreviewParticleBudgetRemainsBounded()
