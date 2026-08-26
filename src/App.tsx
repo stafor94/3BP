@@ -40,6 +40,7 @@ import {
   normalizeBodyScale,
   persistInitialSetup,
 } from './simulationSettings'
+import { isTrackingMassEligible } from './trackingMassPolicy'
 import { findTrackingCandidate } from './trackingSelection'
 import type { BodyCount, BodyState, BodyType, PresetId, SpaceMode, TrailSample, TrailSampleBatch } from './types'
 
@@ -54,7 +55,6 @@ const COLLISION_CAMERA_LEAD_TIME = 3
 const COLLISION_REPLAY_LEAD_TIME = 0.36
 const COLLISION_WATCH_IMPACT_SLOW_TIME = 0.06
 const COLLISION_WATCH_MUTE_MS = 650
-const TRACKING_MIN_MASS_RATIO = 0.5
 const LANGUAGE_STORAGE_KEY = '3bp-language'
 const COLLISION_WATCH_ENABLED_STORAGE_KEY = '3bp-collision-watch-enabled'
 const SHOWCASE_DEFAULT_BY_BODY_COUNT: Partial<Record<BodyCount, PresetId>> = {
@@ -312,27 +312,27 @@ export default function App() {
     setTrackedBodyId((current) => {
       if (!current) return null
 
-      const candidate = findTrackingCandidate(bodies, current)
-      if (!candidate) {
-        trackingBaselineRef.current = null
-        return null
-      }
-
       const baseline = trackingBaselineRef.current
       if (!baseline) {
+        const candidate = findTrackingCandidate(bodies, current)
+        if (!candidate) return null
         trackingBaselineRef.current = {
           sourceId: current,
           initialMass: Math.max(candidate.mass, 0),
         }
-        return candidate.id
+        return current
       }
 
-      if (candidate.mass <= baseline.initialMass * TRACKING_MIN_MASS_RATIO + 1e-12) {
+      // Always resolve from the original user-selected source id. Descendant ids
+      // never become the new baseline, and the mass gate is evaluated before any
+      // general-tracking handoff can be committed.
+      const candidate = findTrackingCandidate(bodies, baseline.sourceId)
+      if (!candidate || !isTrackingMassEligible(candidate.mass, baseline.initialMass)) {
         trackingBaselineRef.current = null
         return null
       }
 
-      return candidate.id
+      return baseline.sourceId
     })
   }, [bodies])
   useEffect(() => {
@@ -837,6 +837,15 @@ export default function App() {
     return () => cancelAnimationFrame(animationFrame)
   }, [applyCollisionWatchSpeed, beginCollisionWatchInfo])
 
+  const trackingBaseline = trackingBaselineRef.current
+  const cameraTrackingCandidate = trackedBodyId && trackingBaseline
+    ? findTrackingCandidate(bodies, trackingBaseline.sourceId)
+    : null
+  const cameraTrackedBodyId = trackedBodyId && trackingBaseline && cameraTrackingCandidate &&
+    isTrackingMassEligible(cameraTrackingCandidate.mass, trackingBaseline.initialMass)
+    ? trackingBaseline.sourceId
+    : null
+
   return (
     <main className="app-shell">
       <label className="language-picker" title={t.language} aria-label={t.language}>
@@ -877,7 +886,7 @@ export default function App() {
           trailEnabled={trailEnabled}
           trailDuration={trailDuration}
           trailSampleBatch={trailSampleBatch}
-          trackedBodyId={trackedBodyId}
+          trackedBodyId={cameraTrackedBodyId}
           collisionCameraFocus={collisionCameraFocus ? {
             pairKey: collisionCameraFocus.pairKey,
             bodyAId: collisionCameraFocus.bodyA.sourceId,

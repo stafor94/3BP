@@ -1,7 +1,7 @@
 import type { BodyState } from './types'
 
 export function isTrackablePhysicalBody(body: BodyState) {
-  return body.bodyType !== 'effect'
+  return body.bodyType !== 'effect' && body.bodyType !== 'fragment'
 }
 
 export function findDirectTrackingCandidate(bodies: BodyState[], sourceId: string) {
@@ -15,17 +15,8 @@ function getSourceLineageIds(sourceId: string) {
   ])
 }
 
-function isLineageDescendant(candidateId: string, sourceId: string) {
-  const candidateParts = new Set(candidateId.split('+').map((part) => part.trim()).filter(Boolean))
-  const sourceParts = sourceId.split('+').map((part) => part.trim()).filter(Boolean)
-  return sourceParts.length > 0 && sourceParts.every((part) => candidateParts.has(part))
-}
-
 function selectBestTrackingCandidate(candidates: BodyState[]) {
   return [...candidates].sort((a, b) => {
-    const aFragment = a.bodyType === 'fragment' ? 1 : 0
-    const bFragment = b.bodyType === 'fragment' ? 1 : 0
-    if (aFragment !== bFragment) return aFragment - bFragment
     if (Math.abs(a.mass - b.mass) > 1e-12) return b.mass - a.mass
     if (Math.abs(a.radius - b.radius) > 1e-12) return b.radius - a.radius
     return a.id.localeCompare(b.id)
@@ -33,12 +24,12 @@ function selectBestTrackingCandidate(candidates: BodyState[]) {
 }
 
 /**
- * Tracking follows the user's selected physical lineage until the user changes
- * or clears the selection. Exact bodies win first, then explicit physics-layer
- * continuations, then ordinary collision descendants. When a destructive
- * collision leaves only fragments, the largest surviving fragment becomes the
- * deterministic continuation instead of dropping tracking in the middle of the
- * event. Rendering-only effect bodies are never valid tracking targets.
+ * Ordinary user tracking is deliberately narrower than collision lineage.
+ * The exact selected body remains eligible while it exists. If physics replaces
+ * it, tracking may continue only through an explicit absorption continuation
+ * recorded by the physics layer. Generic collision descendants and fragments
+ * are never automatic user-tracking targets; collision watch resolves its own
+ * source lineage independently.
  */
 export function findTrackingCandidate(bodies: BodyState[], sourceId: string) {
   const exact = findDirectTrackingCandidate(bodies, sourceId)
@@ -49,12 +40,5 @@ export function findTrackingCandidate(bodies: BodyState[], sourceId: string) {
     isTrackablePhysicalBody(body) &&
     body.trackingContinuationIds?.some((continuationId) => sourceLineageIds.has(continuationId)),
   )
-  const explicit = selectBestTrackingCandidate(explicitContinuations)
-  if (explicit) return explicit
-
-  return selectBestTrackingCandidate(
-    bodies.filter((body) =>
-      isTrackablePhysicalBody(body) && isLineageDescendant(body.id, sourceId),
-    ),
-  )
+  return selectBestTrackingCandidate(explicitContinuations)
 }

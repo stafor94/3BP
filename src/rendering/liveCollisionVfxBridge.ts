@@ -63,6 +63,10 @@ function getSimulationBodySeed(id: string) {
   return ((hash >>> 0) / 4294967295) * 1000
 }
 
+function getSeed01(id: string) {
+  return getSimulationBodySeed(id) / 1000
+}
+
 function isSimulationBodyShader(values: Record<string, any> | undefined) {
   return Boolean(
     values?.uniforms?.uSeed &&
@@ -115,7 +119,11 @@ function applyCollisionProductReveal(
   const introducedAt = collisionProductIntroducedAt.get(body.id)
   if (introducedAt === undefined) return
 
-  const elapsedMs = Math.max(0, now - introducedAt)
+  const seed01 = getSeed01(body.id)
+  const staggerMs = body.bodyType === 'fragment'
+    ? 20 + seed01 * 100
+    : seed01 * 30
+  const elapsedMs = Math.max(0, now - introducedAt - staggerMs)
   const progress = getCollisionProductRevealProgress(elapsedMs)
   const scaleUniform = material.uniforms.uCollisionRevealScale
   if (!scaleUniform) return
@@ -126,16 +134,18 @@ function applyCollisionProductReveal(
     return
   }
 
-  const easedScale = 1 - Math.pow(1 - progress, 2)
-  const initialScale = body.bodyType === 'fragment' ? 0.3 : 0.86
-  scaleUniform.value = THREE.MathUtils.lerp(initialScale, 1, easedScale)
+  const easeOut = 1 - Math.pow(1 - progress, 3)
+  const initialScale = body.bodyType === 'fragment'
+    ? THREE.MathUtils.lerp(0.18, 0.32, seed01)
+    : THREE.MathUtils.lerp(0.80, 0.88, seed01)
+  scaleUniform.value = THREE.MathUtils.lerp(initialScale, 1, easeOut)
 
   const opacityUniform = material.uniforms.uOpacity
   if (opacityUniform) {
     const baseOpacity = Number(opacityUniform.value)
     const revealOpacity = body.bodyType === 'fragment'
-      ? Math.pow(progress, 1.12)
-      : progress
+      ? Math.pow(progress, 1.32)
+      : Math.pow(progress, 1.08)
     opacityUniform.value = (Number.isFinite(baseOpacity) ? baseOpacity : 1) * revealOpacity
   }
 

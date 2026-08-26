@@ -18,6 +18,7 @@ import {
   getSurfacePreset,
   getSurfacePresetsForBodyType,
 } from '../surfacePresets'
+import { isTrackingMassEligible } from '../trackingMassPolicy'
 import { findTrackingCandidate } from '../trackingSelection'
 import type { BodyCount, BodyState, PresetId, SpaceMode, StellarEvolutionStage } from '../types'
 import { APP_VERSION } from '../version'
@@ -58,7 +59,6 @@ type Props = {
 const SPEEDS = [0.1, 0.5, 1, 2, 3, 5, 10]
 const BODY_COUNTS: BodyCount[] = [1, 2, 3, 4, 5, 6]
 const SPACE_MODES: SpaceMode[] = ['2d', '3d']
-const TRACKING_MIN_MASS_RATIO = 0.5
 const vectorKeys = ['x', 'y', 'z'] as const
 
 const STAGE_LABELS: Record<Language, Record<StellarEvolutionStage, string>> = {
@@ -269,7 +269,7 @@ export function ControlPanel({
     const scaleRatio = bodyScale / Math.max(panelBodyScaleRef.current, 1e-9)
     const initialMassAtCurrentScale = source.mass * scaleRatio
     const canTrack = Boolean(
-      candidate && candidate.mass > initialMassAtCurrentScale * TRACKING_MIN_MASS_RATIO + 1e-12,
+      candidate && isTrackingMassEligible(candidate.mass, initialMassAtCurrentScale),
     )
 
     if (!canTrack) {
@@ -296,7 +296,7 @@ export function ControlPanel({
     const scaleRatio = bodyScale / Math.max(panelBodyScaleRef.current, 1e-9)
     const initialMassAtCurrentScale = source.mass * scaleRatio
     const canTrack = Boolean(
-      candidate && candidate.mass > initialMassAtCurrentScale * TRACKING_MIN_MASS_RATIO + 1e-12,
+      candidate && isTrackingMassEligible(candidate.mass, initialMassAtCurrentScale),
     )
     return { candidate, canTrack }
   }
@@ -465,7 +465,7 @@ export function ControlPanel({
         <div className="body-list">
           {panelBodies.map((body) => {
             const { candidate, canTrack } = getTrackingState(body)
-            const isTracked = trackingSourceId === body.id && trackedBodyId !== null
+            const isTracked = canTrack && trackingSourceId === body.id && trackedBodyId !== null
             const bodyType = getEffectiveBodyType(body)
             const stellarProperties = bodyType === 'star' ? getStellarComputedProperties(body) : null
             const surfaceProfile = bodyType === 'planet' || bodyType === 'moon'
