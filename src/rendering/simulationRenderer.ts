@@ -7,7 +7,10 @@ import { getNearestStellarColor } from '../starColors'
 import type { BodyState, TrailSampleBatch } from '../types'
 import {
   calculatePerspectiveBodyDistance,
+  COLLISION_CAMERA_DISTANCE_TOLERANCE,
+  COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION,
   getRenderedBodyRadius,
+  isCollisionCameraDistanceConverged,
 } from './cameraFraming'
 import { createFragmentGeometry } from './fragmentGeometry'
 
@@ -111,10 +114,9 @@ const RENDER_TUNING = {
     defaultMinDistance: 0.03,
     maxDistance: 450,
     trackingTransition: 0.16,
-    collisionTransition: 0.075,
-    collisionEntryTransition: 0.2,
+    collisionTransition: 0.18,
+    collisionEntryTransition: 0.24,
     focusSettleFrames: 18,
-    radiusReframeThreshold: 0.025,
   },
 } as const
 
@@ -763,10 +765,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
   let observedTrackedBodyId: string | null = null
   let observedCollisionPairKey: string | null = null
   let observedCollisionMainSourceId: string | null = null
-  let observedCollisionPrimaryId: string | null = null
-  let observedCollisionPrimaryRadius = 0
   let trackingFocusSettleFrames = 0
-  let collisionFocusSettleFrames = 0
   let wasTrackingBody = false
 
   const clearTrail = (visual: VisualBody) => {
@@ -989,7 +988,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     height: Math.max(renderer.domElement.clientHeight || host.clientHeight, 1),
   })
 
-  const getAutoCameraDistance = (body: BodyState) => {
+  const getAutoCameraDistance = (body: BodyState, targetRadiusFraction?: number) => {
     const { width, height } = getViewportSize()
     const desiredDistance = calculatePerspectiveBodyDistance({
       bodyRadius: body.radius,
@@ -997,6 +996,7 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
       verticalFovDegrees: camera.fov,
       viewportWidth: width,
       viewportHeight: height,
+      targetRadiusFraction,
     })
     const renderRadius = getRenderedBodyRadius(body.radius, RENDER_TUNING.body.minRenderRadius)
     return THREE.MathUtils.clamp(
@@ -1057,9 +1057,6 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
   const clearCollisionCameraState = () => {
     observedCollisionPairKey = null
     observedCollisionMainSourceId = null
-    observedCollisionPrimaryId = null
-    observedCollisionPrimaryRadius = 0
-    collisionFocusSettleFrames = 0
   }
 
   const applyCollisionCameraFocus = (state: SimulationRenderState) => {
@@ -1093,7 +1090,6 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
         collisionViewDirection.normalize()
       }
       observedCollisionPairKey = focus.pairKey
-      collisionFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
     }
 
     const mainSourceId = observedCollisionMainSourceId
@@ -1109,42 +1105,37 @@ export function createSimulationRenderer(host: HTMLDivElement, getState: () => S
     moveCameraTargetTo(collisionPrimaryPosition)
     applyAutoDistanceLimits(primary)
 
-    const renderedRadius = getRenderedBodyRadius(primary.radius, RENDER_TUNING.body.minRenderRadius)
-    const radiusChangeRatio = observedCollisionPrimaryRadius > 0
-      ? Math.abs(renderedRadius - observedCollisionPrimaryRadius) / observedCollisionPrimaryRadius
-      : Number.POSITIVE_INFINITY
-    const primaryChanged = observedCollisionPrimaryId !== primary.id
-    const targetLineagesMerged = bodyA.id === bodyB.id
-    const shouldReframe = pairChanged || (!targetLineagesMerged && (
-      primaryChanged || radiusChangeRatio >= RENDER_TUNING.camera.radiusReframeThreshold
-    ))
+    // Collision-watch framing intentionally depends only on the primary body's
+    // rendered radius. Secondary bodies, contact effects, trails, and ejecta are
+    // allowed to leave the frame instead of forcing a zoom-out.
+    const desiredDistance = getAutoCameraDistance(
+      primary,
+      COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION,
+    )
+    collisionDesiredCameraPosition
+      .copy(collisionViewDirection)
+      .multiplyScalar(desiredDistance)
+      .add(collisionPrimaryPosition)
 
-    // On the exact merge-resolution frame, keep the camera-to-target offset and
-    // distance unchanged. moveCameraTargetTo() already follows the remnant by
-    // translating camera and target together, so a fresh zoom would read as a cut.
-    if (targetLineagesMerged && primaryChanged) {
-      observedCollisionPrimaryId = primary.id
-      observedCollisionPrimaryRadius = renderedRadius
-      collisionFocusSettleFrames = 0
-    } else if (shouldReframe) {
-      observedCollisionPrimaryId = primary.id
-      observedCollisionPrimaryRadius = renderedRadius
-      collisionFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
-    }
+    const currentDistance = camera.position.distanceTo(collisionPrimaryPosition)
+    const positionError = camera.position.distanceTo(collisionDesiredCameraPosition) /
+      Math.max(desiredDistance, 1e-9)
+    const distanceConverged = isCollisionCameraDistanceConverged(
+      currentDistance,
+      desiredDistance,
+      COLLISION_CAMERA_DISTANCE_TOLERANCE,
+    )
 
-    if (collisionFocusSettleFrames > 0) {
-      const desiredDistance = getAutoCameraDistance(primary)
-      collisionDesiredCameraPosition
-        .copy(collisionViewDirection)
-        .multiplyScalar(desiredDistance)
-        .add(collisionPrimaryPosition)
+    // Keep converging for the full collision-watch lifetime instead of stopping
+    // after a fixed number of frames. A remnant radius change automatically
+    // changes desiredDistance and wakes the same smooth convergence path again.
+    if (!distanceConverged || positionError > COLLISION_CAMERA_DISTANCE_TOLERANCE) {
       camera.position.lerp(
         collisionDesiredCameraPosition,
         pairChanged
           ? RENDER_TUNING.camera.collisionEntryTransition
           : RENDER_TUNING.camera.collisionTransition,
       )
-      collisionFocusSettleFrames -= 1
     }
 
     wasTrackingBody = true

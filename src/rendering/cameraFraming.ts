@@ -1,4 +1,6 @@
 export const TARGET_BODY_RADIUS_SCREEN_FRACTION = 1 / 20
+export const COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION = 1 / 9
+export const COLLISION_CAMERA_DISTANCE_TOLERANCE = 0.01
 
 export type PerspectiveBodyFramingInput = {
   bodyRadius: number
@@ -65,4 +67,16 @@ export function calculateProjectedBodyRadiusPixels(
   const silhouetteTan = radius / Math.sqrt(distance * distance - radius * radius)
   const ndcRadius = silhouetteTan / Math.max(Math.tan(horizontalHalfFov), 1e-9)
   return Math.max(viewportWidth, 1) * ndcRadius * 0.5
+}
+
+export function getRelativeCameraDistanceError(currentDistance: number, desiredDistance: number) {
+  return Math.abs(currentDistance - desiredDistance) / Math.max(Math.abs(desiredDistance), 1e-9)
+}
+
+export function isCollisionCameraDistanceConverged(
+  currentDistance: number,
+  desiredDistance: number,
+  tolerance = COLLISION_CAMERA_DISTANCE_TOLERANCE,
+) {
+  return getRelativeCameraDistanceError(currentDistance, desiredDistance) <= Math.max(tolerance, 0)
 }
