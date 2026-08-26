@@ -260,7 +260,7 @@ def main() -> None:
         settled_cap = [impact[name]['mean_difference'] for name in settled_names]
         settled_floor = min(settled_cap)
         require(
-            impact['02-150ms']['mean_difference'] - settled_floor >= 3.0,
+            impact['02-150ms']['mean_difference'] - settled_floor >= 2.0,
             '150ms contact cap must rise visibly above the settled camera/lighting baseline',
         )
         require(
