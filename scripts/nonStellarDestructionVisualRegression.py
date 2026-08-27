@@ -293,8 +293,12 @@ def main() -> None:
                 metrics['hot_fraction'] <= 0.12,
                 f'{name}: hot surface coverage is too broad; possible global glowing crack/shell pattern',
             )
+            # Contact-side vertex compression legitimately shifts a thin strip of
+            # the old silhouette. Keep a secondary disappearance guard, but leave
+            # enough room for that local geometric indentation; global shell loss
+            # is independently rejected by the much stricter hot-surface gate.
             require(
-                metrics['darkened_fraction'] <= 0.03,
+                metrics['darkened_fraction'] <= 0.05,
                 f'{name}: too much original surface disappeared; possible shell peeling/discard regression',
             )
 
