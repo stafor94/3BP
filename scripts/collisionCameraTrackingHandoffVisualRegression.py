@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
 import json
 import math
 import os
@@ -79,6 +80,14 @@ def screenshot_canvas(driver: webdriver.Chrome, name: str) -> None:
     require(bool(canvas.screenshot(str(path))) and path.exists(), f'failed to capture {name}')
 
 
+def write_canvas_data_url(data_url: str, name: str) -> None:
+    prefix = 'data:image/png;base64,'
+    require(data_url.startswith(prefix), f'{name} must be a PNG data URL')
+    path = OUTPUT_DIR / f'{name}.png'
+    path.write_bytes(base64.b64decode(data_url[len(prefix):]))
+    require(path.exists() and path.stat().st_size > 0, f'failed to write exact rendered frame {name}')
+
+
 def nearest_sample(samples: list[dict[str, object]], elapsed_ms: float) -> dict[str, object]:
     return min(samples, key=lambda sample: abs(float(sample['elapsedMs']) - elapsed_ms))
 
@@ -136,6 +145,9 @@ def main() -> None:
                 '[data-visual-regression="tracking-camera-handoff"] canvas',
             )) == 1
         )
+        remnant_id = driver.execute_script('return window.__trackingCameraPhysicalRemnantId')
+        require(isinstance(remnant_id, str) and remnant_id, 'browser fixture must expose the real physics merge remnant id')
+        payload['physical_remnant_id'] = remnant_id
 
         time.sleep(0.45)
         tracking = driver.execute_script('return window.__trackingCameraHandoffTelemetry')
@@ -144,20 +156,28 @@ def main() -> None:
         screenshot_canvas(driver, '00-tracking-stable')
 
         set_stage(driver, 'collision')
-        time.sleep(0.35)
+        time.sleep(0.3)
+        collision_active = driver.execute_script('return window.__trackingCameraHandoffTelemetry')
+        require(collision_active and collision_active['mode'] == 'collision', 'collision camera must actually become active')
+        require(collision_active['cameraWriteSource'] == 'collision-camera', 'collision camera must be the declared camera writer while active')
+        screenshot_canvas(driver, '01-collision-active')
+
         set_stage(driver, 'collision-result')
         time.sleep(0.75)
         before_release = driver.execute_script('return window.__trackingCameraHandoffTelemetry')
         require(before_release and before_release['mode'] == 'collision', 'collision camera must own the frame before release')
         require(before_release['trackedBodyId'] == 'handoff-a', 'collision camera must not clear the tracking selection')
-        require(before_release['resolvedTrackedBodyId'] == 'handoff-a+handoff-b', 'collision camera must already be observing the merged result before release')
+        require(before_release['resolvedTrackedBodyId'] == remnant_id, 'collision camera must already be observing the physics merge remnant before release')
+        require(before_release['cameraWriteSource'] == 'collision-camera', 'last pre-release frame must be written by collision camera')
+        require(before_release['finalCameraWriteSource'] == 'collision-camera', 'controls.update must not overwrite the last collision-camera transform')
+        require(not bool(before_release['controlsUpdateChangedTransform']), 'controls.update must be inert on the stable pre-release frame')
         history = driver.execute_script('return window.__trackingCameraHandoffHistory || []')
         collision_history = [
             sample for sample in history
-            if sample.get('mode') == 'collision' and sample.get('resolvedTrackedBodyId') == 'handoff-a+handoff-b'
+            if sample.get('mode') == 'collision' and sample.get('resolvedTrackedBodyId') == remnant_id
         ][-10:]
-        require(len(collision_history) >= 4, 'merged result must remain under collision-camera control for multiple frames before release')
-        screenshot_canvas(driver, '01-before-release')
+        require(len(collision_history) >= 4, 'physics merge remnant must remain under collision-camera control for multiple frames before release')
+        screenshot_canvas(driver, '02-before-release')
 
         set_stage(driver, 'release')
         WebDriverWait(driver, 10, poll_frequency=0.01).until(
@@ -165,10 +185,16 @@ def main() -> None:
                 'return (window.__trackingCameraHandoffSamples || []).length > 0'
             )
         )
+        WebDriverWait(driver, 10, poll_frequency=0.01).until(
+            lambda browser: browser.execute_script(
+                'return typeof window.__trackingCameraHandoffReleaseFirstFrameDataUrl === "string"'
+            )
+        )
         immediate_samples = driver.execute_script('return window.__trackingCameraHandoffSamples')
         require(isinstance(immediate_samples, list) and immediate_samples, 'release telemetry must expose the first renderer frame')
         first = immediate_samples[0]
-        screenshot_canvas(driver, '02-release-first-observed')
+        exact_release_frame = driver.execute_script('return window.__trackingCameraHandoffReleaseFirstFrameDataUrl')
+        write_canvas_data_url(exact_release_frame, '03-release-first-frame')
 
         require(float(first['elapsedMs']) <= 50, 'first release telemetry must represent the immediate handoff frame')
         require(first['mode'] == 'tracking', 'release frame must go directly from collision mode to tracking mode')
@@ -176,7 +202,11 @@ def main() -> None:
         require(bool(first['trackingFocusNeedsReset']), 'release frame must restart tracking focus settle')
         require(int(first['trackingFocusSettleFrames']) > 0, 'release frame must have active tracking settle frames')
         require(first['trackedBodyId'] == 'handoff-a', 'tracked source id must remain selected across handoff')
-        require(first['resolvedTrackedBodyId'] == 'handoff-a+handoff-b', 'tracking must resolve to the authorized continuation')
+        require(first['resolvedTrackedBodyId'] == remnant_id, 'tracking must resolve to the physics-authorized continuation')
+        require(first['cameraWriteSource'] == 'tracking-transition', 'release frame must be written only by tracking-transition')
+        require(first['finalCameraWriteSource'] == 'tracking-transition', 'controls.update must not overwrite the release transition transform')
+        require(not bool(first['controlsUpdateChangedTransform']), 'controls.update must be inert on the release frame')
+        require(abs(float(first['trackingTransitionProgress'])) <= 1e-12, 'release transition must begin at progress zero')
 
         p0 = before_release['cameraPosition']
         p1 = first['cameraPosition']
@@ -187,6 +217,19 @@ def main() -> None:
         position_step = vector_distance(p0, p1)
         target_step = vector_distance(t0, t1)
         distance_step = abs(d1 - d0)
+
+        require(first['trackingTransitionStartPosition'] is not None, 'release frame must expose transition start position')
+        require(first['trackingTransitionStartTarget'] is not None, 'release frame must expose transition start target')
+        require(first['trackingTransitionStartDistance'] is not None, 'release frame must expose transition start distance')
+        require(first['trackingTransitionDestinationPosition'] is not None, 'release frame must expose transition destination position')
+        require(first['trackingTransitionDestinationTarget'] is not None, 'release frame must expose transition destination target')
+        require(first['trackingTransitionDestinationDistance'] is not None, 'release frame must expose transition destination distance')
+        require(vector_distance(first['trackingTransitionStartPosition'], p0) <= 1e-9, 'transition start position must equal collision camera C0')
+        require(vector_distance(first['trackingTransitionStartTarget'], t0) <= 1e-9, 'transition start target must equal collision camera T0')
+        require(abs(float(first['trackingTransitionStartDistance']) - d0) <= 1e-9, 'transition start distance must equal collision camera D0')
+        require(vector_distance(first['desiredTarget'], first['trackingTransitionDestinationTarget']) <= 1e-12, 'desired target must match transition destination target')
+        require(vector_distance(first['desiredCameraPosition'], first['trackingTransitionDestinationPosition']) <= 1e-12, 'desired camera position must match transition destination position')
+        require(abs(float(first['desiredCameraDistance']) - float(first['trackingTransitionDestinationDistance'])) <= 1e-9, 'desired tracking distance must match transition destination distance')
 
         baseline_position_step = max_neighbor_step(collision_history, 'cameraPosition')
         baseline_target_step = max_neighbor_step(collision_history, 'controlsTarget')
@@ -205,15 +248,18 @@ def main() -> None:
             'baseline_target_step': baseline_target_step,
             'baseline_distance_step': baseline_distance_step,
             'first_tracked_body_ndc': first['trackedBodyNdc'],
+            'writer': first['cameraWriteSource'],
+            'final_writer': first['finalCameraWriteSource'],
+            'transition_progress': first['trackingTransitionProgress'],
         }
+        payload['collision_active'] = collision_active
         payload['before_release'] = before_release
         payload['first_release_frame'] = first
         payload['release_continuity'] = continuity
         write_metrics(payload)
 
-        # The release frame must begin from the transform that collision camera actually rendered.
-        # The allowance comes from immediately adjacent, already-converged collision-camera frames;
-        # only a tiny floating-point epsilon is added, rather than a permissive handoff threshold.
+        # The allowance is measured from adjacent, converged collision-camera frames.
+        # Only floating-point epsilon is added, so a one-frame composition teleport cannot pass.
         epsilon = 1e-5
         require(
             position_step <= baseline_position_step + epsilon,
@@ -236,7 +282,7 @@ def main() -> None:
                 """
             )
         )
-        screenshot_canvas(driver, '03-release-plus-100ms')
+        screenshot_canvas(driver, '04-release-plus-100ms')
 
         WebDriverWait(driver, 10, poll_frequency=0.02).until(
             lambda browser: browser.execute_script(
@@ -254,7 +300,7 @@ def main() -> None:
         )
         require(
             'handoff-a' in retained_trail_ids and 'handoff-b' in retained_trail_ids,
-            f'collision source trails must remain after merge body-id replacement: {retained_trail_ids}',
+            f'collision source trails must remain after physical merge body-id replacement: {retained_trail_ids}',
         )
         payload['retained_trail_ids'] = retained_trail_ids
 
@@ -294,7 +340,7 @@ def main() -> None:
         for name, sample in checkpoints.items():
             require(sample['mode'] == 'tracking', f'{name} must remain in tracking camera mode')
             require(sample['trackedBodyId'] == 'handoff-a', f'{name} must keep the tracking UI source id')
-            require(sample['resolvedTrackedBodyId'] == 'handoff-a+handoff-b', f'{name} must keep the continuation target')
+            require(sample['resolvedTrackedBodyId'] == remnant_id, f'{name} must keep the physics continuation target')
             ndc = sample['trackedBodyNdc']
             require(ndc is not None, f'{name} must expose tracked-body viewport telemetry')
             require(abs(float(ndc['x'])) <= 0.08 and abs(float(ndc['y'])) <= 0.08, f'{name} tracked body left viewport center: {ndc}')
@@ -319,7 +365,7 @@ def main() -> None:
             f'camera target error must stay non-increasing after release: {checkpoint_target_errors}',
         )
 
-        screenshot_canvas(driver, '04-tracking-stable')
+        screenshot_canvas(driver, '05-tracking-stable')
         write_metrics(payload)
         print('collision camera tracking handoff browser regression passed')
     finally:
