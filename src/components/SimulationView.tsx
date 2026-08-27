@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { resolveBodyDescendant } from '../collisionWatch'
 import { installBodyLighting, syncBodyLightingState } from '../rendering/bodyLighting'
+import { getCelestialBodyRenderBodies } from '../rendering/collisionEffectRouting'
 import {
   installLiveCollisionVfxBridge,
   syncLiveCollisionVfxState,
@@ -60,10 +61,12 @@ export function SimulationView({
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const renderStateGenerationRef = useRef(0)
+  const liveBodiesRef = useRef(bodies)
   const collisionCameraPairKeyRef = useRef<string | null>(null)
   const collisionCameraPrimarySourceIdRef = useRef<string | null>(null)
   const retainedCollisionCameraSourceIdRef = useRef<string | null>(null)
   renderStateGenerationRef.current += 1
+  liveBodiesRef.current = bodies
 
   // User tracking always wins and permanently releases any earlier automatic
   // collision-camera retention. The retained source exists only as a camera-level
@@ -113,8 +116,12 @@ export function SimulationView({
       ? retainedCollisionCameraBody.id
       : null
   )
+  // `effect` bodies stay in the live simulation/VFX state below, but they must
+  // never reach the generic sphere/glow body renderer. Dedicated collision VFX
+  // layers own their flash, shockwave and ejecta presentation.
+  const renderBodies = getCelestialBodyRenderBodies(bodies)
   const renderStateRef = useRef<SimulationRenderState>({
-    bodies,
+    bodies: renderBodies,
     simulationTime,
     simulationSpeed,
     renderStateGeneration: renderStateGenerationRef.current,
@@ -130,7 +137,7 @@ export function SimulationView({
   })
 
   renderStateRef.current = {
-    bodies,
+    bodies: renderBodies,
     simulationTime,
     simulationSpeed,
     renderStateGeneration: renderStateGenerationRef.current,
@@ -157,12 +164,12 @@ export function SimulationView({
     installStellarRemnantPresentation()
     // Install last so collision VFX keeps owning its existing draw-path bridge.
     installLiveCollisionVfxBridge()
-    syncBodyLightingState(renderStateRef.current.bodies)
+    syncBodyLightingState(liveBodiesRef.current)
     syncStellarRemnantPresentationState(
-      renderStateRef.current.bodies,
+      liveBodiesRef.current,
       renderStateRef.current.simulationTime,
     )
-    syncLiveCollisionVfxState(renderStateRef.current.bodies)
+    syncLiveCollisionVfxState(liveBodiesRef.current)
     const isProductionCameraHandoffRegression = new URLSearchParams(window.location.search)
       .get('visual-regression') === 'production-camera-handoff'
     let previousWriter: SimulationCameraTelemetry['cameraWriteSource'] | null = null

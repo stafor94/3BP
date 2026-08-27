@@ -6,6 +6,18 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.9] - 2026-08-27
+
+### Fixed
+- `Collision flash`, shock/plasma, spark 같은 transient `effect` BodyState가 전용 collision VFX layer와 동시에 일반 천체 renderer의 `SphereGeometry` 및 inner/outer glow로도 렌더링되어 충돌 지점에 검정·주황색 구형 천체가 새로 생긴 것처럼 보이던 중복 렌더 경로를 제거했습니다.
+- collision effect는 이제 일반 천체 mesh 경로에 들어가지 않고 전용 flash/shockwave/ejecta renderer에서만 표현되어, 중앙 불투명 구체 대신 충돌점에 붙은 섬광·팽창파·방향성 방출물이 그대로 읽히도록 수정했습니다.
+
+### Added
+- 모든 collision effect kind가 일반 천체 renderer에서 제외되면서 실제 remnant와 물리 fragment는 그대로 유지되고 원본 simulation state를 변경하지 않는지 검증하는 render-routing 회귀 체크를 추가했습니다.
+
+### Unchanged
+- collision physics, merge/disruption 조건, collision prediction, 50% initial-mass tracking rule, tracking lineage semantics, remnant presentation, trail 정책, camera/tracking/collision camera 로직은 변경하지 않았습니다.
+
 ## [0.19.8] - 2026-08-27
 
 ### Fixed
