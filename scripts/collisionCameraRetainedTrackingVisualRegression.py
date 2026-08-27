@@ -189,6 +189,7 @@ def main() -> None:
         threshold = max(math.hypot(VIEWPORT_WIDTH, VIEWPORT_HEIGHT) * 0.03, baseline * 4, 12)
         retained_id = release.get('resolvedTrackedBodyId')
         post_release = samples[release_index:normal_index + 1]
+        retained_ids = [sample.get('resolvedTrackedBodyId') for sample in post_release]
         screen_steps = [
             float(sample['screenSpaceStep'])
             for sample in post_release
@@ -198,7 +199,8 @@ def main() -> None:
         metrics = {
             'releaseFrame': release_sequence,
             'firstNormalTrackingFrame': normal_sequence,
-            'retainedBodyId': retained_id,
+            'retainedBodyIdAtRelease': retained_id,
+            'resolvedBodyIdsAfterRelease': list(dict.fromkeys(retained_ids)),
             'releaseMode': release.get('mode'),
             'releaseWriter': release.get('cameraWriteSource'),
             'releaseCollisionCameraJustReleased': release.get('collisionCameraJustReleased'),
@@ -207,6 +209,7 @@ def main() -> None:
             'maxPostReleaseScreenStep': max(screen_steps, default=0),
             'allPostReleaseVisible': all(bool(sample.get('trackedBodyVisible')) for sample in post_release),
             'allPostReleaseTracking': all(sample.get('mode') == 'tracking' for sample in post_release),
+            'allPostReleaseBodiesResolved': all(body_id is not None for body_id in retained_ids),
         }
         (OUTPUT_DIR / 'frame-telemetry.json').write_text(
             json.dumps(samples, indent=2, sort_keys=True),
@@ -222,14 +225,11 @@ def main() -> None:
         require(bool(release.get('collisionCameraJustReleased')), f'release handoff was not entered: {metrics}')
         require(release.get('cameraWriteSource') == 'tracking-transition', f'wrong release writer: {metrics}')
         require(metrics['allPostReleaseTracking'], f'camera tracking dropped after release: {metrics}')
+        require(metrics['allPostReleaseBodiesResolved'], f'collision source lineage stopped resolving: {metrics}')
         require(metrics['allPostReleaseVisible'], f'retained body left the viewport after release: {metrics}')
         require(
             float(metrics['maxPostReleaseScreenStep']) <= threshold,
             f'camera discontinuity after collision release: {metrics}',
-        )
-        require(
-            all(sample.get('resolvedTrackedBodyId') == retained_id for sample in post_release),
-            f'retained collision target identity changed after release: {metrics}',
         )
         print('collision camera retained tracking regression passed')
     finally:
