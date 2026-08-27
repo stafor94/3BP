@@ -16,6 +16,7 @@ import {
   getCollisionAbsorptionScale,
   getCollisionAbsorptionSinkProgress,
   getCollisionHandoffBreakupProgress,
+  getCollisionHandoffCompression,
   getCollisionHandoffFractureProgress,
   getCollisionHandoffParticleProgress,
   getCollisionHandoffProgress,
@@ -61,8 +62,8 @@ function body(
 function testHandoffDurationAndPhases() {
   assert(COLLISION_HANDOFF_DURATION_MS === 2600, 'solid-body disruption handoff must run for 2.6 seconds')
   assert(COLLISION_IMPACT_HOLD_END_MS === 260, 'impact hold should preserve the source for 260ms')
-  assert(COLLISION_FRACTURE_END_MS === 1050, 'fracture propagation phase must remain distinct and readable')
-  assert(COLLISION_BREAKUP_END_MS === 1900, 'structural breakup must precede the final source fade')
+  assert(COLLISION_FRACTURE_END_MS === 1050, 'contact damage phase must remain distinct and readable')
+  assert(COLLISION_BREAKUP_END_MS === 1900, 'structural result handoff must precede the final source fade')
   assert(COLLISION_PRODUCT_REVEAL_DURATION_MS === COLLISION_HANDOFF_DURATION_MS, 'products converge at handoff end')
 }
 
@@ -78,27 +79,37 @@ function testSourceSurfaceSurvivesOpeningPhase() {
   const early = COLLISION_HANDOFF_DURATION_MS * 0.15
   assert(getCollisionHandoffSourceOpacity(0) >= 0.98, 'disrupted source must start effectively opaque')
   assert(getCollisionHandoffSourceOpacity(early) >= 0.98, 'disrupted source opacity must survive opening phase')
-  assert(getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS) === 0, 'fracture must wait for impact hold')
-  assert(getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS + 160) > 0, 'fracture must precede breakup')
-  assert(getCollisionHandoffBreakupProgress(COLLISION_FRACTURE_END_MS) === 0, 'breakup must wait for fracture phase')
+  assert(getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS) === 0, 'contact deformation must wait for impact hold')
+  assert(getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS + 160) > 0, 'contact deformation must precede result handoff')
+  assert(getCollisionHandoffBreakupProgress(COLLISION_FRACTURE_END_MS) === 0, 'result handoff must wait for the contact-damage phase')
   assert(
     getCollisionHandoffBreakupProgress(1250) > 0 && getCollisionHandoffBreakupProgress(1250) < 0.35,
-    'mid-breakup must begin gently',
+    'mid handoff must begin gently',
   )
-  assert(getCollisionHandoffBreakupProgress(COLLISION_BREAKUP_END_MS) === 1, 'breakup must finish at its configured phase end')
+  assert(getCollisionHandoffBreakupProgress(COLLISION_BREAKUP_END_MS) === 1, 'structural handoff must finish at its configured phase end')
 }
 
-function testDebrisEmissionWaitsForVisibleFracture() {
+function testDisruptionUsesLocalCompressionInsteadOfSurfacePeeling() {
+  assert(getCollisionHandoffCompression(COLLISION_IMPACT_HOLD_END_MS) === 0, 'contact compression must not start before the impact hold ends')
+  const opening = getCollisionHandoffCompression(520)
+  const peak = getCollisionHandoffCompression(900)
+  const late = getCollisionHandoffCompression(COLLISION_BREAKUP_END_MS)
+  assert(opening > 0 && opening < peak, 'contact deformation must build progressively')
+  assert(peak > 0.75, 'mid impact must visibly compress the contact cap')
+  assert(late < peak * 0.4, 'contact compression must release as physical fragments/results take over')
+}
+
+function testDebrisEmissionWaitsForVisibleContactDamage() {
   assert(getCollisionHandoffParticleProgress(0) === 0, 'debris must not burst at contact')
   assert(getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS * 0.15) === 0, 'debris must wait through opening hold')
   const middle = getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS * 0.6)
-  assert(middle > 0 && middle < 1, 'debris must progress smoothly through breakup')
+  assert(middle > 0 && middle < 1, 'debris must progress smoothly through the result handoff')
   assert(getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS) === 1, 'debris progress must finish with handoff')
 }
 
 function testCollisionProductRevealIsDelayedAndProgressive() {
-  assert(COLLISION_PRODUCT_REVEAL_DELAY_MS >= 450, 'product reveal must wait until the source has visibly fractured')
-  assert(COLLISION_PRODUCT_REVEAL_DELAY_MS <= 650, 'product reveal delay must still overlap the fracture phase')
+  assert(COLLISION_PRODUCT_REVEAL_DELAY_MS >= 450, 'product reveal must wait until contact deformation is visible')
+  assert(COLLISION_PRODUCT_REVEAL_DELAY_MS <= 650, 'product reveal delay must still overlap the contact-damage phase')
   assert(getCollisionProductRevealProgress(COLLISION_PRODUCT_REVEAL_DELAY_MS) === 0, 'products remain hidden through delay')
   const midpoint = getCollisionProductRevealProgress(
     (COLLISION_PRODUCT_REVEAL_DELAY_MS + COLLISION_PRODUCT_REVEAL_DURATION_MS) / 2,
@@ -217,7 +228,7 @@ function testSurvivorImpactAndGrowthSettleGradually() {
   assert(SURVIVOR_IMPACT_MIN_DOT >= 0.76, 'impact cap must not spread over more than roughly 12% of the sphere')
   assert(SURVIVOR_IMPACT_MAX_SURFACE_FRACTION >= 0.05 && SURVIVOR_IMPACT_MAX_SURFACE_FRACTION <= 0.12, 'impact cap must remain within 5-12% of full surface')
   assert(getSurvivorImpactEnvelope(0).flash > 0.9, 'contact must begin with a bright local flash')
-  assert(getSurvivorImpactEnvelope(300).heat > 0.75, 'early contact must retain strong local crack/heat')
+  assert(getSurvivorImpactEnvelope(300).heat > 0.75, 'early contact must retain strong local heat')
   assert(getSurvivorImpactEnvelope(900).heat > 0.25, 'impact heat must remain readable through the longer absorption')
   assert(getSurvivorImpactEnvelope(1500).heat === 0, 'survivor surface must settle by the end of its impact envelope')
   assert(getSurvivorImpactEnvelope(1500).flash === 0, 'survivor flash must be gone by the end of the envelope')
@@ -234,7 +245,8 @@ const tests = [
   testHandoffDurationAndPhases,
   testHandoffProgressIsSmoothAndBounded,
   testSourceSurfaceSurvivesOpeningPhase,
-  testDebrisEmissionWaitsForVisibleFracture,
+  testDisruptionUsesLocalCompressionInsteadOfSurfacePeeling,
+  testDebrisEmissionWaitsForVisibleContactDamage,
   testCollisionProductRevealIsDelayedAndProgressive,
   testSurvivorAbsorptionDoesNotCreateDestructionHandoff,
   testActualDisruptionCreatesDestructionHandoff,
