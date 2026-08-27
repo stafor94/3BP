@@ -29,7 +29,7 @@ export function getProductionCameraHandoffFixture(): BodyState[] | null {
   // velocity makes the real merged remnant continue moving while the App's
   // collision-watch timers release the camera and restore the requested 3x speed.
   return [
-    makeBody('handoff-a', 'Handoff A', -0.25, 3.35, '#f0aa68'),
-    makeBody('handoff-b', 'Handoff B', 0.25, 2.65, '#83afff'),
+    makeBody('handoff-a', 'Handoff A', -1.15, 3.35, '#f0aa68'),
+    makeBody('handoff-b', 'Handoff B', 1.15, 2.65, '#83afff'),
   ]
 }
