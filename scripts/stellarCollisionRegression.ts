@@ -3,6 +3,7 @@ import {
   getStellarTemperatureKelvin,
 } from '../src/starColors'
 import { didCollisionWatchTargetImpact } from '../src/collisionWatch'
+import { bodyCarriesCollisionLineage } from '../src/collisionIdentity'
 import { stepBodies as stepCoreBodies } from '../src/physics/engine'
 import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
 import { getCollisionEffectProfile } from '../src/rendering/collisionEffectProfile'
@@ -31,6 +32,14 @@ function makeStar(
     velocity,
     bodyType: 'star',
   }
+}
+
+function findMergedStar(bodies: BodyState[], a: BodyState, b: BodyState) {
+  return bodies.find((body) =>
+    body.bodyType === 'star' &&
+    bodyCarriesCollisionLineage(body, a.id) &&
+    bodyCarriesCollisionLineage(body, b.id),
+  )
 }
 
 function getCompressionRatio(a: BodyState, b: BodyState) {
@@ -128,7 +137,7 @@ function testSubEscapeGrazingContactCapturesInsteadOfBouncing() {
     'sub-escape stellar contact must not be resolved as an elastic-looking hit-and-run',
   )
   assert(
-    result.some((body) => body.bodyType === 'star' && body.id.includes(a.id) && body.id.includes(b.id)),
+    Boolean(findMergedStar(result, a, b)),
     'sub-escape grazing stellar contact should be captured into a merged remnant',
   )
 }
@@ -179,8 +188,9 @@ function testHeadOnMergeUsesRemnantMassColor() {
   )
 
   const result = stepCoreBodies([a, b], 1e-8)
-  const remnant = result.find((body) => body.bodyType === 'star' && body.id.includes(a.id) && body.id.includes(b.id))
+  const remnant = findMergedStar(result, a, b)
   assert(remnant, 'head-on low-speed stellar collision should merge')
+  assert(remnant.id === a.id, 'equal primary stellar merge must preserve the collision primary id')
   assert(remnant.stellarCollisionOutcome === 'merge', 'merged remnant should record merge outcome')
   assert(remnant.mass > 1.8, 'merged remnant should retain most of both stellar masses')
   assert(
@@ -304,7 +314,7 @@ function testExactContactStillUsesImpactEnvelope() {
     `exact-contact stellar merge should preserve both silhouettes for 14-18 physics frames, got ${bridgeFrames}`,
   )
   assert(
-    frame.some((body) => body.bodyType === 'star' && body.id.includes(a.id) && body.id.includes(b.id)),
+    Boolean(findMergedStar(frame, a, b)),
     'impact envelope must eventually reveal the merged stellar remnant',
   )
 }
@@ -346,9 +356,7 @@ function testMergeImpactPrecedesTopologyReveal() {
     )
     const sourceA = next.find((body) => body.id === a.id)
     const sourceB = next.find((body) => body.id === b.id)
-    const remnant = next.find((body) =>
-      body.bodyType === 'star' && body.id.includes(a.id) && body.id.includes(b.id),
-    )
+    const remnant = findMergedStar(next, a, b)
 
     if (sourceA && sourceB) {
       sourceFrames += 1
