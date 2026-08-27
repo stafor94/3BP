@@ -16,7 +16,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-OUTPUT_DIR = Path('production-camera-handoff-artifacts')
+OUTPUT_DIR = Path(os.environ.get(
+    'PRODUCTION_CAMERA_HANDOFF_OUTPUT_DIR',
+    'production-camera-handoff-artifacts',
+))
 BASE_URL = os.environ.get('PRODUCTION_CAMERA_HANDOFF_BASE_URL', 'http://127.0.0.1:4173/3BP/')
 URL = (
     f'{BASE_URL}?visual-regression=production-camera-handoff'
@@ -25,6 +28,7 @@ URL = (
 TRACKED_BODY_NAME = os.environ.get('PRODUCTION_CAMERA_TRACKED_BODY', 'Handoff A')
 VIEWPORT_WIDTH = int(os.environ.get('PRODUCTION_CAMERA_VIEWPORT_WIDTH', '390'))
 VIEWPORT_HEIGHT = int(os.environ.get('PRODUCTION_CAMERA_VIEWPORT_HEIGHT', '844'))
+SIMULATION_SPEED = os.environ.get('PRODUCTION_CAMERA_HANDOFF_SPEED', '3')
 
 
 def require(condition: bool, message: str) -> None:
@@ -155,6 +159,7 @@ def analyze(samples: list[dict[str, object]]) -> dict[str, object]:
     metrics: dict[str, object] = {
         'rootCause': 'C_MOVING_TARGET_FIXED_WORLD_TRANSFORM',
         'trackedBodyName': TRACKED_BODY_NAME,
+        'requestedSimulationSpeed': float(SIMULATION_SPEED),
         'viewport': {'width': VIEWPORT_WIDTH, 'height': VIEWPORT_HEIGHT},
         'releaseFrame': samples[release_index].get('renderFrameSequence'),
         'handoffLastFrame': samples[handoff_last_index].get('renderFrameSequence'),
@@ -226,10 +231,13 @@ def main() -> None:
         speed_three = WebDriverWait(driver, 5).until(
             lambda browser: next(
                 button for button in browser.find_elements(By.CSS_SELECTOR, '[role="menuitemradio"]')
-                if button.text.strip() == '3×'
+                if button.text.strip() == f'{SIMULATION_SPEED}×'
             )
         )
         driver.execute_script('arguments[0].click()', speed_three)
+        panel_toggle = driver.find_element(By.CSS_SELECTOR, '.panel-toggle')
+        if panel_toggle.get_attribute('aria-expanded') == 'true':
+            driver.execute_script('arguments[0].click()', panel_toggle)
         start_button = next(
             button for button in driver.find_elements(By.CSS_SELECTOR, '.start-button')
             if button.is_displayed()
