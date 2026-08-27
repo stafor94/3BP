@@ -65,14 +65,37 @@ def warm_source_pixels(path: Path) -> list[tuple[int, int]]:
     width, height = image.size
     x0, x1 = int(width * 0.30), int(width * 0.68)
     y0, y1 = int(height * 0.20), int(height * 0.80)
-    points: list[tuple[int, int]] = []
+    candidates: set[tuple[int, int]] = set()
     for y in range(y0, y1):
         for x in range(x0, x1):
             r, g, b = image.getpixel((x, y))
             if r >= 38 and r >= g * 1.06 and r >= b * 1.12:
-                points.append((x, y))
-    require(len(points) >= 450, f'not enough disrupted source pixels in {path.name}')
-    return points
+                candidates.add((x, y))
+
+    # The harness also leaves another warm physical body inside this broad ROI.
+    # Measure the disrupted central source itself, not every similarly colored
+    # body in the frame. Selecting the largest 4-connected warm component keeps
+    # the hemisphere masks anchored to the body whose contact side is under test.
+    components: list[list[tuple[int, int]]] = []
+    remaining = set(candidates)
+    while remaining:
+        start = remaining.pop()
+        stack = [start]
+        component = [start]
+        while stack:
+            x, y = stack.pop()
+            for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if neighbor not in remaining:
+                    continue
+                remaining.remove(neighbor)
+                stack.append(neighbor)
+                component.append(neighbor)
+        components.append(component)
+
+    require(bool(components), f'no disrupted source component found in {path.name}')
+    source = max(components, key=len)
+    require(len(source) >= 450, f'not enough disrupted source pixels in {path.name}')
+    return source
 
 
 def masked_difference(base: Path, current: Path, mask: list[tuple[int, int]]) -> float:
@@ -192,16 +215,16 @@ def main() -> None:
         require(
             localized['03-350ms']['contact_side_difference'] >=
             localized['03-350ms']['opposite_side_difference'] * 1.08,
-            '350ms fracture must begin on the physical contact side rather than globally',
+            '350ms contact compression must remain localized to the physical contact side',
         )
         require(
             localized['04-700ms']['contact_side_difference'] >=
             localized['04-700ms']['opposite_side_difference'] * 1.03,
-            '700ms breakup onset must still preserve contact-to-outward progression',
+            '700ms local ejecta onset must preserve contact-side localization',
         )
-        require(frame_differences['03-350ms'] >= 0.10, '350ms fracture stage must differ visibly from contact')
-        require(frame_differences['04-700ms'] >= 0.12, '700ms breakup stage must advance beyond contact')
-        require(frame_differences['05-1100ms'] >= 0.12, '1100ms structural breakup must remain visible')
+        require(frame_differences['03-350ms'] >= 0.10, '350ms contact-compression stage must differ visibly from contact')
+        require(frame_differences['04-700ms'] >= 0.12, '700ms local-ejecta stage must advance beyond contact')
+        require(frame_differences['05-1100ms'] >= 0.12, '1100ms disruption handoff must remain visible')
         require(frame_differences['06-1600ms'] >= 0.10, '1600ms result/fragments must remain visible')
         for name, energy in energies.items():
             require(energy >= 400, f'{name} capture is unexpectedly empty')
