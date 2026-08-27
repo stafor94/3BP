@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { bodyCarriesCollisionLineage } from '../collisionIdentity'
 import type { BodyState, StellarCollisionOutcome, Vec3 } from '../types'
 
 type MaterialRenderCallback = (
@@ -133,8 +134,8 @@ function findMergedSourcePair(previous: BodyState[], remnant: BodyState) {
       const first = stars[firstIndex]
       const second = stars[secondIndex]
       if (
-        remnant.id === `${first.id}+${second.id}` ||
-        remnant.id === `${second.id}+${first.id}`
+        bodyCarriesCollisionLineage(remnant, first.id) &&
+        bodyCarriesCollisionLineage(remnant, second.id)
       ) {
         return [first, second] as const
       }
@@ -257,10 +258,10 @@ export function deriveStellarRemnantTransition(
   const pairData = getPairPresentationData(sourcePair)
   const flash = getCollisionFlash(current, serial, outcome)
   const impactNormal = normalize(flash?.effectVisual?.normal ?? pairData.normal, pairData.normal)
-  const sourceMass = sourceBody?.mass ?? (sourcePair ? sourcePair[0].mass + sourcePair[1].mass : body.mass)
-  const massLoss = outcome === 'merge'
-    ? Math.max(0, sourceMass - body.mass)
-    : Math.max(0, (sourceBody?.mass ?? body.mass) - body.mass)
+  const sourceMass = outcome === 'merge' && sourcePair
+    ? sourcePair[0].mass + sourcePair[1].mass
+    : sourceBody?.mass ?? body.mass
+  const massLoss = Math.max(0, sourceMass - body.mass)
 
   return {
     token,
