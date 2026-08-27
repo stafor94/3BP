@@ -153,8 +153,14 @@ export function getCollisionHandoffCompression(elapsedMs: number) {
 }
 
 export function getCollisionHandoffSourceOpacity(elapsedMs: number) {
-  if (elapsedMs <= COLLISION_SOURCE_FADE_START_MS) return 0.99
-  return 0.99 * (1 - smooth01(
+  // Preserve the original surface through the full fracture phase. Once the
+  // breakup phase starts, hand visual ownership to the already-moving physical
+  // result instead of leaving both source snapshots effectively opaque until
+  // the late fade. The snapshot remains alive for the full 2.6s lifecycle; this
+  // only prevents source + result from reading as several new full bodies.
+  const breakupOwnership = 1 - getCollisionHandoffBreakupProgress(elapsedMs) * 0.88
+  if (elapsedMs <= COLLISION_SOURCE_FADE_START_MS) return 0.99 * breakupOwnership
+  return 0.99 * breakupOwnership * (1 - smooth01(
     (elapsedMs - COLLISION_SOURCE_FADE_START_MS) /
       Math.max(1, COLLISION_HANDOFF_DURATION_MS - COLLISION_SOURCE_FADE_START_MS),
   ))

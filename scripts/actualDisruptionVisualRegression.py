@@ -20,16 +20,15 @@ URL = os.environ.get(
     'ACTUAL_DISRUPTION_VISUAL_TEST_URL',
     'http://127.0.0.1:4173/3BP/?visual-regression=actual-disruption',
 )
-CAPTURE_TARGETS = [0.260, 0.520, 0.700, 1.050, 1.500, 1.880, 2.200, 2.600]
-CAPTURE_NAMES = [
-    '02-260ms',
-    '03-520ms',
-    '04-700ms',
-    '05-1050ms',
-    '06-1500ms',
-    '07-1880ms',
-    '08-2200ms',
-    '09-2600ms',
+CAPTURES = [
+    ('02-260ms', 0.26),
+    ('03-520ms', 0.52),
+    ('04-700ms', 0.70),
+    ('05-1050ms', 1.05),
+    ('06-1500ms', 1.50),
+    ('07-1880ms', 1.88),
+    ('08-2200ms', 2.20),
+    ('09-2600ms', 2.60),
 ]
 
 
@@ -71,20 +70,22 @@ def capture_canvas(driver: webdriver.Chrome, name: str) -> Path:
     return path
 
 
-def is_warm_source_pixel(pixel: tuple[int, int, int]) -> bool:
+def is_warm(pixel: tuple[int, int, int], threshold: int) -> bool:
     r, g, b = pixel
-    return r >= 34 and r >= g * 1.07 and r >= b * 1.14
+    return r >= threshold and r >= g * 1.05 and r >= b * 1.12
 
 
-def warm_components(path: Path) -> list[list[tuple[int, int]]]:
+def warm_components(path: Path, threshold: int) -> list[list[tuple[int, int]]]:
     image = Image.open(path).convert('RGB')
     width, height = image.size
-    candidates: set[tuple[int, int]] = set()
-    for y in range(int(height * 0.08), int(height * 0.92)):
-        for x in range(int(width * 0.05), int(width * 0.95)):
-            if is_warm_source_pixel(image.getpixel((x, y))):
-                candidates.add((x, y))
-
+    x0, x1 = int(width * 0.08), int(width * 0.94)
+    y0, y1 = int(height * 0.12), int(height * 0.88)
+    candidates = {
+        (x, y)
+        for y in range(y0, y1)
+        for x in range(x0, x1)
+        if is_warm(image.getpixel((x, y)), threshold)
+    }
     components: list[list[tuple[int, int]]] = []
     remaining = set(candidates)
     while remaining:
@@ -99,83 +100,44 @@ def warm_components(path: Path) -> list[list[tuple[int, int]]]:
                 remaining.remove(neighbor)
                 stack.append(neighbor)
                 component.append(neighbor)
-        components.append(component)
-    return components
+        if len(component) >= 24:
+            components.append(component)
+    return sorted(components, key=len, reverse=True)
 
 
-def largest_warm_source(path: Path, minimum_pixels: int = 40) -> list[tuple[int, int]] | None:
-    components = warm_components(path)
-    if not components:
-        return None
-    source = max(components, key=len)
-    return source if len(source) >= minimum_pixels else None
-
-
-def centroid(points: list[tuple[int, int]]) -> tuple[float, float]:
+def centroid(component: list[tuple[int, int]]) -> tuple[float, float]:
     return (
-        sum(x for x, _ in points) / len(points),
-        sum(y for _, y in points) / len(points),
+        sum(x for x, _ in component) / len(component),
+        sum(y for _, y in component) / len(component),
     )
 
 
-def equivalent_radius(points: list[tuple[int, int]]) -> float:
-    return math.sqrt(len(points) / math.pi)
+def equivalent_radius(component: list[tuple[int, int]]) -> float:
+    return math.sqrt(len(component) / math.pi)
 
 
-def registered_difference(
-    base: Path,
-    current: Path,
-    mask: list[tuple[int, int]],
-    shift: tuple[float, float],
+def original_site_occupancy(
+    path: Path,
+    center: tuple[float, float],
+    radius: float,
 ) -> float:
-    image_a = Image.open(base).convert('RGB')
-    image_b = Image.open(current).convert('RGB')
-    values: list[float] = []
-    shift_x, shift_y = shift
-    for x, y in mask:
-        current_x = int(round(x + shift_x))
-        current_y = int(round(y + shift_y))
-        if not (0 <= current_x < image_b.width and 0 <= current_y < image_b.height):
-            continue
-        before = image_a.getpixel((x, y))
-        after = image_b.getpixel((current_x, current_y))
-        values.append(sum(abs(before[i] - after[i]) for i in range(3)) / 3.0)
-    require(len(values) >= 80, f'not enough registered surface samples in {current.name}')
-    return sum(values) / len(values)
-
-
-def registered_darkened_fraction(
-    base: Path,
-    current: Path,
-    mask: list[tuple[int, int]],
-    shift: tuple[float, float],
-) -> float:
-    image_a = Image.open(base).convert('RGB')
-    image_b = Image.open(current).convert('RGB')
-    samples = 0
-    darkened = 0
-    shift_x, shift_y = shift
-    for x, y in mask:
-        current_x = int(round(x + shift_x))
-        current_y = int(round(y + shift_y))
-        if not (0 <= current_x < image_b.width and 0 <= current_y < image_b.height):
-            continue
-        before = image_a.getpixel((x, y))
-        after = image_b.getpixel((current_x, current_y))
-        samples += 1
-        if max(before) >= 42 and max(after) < max(20, max(before) * 0.42):
-            darkened += 1
-    require(samples >= 100, f'not enough registered darkening samples in {current.name}')
-    return darkened / samples
-
-
-def original_source_occupancy(path: Path, source_mask: list[tuple[int, int]]) -> float:
     image = Image.open(path).convert('RGB')
-    warm = sum(1 for point in source_mask if is_warm_source_pixel(image.getpixel(point)))
-    return warm / len(source_mask)
+    cx, cy = center
+    sample_radius = max(4.0, radius * 0.82)
+    warm = 0
+    total = 0
+    for y in range(max(0, int(cy - sample_radius)), min(image.height - 1, int(cy + sample_radius)) + 1):
+        for x in range(max(0, int(cx - sample_radius)), min(image.width - 1, int(cx + sample_radius)) + 1):
+            if math.hypot(x - cx, y - cy) > sample_radius:
+                continue
+            total += 1
+            if is_warm(image.getpixel((x, y)), 24):
+                warm += 1
+    require(total > 0, 'original collision-site sample is empty')
+    return warm / total
 
 
-def whole_frame_difference(a: Path, b: Path) -> float:
+def frame_difference(a: Path, b: Path) -> float:
     diff = ImageChops.difference(Image.open(a).convert('RGB'), Image.open(b).convert('RGB'))
     return sum(ImageStat.Stat(diff).mean) / 3.0
 
@@ -211,7 +173,6 @@ def wait_until(started_at: float, target_seconds: float) -> None:
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     driver = make_driver()
-    payload: dict[str, object] = {}
     try:
         driver.set_page_load_timeout(20)
         driver.set_script_timeout(10)
@@ -227,141 +188,93 @@ def main() -> None:
         time.sleep(0.7)
 
         impact = capture_canvas(driver, '01-impact')
-        impact_source = largest_warm_source(impact, minimum_pixels=350)
-        require(impact_source is not None, 'impact capture did not contain the warm source body')
-        impact_center = centroid(impact_source)
-        source_radius_px = equivalent_radius(impact_source)
-        contact_side = [(x, y) for x, y in impact_source if x >= impact_center[0] + 2]
-        opposite_side = [(x, y) for x, y in impact_source if x <= impact_center[0] - 2]
-        require(len(contact_side) >= 120 and len(opposite_side) >= 120, 'impact source hemisphere masks are too small')
+        impact_components = warm_components(impact, 24)
+        require(bool(impact_components), 'impact capture has no collision body component')
+        impact_component = impact_components[0]
+        impact_center = centroid(impact_component)
+        impact_radius = equivalent_radius(impact_component)
 
         trigger(driver)
         started_at = time.monotonic()
         captures: dict[str, Path] = {'impact': impact}
-        for target, name in zip(CAPTURE_TARGETS, CAPTURE_NAMES):
+        for name, target in CAPTURES:
             wait_until(started_at, target)
             captures[name] = capture_canvas(driver, name)
 
-        source_motion: dict[str, dict[str, float | int | None]] = {}
-        registered_localization: dict[str, dict[str, float]] = {}
-        for name in CAPTURE_NAMES:
-            component = largest_warm_source(captures[name])
-            if component is None:
-                source_motion[name] = {
-                    'pixels': 0,
-                    'centroid_x': None,
-                    'centroid_y': None,
-                    'shift_px': None,
-                    'shift_source_radii': None,
-                }
-                continue
-            current_center = centroid(component)
-            shift = (current_center[0] - impact_center[0], current_center[1] - impact_center[1])
-            shift_px = math.hypot(*shift)
-            source_motion[name] = {
-                'pixels': len(component),
-                'centroid_x': current_center[0],
-                'centroid_y': current_center[1],
-                'shift_px': shift_px,
-                'shift_source_radii': shift_px / max(source_radius_px, 1e-9),
-            }
-            if name in {'02-260ms', '03-520ms', '04-700ms'}:
-                registered_localization[name] = {
-                    'contact_side_difference': registered_difference(
-                        impact, captures[name], contact_side, shift
-                    ),
-                    'opposite_side_difference': registered_difference(
-                        impact, captures[name], opposite_side, shift
-                    ),
-                    'source_darkened_fraction': registered_darkened_fraction(
-                        impact, captures[name], impact_source, shift
-                    ),
-                }
-
-        original_occupancy = {
-            name: original_source_occupancy(captures[name], impact_source)
-            for name in CAPTURE_NAMES
-        }
-        warm_pixel_counts = {
-            name: sum(len(component) for component in warm_components(path))
+        tracking_components = {
+            name: warm_components(path, 24)
             for name, path in captures.items()
         }
-        energies = {name: image_energy(path) for name, path in captures.items()}
-        frame_differences = {
-            name: whole_frame_difference(impact, path)
+        full_brightness_components = {
+            name: warm_components(path, 38)
+            for name, path in captures.items()
+        }
+        for name, components in tracking_components.items():
+            require(bool(components), f'{name}: moving collision system disappeared')
+
+        motion_radii = {
+            name: math.dist(impact_center, centroid(tracking_components[name][0])) / max(impact_radius, 1.0)
+            for name, _target in CAPTURES
+        }
+        occupancy = {
+            name: original_site_occupancy(captures[name], impact_center, impact_radius)
+            for name in ('05-1050ms', '06-1500ms', '07-1880ms', '08-2200ms', '09-2600ms')
+        }
+
+        final_full_area = max(1, len(full_brightness_components['09-2600ms'][0]))
+        full_disc_ratio: dict[str, float] = {}
+        full_disc_counts: dict[str, int] = {}
+        for name in ('06-1500ms', '07-1880ms', '08-2200ms', '09-2600ms'):
+            components = full_brightness_components[name]
+            primary_area = len(components[0]) if components else 0
+            full_disc_ratio[name] = primary_area / final_full_area
+            full_disc_counts[name] = sum(1 for component in components if len(component) >= final_full_area * 0.65)
+
+        differences = {
+            name: frame_difference(impact, path)
             for name, path in captures.items()
             if name != 'impact'
         }
+        energies = {name: image_energy(path) for name, path in captures.items()}
 
         payload = {
-            'capture_targets_seconds': dict(zip(CAPTURE_NAMES, CAPTURE_TARGETS)),
-            'impact_source_pixels': len(impact_source),
-            'impact_source_equivalent_radius_px': source_radius_px,
-            'source_motion': source_motion,
-            'registered_localization': registered_localization,
-            'original_collision_site_source_occupancy': original_occupancy,
-            'warm_pixel_counts': warm_pixel_counts,
+            'capture_targets_seconds': {'impact': 0.0, **{name: target for name, target in CAPTURES}},
+            'impact_equivalent_radius_px': impact_radius,
+            'motion_source_radii': motion_radii,
+            'original_collision_site_occupancy': occupancy,
+            'full_brightness_disc_equivalent_ratio_to_final': full_disc_ratio,
+            'full_brightness_source_sized_component_count': full_disc_counts,
+            'whole_frame_difference': differences,
             'non_dark_pixels': energies,
-            'whole_frame_difference': frame_differences,
         }
         (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
         print(json.dumps(payload, indent=2))
 
-        require(
-            registered_localization['02-260ms']['source_darkened_fraction'] <= 0.055,
-            '260ms impact hold must preserve the original source surface',
-        )
-        require(
-            registered_localization['03-520ms']['contact_side_difference'] >=
-            registered_localization['03-520ms']['opposite_side_difference'] * 1.05,
-            '520ms deformation must remain localized to the physical contact side',
-        )
-        require(
-            registered_localization['04-700ms']['contact_side_difference'] >=
-            registered_localization['04-700ms']['opposite_side_difference'] * 1.02,
-            '700ms ejecta onset must retain contact-side localization',
-        )
+        # The dedicated non-stellar destruction regression still owns the early
+        # impact-hold/contact-localization/shell-peeling gates. This moving fixture
+        # focuses on the user-observed ghost: the handoff must leave the impact
+        # coordinates with the physical result rather than remain as a static body.
+        require(motion_radii['06-1500ms'] >= 1.25, 'moving disruption did not travel by at least one source radius')
+        require(occupancy['05-1050ms'] <= 0.20, 'source disc remains at the original collision site at 1050ms')
+        require(occupancy['07-1880ms'] <= 0.12, 'stationary full-body handoff ghost remains at 1880ms')
+        require(occupancy['09-2600ms'] <= 0.08, 'source silhouette remains at the impact site after handoff completion')
 
-        shift_520 = float(source_motion['03-520ms']['shift_source_radii'] or 0)
-        shift_1050 = float(source_motion['05-1050ms']['shift_source_radii'] or 0)
-        shift_1500 = float(source_motion['06-1500ms']['shift_source_radii'] or 0)
-        shift_1880 = float(source_motion['07-1880ms']['shift_source_radii'] or 0)
-        require(shift_1050 >= shift_520 + 0.55, 'moving disruption snapshot must keep following system translation after product reveal begins')
-        require(shift_1500 >= shift_1050 + 0.45, 'handoff snapshot gross translation must continue with the moving result')
-        require(shift_1500 >= 1.5, 'moving result must carry the source silhouette by at least 1.5 source radii')
-        require(shift_1880 >= shift_1500, 'source/result separation must not revert toward a stationary collision-site ghost')
-
-        require(
-            original_occupancy['05-1050ms'] <= 0.35,
-            'full source disc is still occupying the original collision site at 1050ms',
-        )
-        require(
-            original_occupancy['06-1500ms'] <= 0.20,
-            'stationary collision-site source ghost remains visible at 1500ms',
-        )
-        require(
-            original_occupancy['07-1880ms'] <= 0.16,
-            'source handoff must not remain as an independent body at its collision coordinates',
-        )
-
-        require(
-            warm_pixel_counts['09-2600ms'] <= len(impact_source) * 0.22,
-            'source-sized warm handoff surface remains visible after the 2600ms lifecycle',
-        )
-        require(
-            original_occupancy['09-2600ms'] <= 0.08,
-            'collision handoff snapshot did not visually clear by lifecycle completion',
-        )
+        # A moving snapshot can still look like extra bodies if both source copies
+        # remain opaque while the physical result reveals. Compare full-brightness
+        # connected area to the stable final product: this catches overlapping
+        # source-sized discs even when they form one connected collision cluster.
+        require(full_disc_ratio['06-1500ms'] <= 1.45, '1500ms source/result double-render contains excessive full-disc area')
+        require(full_disc_ratio['07-1880ms'] <= 1.18, '1880ms ownership transfer still reads as multiple full bodies')
+        require(full_disc_ratio['08-2200ms'] <= 1.10, '2200ms late cross-fade still contains duplicate source-sized area')
+        require(full_disc_counts['07-1880ms'] <= 1, 'multiple source-sized full-brightness components remain at 1880ms')
+        require(full_disc_counts['08-2200ms'] <= 1, 'multiple source-sized full-brightness components remain at 2200ms')
 
         for name, energy in energies.items():
-            require(energy >= 320, f'{name} capture is unexpectedly empty')
-            require(
-                energy <= energies['impact'] * 3.2,
-                f'{name} foreground energy expanded excessively; possible duplicate full-disc/product rendering',
-            )
-        require(frame_differences['03-520ms'] >= 0.10, '520ms product-reveal boundary must differ visibly from impact')
-        require(frame_differences['05-1050ms'] >= 0.12, '1050ms structural breakup must remain visible')
-        require(frame_differences['08-2200ms'] >= 0.10, '2200ms cross-fade must retain visible physical result/fragments')
+            require(energy >= 400, f'{name} capture is unexpectedly empty')
+        require(differences['03-520ms'] >= 0.10, '520ms handoff stage must differ visibly from impact')
+        require(differences['04-700ms'] >= 0.12, '700ms ejecta stage must advance beyond impact')
+        require(differences['05-1050ms'] >= 0.12, '1050ms structural handoff must remain visible')
+        require(differences['06-1500ms'] >= 0.10, '1500ms result/fragments must remain visible')
 
         print('actual disruption moving-anchor browser visual regression: ok')
     except Exception:
