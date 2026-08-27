@@ -285,7 +285,7 @@
 - 항성 합체의 display-only 중첩 구간을 짧게 줄여 0.03x에서 수 초간 topology 해석을 지연시키던 흐름을 제거했습니다.
 - physical collision VFX의 시각 age를 real-time으로 계산해 저속 관찰 중 flash/plasma 수명이 과도하게 늘어나지 않도록 했습니다.
 - synthetic stellar overlap retire 260ms와 physical shear/plasma fade-in 140ms의 cross-fade를 유지하며 contact flash는 즉시 표시합니다.
-- 대형 항성 VFX는 opacity/brightness와 world-space 최대 직경을 clamp하고, 기존 동적 천체 상한 28개 안에서 flash/shock/afterglow 슬롯을 먼저 예약하도록 제한했습니다.
+- 대형 항성 VFX는 opacity/brightness와 world-space 최대 직경을 clamp하고, 기존 동적 천체 상한 안에서 flash/shock/afterglow 슬롯을 먼저 예약하도록 제한했습니다.
 - collision camera framing은 기존 physical body/remnant 기준을 유지하며 VFX radius는 auto framing에 포함하지 않습니다.
 
 ### Fixed
