@@ -119,10 +119,79 @@ function testBelowHalfContinuationStaysReleased() {
   )
 }
 
+function testMovingTargetHandoffUsesBodyRelativeOffsets() {
+  const totalFrames = 18
+  const startCameraOffset = 1.15
+  const destinationCameraOffset = 2.55
+  const startTargetOffset = 0
+  const scenarios = [
+    { name: 'stationary-1x', speed: 1, velocity: 0, acceleration: 0 },
+    { name: 'constant-1x', speed: 1, velocity: 3, acceleration: 0 },
+    { name: 'constant-3x', speed: 3, velocity: 3, acceleration: 0 },
+    { name: 'accelerating-1x', speed: 1, velocity: 2.2, acceleration: 1.4 },
+    { name: 'fast-remnant-3x', speed: 3, velocity: 3, acceleration: 1.4 },
+  ]
+
+  for (const scenario of scenarios) {
+    const bodyPosition = (frame: number) => {
+      const elapsed = frame / 60 * scenario.speed
+      return scenario.velocity * elapsed + 0.5 * scenario.acceleration * elapsed ** 2
+    }
+    const previousBody = bodyPosition(-1)
+    const collisionCamera = previousBody + startCameraOffset
+    const releaseBody = bodyPosition(0)
+    const releaseCamera = releaseBody + startCameraOffset
+
+    assert(
+      Math.abs((releaseCamera - collisionCamera) - (releaseBody - previousBody)) <= 1e-12,
+      `${scenario.name}: release camera must translate by exactly the tracked-body displacement`,
+    )
+    assert(
+      Math.abs((releaseBody - releaseCamera) + startCameraOffset) <= 1e-12,
+      `${scenario.name}: release must preserve the collision-frame body-relative composition`,
+    )
+
+    let finalCamera = releaseCamera
+    let finalTarget = releaseBody + startTargetOffset
+    for (let frame = 0; frame < totalFrames; frame += 1) {
+      const progress = getTrackingHandoffProgress(frame, totalFrames)
+      const body = bodyPosition(frame)
+      const cameraOffset = startCameraOffset +
+        (destinationCameraOffset - startCameraOffset) * progress
+      const targetOffset = startTargetOffset * (1 - progress)
+      finalCamera = body + cameraOffset
+      finalTarget = body + targetOffset
+
+      assert(
+        Math.abs((finalCamera - body) - cameraOffset) <= 1e-12,
+        `${scenario.name}: moving destination must not be mixed with a fixed world-space start`,
+      )
+    }
+
+    const finalBody = bodyPosition(totalFrames - 1)
+    assert(
+      Math.abs(finalTarget - finalBody) <= 1e-12,
+      `${scenario.name}: handoff target must equal normal tracking target at completion`,
+    )
+    assert(
+      Math.abs((finalCamera - finalBody) - destinationCameraOffset) <= 1e-12,
+      `${scenario.name}: handoff camera offset must equal normal tracking at completion`,
+    )
+
+    const nextBody = bodyPosition(totalFrames)
+    const firstNormalCamera = nextBody + destinationCameraOffset
+    assert(
+      Math.abs((firstNormalCamera - finalCamera) - (nextBody - finalBody)) <= 1e-12,
+      `${scenario.name}: handoff-to-normal boundary must contain only tracked-body motion`,
+    )
+  }
+}
+
 const tests = [
   testSameSelectionUsesCameraModeHandoff,
   testTrackingSettleStartsAtCollisionTransformAndConvergesWithoutOvershoot,
   testBelowHalfContinuationStaysReleased,
+  testMovingTargetHandoffUsesBodyRelativeOffsets,
 ]
 
 for (const test of tests) test()
