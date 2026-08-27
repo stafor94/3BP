@@ -181,13 +181,17 @@ function testTinySubEscapeMoonGrazeUsesImpactorScaledMassLoss() {
       observedAbsorptionShrink = true
     }
     const remnantNow = resolved.find((body) =>
-      body.bodyType === 'planet' && body.id.includes(janus.id) && body.id.includes(luna.id),
+      body.bodyType === 'planet' &&
+      body.id === janus.id &&
+      body.trackingContinuationIds?.includes(luna.id),
     )
     if (remnantNow && !firstResolvedFrame) {
       firstResolvedFrame = resolved.map((body) => ({
         ...body,
         position: { ...body.position },
         velocity: { ...body.velocity },
+        collisionLineageIds: body.collisionLineageIds ? [...body.collisionLineageIds] : undefined,
+        trackingContinuationIds: body.trackingContinuationIds ? [...body.trackingContinuationIds] : undefined,
         effectVisual: body.effectVisual
           ? {
               ...body.effectVisual,
@@ -199,19 +203,28 @@ function testTinySubEscapeMoonGrazeUsesImpactorScaledMassLoss() {
     }
   }
   const remnant = resolved.find((body) =>
-    body.bodyType === 'planet' && body.id.includes(janus.id) && body.id.includes(luna.id),
+    body.bodyType === 'planet' &&
+    body.id === janus.id &&
+    body.trackingContinuationIds?.includes(luna.id),
   )
 
   assert(
     observedAbsorptionShrink,
     'tiny absorbed impactor should visibly shrink before the physical replacement frame',
   )
-  assert(remnant, 'tiny sub-escape moon graze should resolve to one planet remnant after the contact presentation bridge')
+  assert(remnant, 'tiny sub-escape moon graze should resolve to the original Janus identity')
   assert(firstResolvedFrame, 'tiny absorption regression must capture the first physical result frame')
   const firstRemnant = firstResolvedFrame.find((body) =>
-    body.bodyType === 'planet' && body.id.includes(janus.id) && body.id.includes(luna.id),
+    body.bodyType === 'planet' &&
+    body.id === janus.id &&
+    body.trackingContinuationIds?.includes(luna.id),
   )
-  assert(firstRemnant, 'first physical absorption frame must contain the planet remnant')
+  assert(firstRemnant, 'first physical absorption frame must contain stable-id Janus remnant')
+  assert(
+    firstRemnant.collisionLineageIds?.includes(janus.id) === true &&
+      firstRemnant.collisionLineageIds?.includes(luna.id) === true,
+    'stable-id absorption remnant must separately preserve both collision source lineages',
+  )
   const absorptionEjecta = firstResolvedFrame.filter((body) =>
     body !== firstRemnant &&
     body.mass > 0 &&
@@ -260,8 +273,12 @@ function testTinySubEscapeMoonGrazeUsesImpactorScaledMassLoss() {
     'corrected tiny-impact absorption must conserve total represented mass',
   )
   assert(
-    findTrackingCandidate(resolved, janus.id)?.id === remnant.id,
-    'the larger absorber should transfer ordinary tracking continuity to the remnant',
+    findTrackingCandidate(resolved, janus.id)?.id === janus.id,
+    'the larger absorber should keep ordinary tracking on its stable identity',
+  )
+  assert(
+    findTrackingCandidate(resolved, luna.id)?.id === janus.id,
+    'tracking the absorbed moon should transfer onto the surviving primary identity',
   )
 }
 
