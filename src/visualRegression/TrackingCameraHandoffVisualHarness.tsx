@@ -135,6 +135,7 @@ declare global {
     __trackingCameraHandoffSamples?: TimedCameraTelemetry[]
     __trackingCameraHandoffRetainedTrailIds?: string[]
     __trackingCameraPhysicalRemnantId?: string
+    __trackingCameraHandoffReleaseFirstFrameDataUrl?: string
   }
 }
 
@@ -165,6 +166,10 @@ export function TrackingCameraHandoffVisualHarness() {
             releaseStartedAt = telemetry.nowMs
             releaseArmed = false
             releaseSamples.length = 0
+            queueMicrotask(() => {
+              const canvas = host.querySelector('canvas')
+              if (canvas) window.__trackingCameraHandoffReleaseFirstFrameDataUrl = canvas.toDataURL('image/png')
+            })
           }
           if (releaseStartedAt !== null) {
             releaseSamples.push({
@@ -189,6 +194,7 @@ export function TrackingCameraHandoffVisualHarness() {
         releaseArmed = true
         releaseSamples.length = 0
         window.__trackingCameraHandoffSamples = []
+        delete window.__trackingCameraHandoffReleaseFirstFrameDataUrl
       }
       currentState = makeState(nextStage)
       window.__trackingCameraHandoffStage = nextStage
@@ -206,6 +212,7 @@ export function TrackingCameraHandoffVisualHarness() {
       delete window.__trackingCameraHandoffSamples
       delete window.__trackingCameraHandoffRetainedTrailIds
       delete window.__trackingCameraPhysicalRemnantId
+      delete window.__trackingCameraHandoffReleaseFirstFrameDataUrl
       delete document.body.dataset.visualStage
     }
   }, [])
