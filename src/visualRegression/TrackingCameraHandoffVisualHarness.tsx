@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { bodyCarriesCollisionLineage } from '../collisionIdentity'
 import { stepBodies } from '../physics/fragmentAwareEngine'
 import {
   createSimulationRenderer,
@@ -57,12 +58,18 @@ function createPhysicalMergeFixture() {
   const remnant = bodies.find((body) =>
     body.bodyType !== 'effect' &&
     body.bodyType !== 'fragment' &&
-    body.id.includes(SOURCE_ID) &&
-    body.id.includes(SECONDARY_ID),
+    bodyCarriesCollisionLineage(body, SOURCE_ID) &&
+    bodyCarriesCollisionLineage(body, SECONDARY_ID),
   )
   if (!remnant) throw new Error('tracking-camera handoff fixture must produce a physical equal-mass merge remnant')
-  if (!remnant.trackingContinuationIds?.includes(SOURCE_ID)) {
-    throw new Error('physical merge remnant must explicitly continue the tracked source id')
+  if (remnant.id !== SOURCE_ID) {
+    throw new Error('equal-mass merge must preserve the camera-primary source id')
+  }
+  if (
+    !remnant.trackingContinuationIds?.includes(SOURCE_ID) ||
+    !remnant.trackingContinuationIds?.includes(SECONDARY_ID)
+  ) {
+    throw new Error('physical merge remnant must explicitly continue both source tracking lineages')
   }
   return { bodies, remnant }
 }
