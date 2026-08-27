@@ -5,15 +5,18 @@ import {
   type CollisionVisualTransition,
 } from './collisionVisualOutcome'
 
-export const COLLISION_HANDOFF_DURATION_MS = 1500
-export const COLLISION_IMPACT_HOLD_END_MS = 180
-export const COLLISION_FRACTURE_END_MS = 650
-export const COLLISION_BREAKUP_END_MS = 1100
-export const COLLISION_PRODUCT_REVEAL_DELAY_MS = 240
+export const COLLISION_HANDOFF_DURATION_MS = 2600
+export const COLLISION_IMPACT_HOLD_END_MS = 260
+export const COLLISION_FRACTURE_END_MS = 1050
+export const COLLISION_BREAKUP_END_MS = 1900
+export const COLLISION_PRODUCT_REVEAL_DELAY_MS = 520
 export const COLLISION_PRODUCT_REVEAL_DURATION_MS = COLLISION_HANDOFF_DURATION_MS
-export const COLLISION_ABSORPTION_DURATION_MS = 700
-const COLLISION_DEBRIS_START_MS = 280
-const COLLISION_SOURCE_FADE_START_MS = 1080
+export const COLLISION_ABSORPTION_DURATION_MS = 1700
+export const COLLISION_ABSORPTION_CONTACT_END_MS = 620
+export const COLLISION_ABSORPTION_SINK_START_MS = 420
+const COLLISION_DEBRIS_START_MS = 420
+const COLLISION_SOURCE_FADE_START_MS = 1880
+const COLLISION_ABSORPTION_FADE_START_MS = 960
 const MAX_ACTIVE_HANDOFFS = 8
 const PARTICLE_COUNT = 72
 const SOURCE_FRAGMENT_OUTPUT = 'gl_FragColor = vec4(color, uOpacity);'
@@ -45,6 +48,7 @@ type AbsorptionVisual = {
   origin: THREE.Vector3
   baseScale: THREE.Vector3
   contactPoint: THREE.Vector3
+  resultId: string | null
 }
 
 const particleVertexShader = `
@@ -175,9 +179,28 @@ export function getCollisionAbsorptionProgress(elapsedMs: number) {
   return smooth01(elapsedMs / COLLISION_ABSORPTION_DURATION_MS)
 }
 
+export function getCollisionAbsorptionContactProgress(elapsedMs: number) {
+  return smooth01(elapsedMs / COLLISION_ABSORPTION_CONTACT_END_MS)
+}
+
+export function getCollisionAbsorptionSinkProgress(elapsedMs: number) {
+  if (elapsedMs <= COLLISION_ABSORPTION_SINK_START_MS) return 0
+  return smooth01(
+    (elapsedMs - COLLISION_ABSORPTION_SINK_START_MS) /
+      Math.max(1, COLLISION_ABSORPTION_DURATION_MS - COLLISION_ABSORPTION_SINK_START_MS),
+  )
+}
+
+export function getCollisionAbsorptionScale(elapsedMs: number) {
+  return 1 - getCollisionAbsorptionSinkProgress(elapsedMs) * 0.94
+}
+
 export function getCollisionAbsorptionOpacity(elapsedMs: number) {
-  if (elapsedMs <= 280) return 0.99
-  return 0.99 * (1 - smooth01((elapsedMs - 280) / (COLLISION_ABSORPTION_DURATION_MS - 280)))
+  if (elapsedMs <= COLLISION_ABSORPTION_FADE_START_MS) return 0.99
+  return 0.99 * (1 - smooth01(
+    (elapsedMs - COLLISION_ABSORPTION_FADE_START_MS) /
+      Math.max(1, COLLISION_ABSORPTION_DURATION_MS - COLLISION_ABSORPTION_FADE_START_MS),
+  ))
 }
 
 function getBodySeed(id: string) {
@@ -485,6 +508,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
         transition.contactPoint.y,
         transition.contactPoint.z,
       ),
+      resultId: transition.resultId,
     })
   }
 
@@ -524,10 +548,24 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
 
   const updateAbsorptionVisual = (visual: AbsorptionVisual, now: number) => {
     const elapsedMs = Math.max(0, now - visual.startedAt)
-    const progress = getCollisionAbsorptionProgress(elapsedMs)
-    const moveProgress = smooth01(Math.min(1, progress * 1.12))
-    visual.mesh.position.lerpVectors(visual.origin, visual.contactPoint, moveProgress * 0.82)
-    visual.mesh.scale.copy(visual.baseScale).multiplyScalar(1 - progress * 0.82)
+    const contactProgress = getCollisionAbsorptionContactProgress(elapsedMs)
+    const sinkProgress = getCollisionAbsorptionSinkProgress(elapsedMs)
+    const contactPosition = visual.origin.clone().lerp(visual.contactPoint, contactProgress)
+    const targetPosition = visual.contactPoint.clone()
+
+    if (visual.resultId) {
+      const resultMesh = findLiveBodyMesh(scene, visual.resultId)
+      if (resultMesh) {
+        resultMesh.updateWorldMatrix(true, false)
+        resultMesh.getWorldPosition(targetPosition)
+      }
+    }
+
+    // Preserve the incoming body's silhouette through contact, then pull it
+    // continuously through the contact patch toward the moving remnant center.
+    // Shrink/fade begin only after sinking starts, avoiding the old pop-out.
+    visual.mesh.position.lerpVectors(contactPosition, targetPosition, sinkProgress * 0.96)
+    visual.mesh.scale.copy(visual.baseScale).multiplyScalar(getCollisionAbsorptionScale(elapsedMs))
     if (visual.material.uniforms.uOpacity) {
       visual.material.uniforms.uOpacity.value =
         visual.baseOpacity * getCollisionAbsorptionOpacity(elapsedMs)
