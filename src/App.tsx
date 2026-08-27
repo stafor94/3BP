@@ -882,6 +882,7 @@ export default function App() {
         <SimulationView
           bodies={bodies}
           simulationTime={time}
+          simulationSpeed={speedRef.current}
           trailVersion={trailVersion}
           trailEnabled={trailEnabled}
           trailDuration={trailDuration}
@@ -892,6 +893,11 @@ export default function App() {
             bodyAId: collisionCameraFocus.bodyA.sourceId,
             bodyBId: collisionCameraFocus.bodyB.sourceId,
           } : null}
+          collisionWatchPhase={collisionWatchPhaseRef.current}
+          collisionWatchPairKey={collisionWatchInfo?.pairKey ?? collisionCameraFocus?.pairKey ?? null}
+          collisionImpactObserved={Boolean(
+            collisionWatchInfo?.impactObservedAt ?? collisionCameraFocus?.impactObservedAt,
+          )}
         />
         {collisionWatchInfo && (
           <CollisionWatchInfo details={collisionWatchInfo} language={language} />

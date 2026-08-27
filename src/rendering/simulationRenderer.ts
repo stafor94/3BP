@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { resolveBodyDescendant } from '../collisionWatch'
+import type { CollisionWatchPhase } from '../collisionWatchTiming'
 import { FRAGMENT_TRAIL_TIME, getFragmentOpacity } from '../fragmentLifecycle'
 import { findTrackingCandidate } from '../trackingSelection'
 import { getNearestStellarColor } from '../starColors'
@@ -30,12 +31,17 @@ export type CollisionCameraFocus = {
 export type SimulationRenderState = {
   bodies: BodyState[]
   simulationTime: number
+  simulationSpeed: number
+  renderStateGeneration: number
   trailVersion: number
   trailEnabled: boolean
   trailDuration: number
   trailSampleBatch: TrailSampleBatch
   trackedBodyId: string | null
   collisionCameraFocus: CollisionCameraFocus | null
+  collisionWatchPhase: CollisionWatchPhase | null
+  collisionWatchPairKey: string | null
+  collisionImpactObserved: boolean
 }
 
 export type CameraWriteSource =
@@ -45,35 +51,76 @@ export type CameraWriteSource =
   | 'default-composition'
   | 'preserve'
 
+type TelemetryVector = { x: number; y: number; z: number }
+
+export type CameraTransformTelemetry = {
+  cameraPosition: TelemetryVector
+  controlsTarget: TelemetryVector
+  distance: number
+}
+
+export type CameraTransformWriteTelemetry = {
+  writer: CameraWriteSource | 'controls-update'
+  before: CameraTransformTelemetry
+  after: CameraTransformTelemetry
+}
+
 export type SimulationCameraTelemetry = {
+  renderFrameSequence: number
   nowMs: number
+  simulationTime: number
+  simulationSpeed: number
+  renderStateGeneration: number
   mode: CameraMode
   trackedBodyId: string | null
   resolvedTrackedBodyId: string | null
   collisionCameraFocused: boolean
+  collisionWatchPhase: CollisionWatchPhase | null
+  collisionWatchPairKey: string | null
+  collisionImpactObserved: boolean
   collisionCameraJustReleased: boolean
   trackingFocusNeedsReset: boolean
   trackingFocusSettleFrames: number
-  cameraPosition: { x: number; y: number; z: number }
-  controlsTarget: { x: number; y: number; z: number }
-  trackedBodyPosition: { x: number; y: number; z: number } | null
-  trackedBodyNdc: { x: number; y: number; z: number } | null
+  trackingTransitionActive: boolean
+  trackingTransitionFrameIndex: number
+  trackedBodyVelocity: TelemetryVector | null
+  trackedBodyMass: number | null
+  trackedBodyRadius: number | null
+  cameraPositionBeforeFrame: TelemetryVector
+  controlsTargetBeforeFrame: TelemetryVector
+  distanceBeforeFrame: number
+  cameraPosition: TelemetryVector
+  controlsTarget: TelemetryVector
+  trackedBodyPosition: TelemetryVector | null
+  trackedBodyNdc: TelemetryVector | null
+  trackedBodyPixel: { x: number; y: number } | null
+  trackedBodyVisible: boolean
   cameraDistanceToTrackedBody: number | null
   cameraDistanceToControlsTarget: number
   desiredCameraDistance: number | null
-  desiredTarget: { x: number; y: number; z: number } | null
-  desiredCameraPosition: { x: number; y: number; z: number } | null
+  desiredTarget: TelemetryVector | null
+  desiredCameraPosition: TelemetryVector | null
   targetErrorToTrackedBody: number | null
   trackingTransitionProgress: number | null
-  trackingTransitionStartPosition: { x: number; y: number; z: number } | null
-  trackingTransitionStartTarget: { x: number; y: number; z: number } | null
+  trackingTransitionStartPosition: TelemetryVector | null
+  trackingTransitionStartTarget: TelemetryVector | null
   trackingTransitionStartDistance: number | null
-  trackingTransitionDestinationPosition: { x: number; y: number; z: number } | null
-  trackingTransitionDestinationTarget: { x: number; y: number; z: number } | null
+  trackingTransitionDestinationPosition: TelemetryVector | null
+  trackingTransitionDestinationTarget: TelemetryVector | null
   trackingTransitionDestinationDistance: number | null
   cameraWriteSource: CameraWriteSource
   finalCameraWriteSource: CameraWriteSource | 'controls-update'
+  cameraWrites: CameraTransformWriteTelemetry[]
+  controlsUpdateBefore: CameraTransformTelemetry
+  controlsUpdateAfter: CameraTransformTelemetry
   controlsUpdateChangedTransform: boolean
+  cameraPositionStep: number
+  targetStep: number
+  distanceStep: number
+  trackedBodyWorldStep: number | null
+  screenSpaceStep: number | null
+  desiredCameraPositionStep: number | null
+  desiredTargetStep: number | null
 }
 
 export type SimulationTrailTelemetry = {
@@ -1029,6 +1076,13 @@ export function createSimulationRenderer(
   const trackingTransitionInterpolatedTarget = new THREE.Vector3()
   const controlsUpdatePositionBefore = new THREE.Vector3()
   const controlsUpdateTargetBefore = new THREE.Vector3()
+  const frameCameraPositionBefore = new THREE.Vector3()
+  const frameControlsTargetBefore = new THREE.Vector3()
+  const previousFinalCameraPosition = new THREE.Vector3()
+  const previousFinalControlsTarget = new THREE.Vector3()
+  const previousTrackedBodyPosition = new THREE.Vector3()
+  const previousDesiredCameraPosition = new THREE.Vector3()
+  const previousDesiredTarget = new THREE.Vector3()
   const telemetryDesiredTarget = new THREE.Vector3()
   const telemetryDesiredCameraPosition = new THREE.Vector3()
   const telemetryTransitionStartPosition = new THREE.Vector3()
@@ -1049,8 +1103,22 @@ export function createSimulationRenderer(
   let cameraWriteSource: CameraWriteSource = 'preserve'
   let finalCameraWriteSource: CameraWriteSource | 'controls-update' = 'preserve'
   let controlsUpdateChangedTransform = false
+  let renderFrameSequence = 0
+  let previousFinalTransformValid = false
+  let previousFinalDistance = 0
+  let previousResolvedTrackedBodyId: string | null = null
+  let previousTrackedBodyPositionValid = false
+  let previousTrackedBodyPixel: { x: number; y: number } | null = null
+  let previousDesiredCameraPositionValid = false
+  let previousDesiredTargetValid = false
+  let frameDistanceBefore = 0
+  const cameraWrites: CameraTransformWriteTelemetry[] = []
 
   const resetFrameCameraTelemetry = () => {
+    frameCameraPositionBefore.copy(camera.position)
+    frameControlsTargetBefore.copy(controls.target)
+    frameDistanceBefore = camera.position.distanceTo(controls.target)
+    cameraWrites.length = 0
     telemetryDesiredTargetValid = false
     telemetryDesiredCameraPositionValid = false
     telemetryTransitionProgress = null
@@ -1125,6 +1193,19 @@ export function createSimulationRenderer(
 
   const toTelemetryVector = (vector: THREE.Vector3) => ({ x: vector.x, y: vector.y, z: vector.z })
 
+  const captureCameraTransform = (): CameraTransformTelemetry => ({
+    cameraPosition: toTelemetryVector(camera.position),
+    controlsTarget: toTelemetryVector(controls.target),
+    distance: camera.position.distanceTo(controls.target),
+  })
+
+  const recordCameraWrite = (
+    writer: CameraWriteSource | 'controls-update',
+    before: CameraTransformTelemetry,
+  ) => {
+    cameraWrites.push({ writer, before, after: captureCameraTransform() })
+  }
+
   const emitCameraTelemetry = (
     state: SimulationRenderState,
     trackedBody: BodyState | undefined,
@@ -1145,19 +1226,88 @@ export function createSimulationRenderer(
       trackedBodyNdc.project(camera)
     }
 
+    const { width, height } = getViewportSize()
+    const trackedBodyPixel = trackedBodyNdc ? {
+      x: (trackedBodyNdc.x + 1) * 0.5 * width,
+      y: (1 - trackedBodyNdc.y) * 0.5 * height,
+    } : null
+    const trackedBodyVisible = Boolean(
+      trackedBodyNdc &&
+      Number.isFinite(trackedBodyNdc.x) &&
+      Number.isFinite(trackedBodyNdc.y) &&
+      Number.isFinite(trackedBodyNdc.z) &&
+      Math.abs(trackedBodyNdc.x) <= 1 &&
+      Math.abs(trackedBodyNdc.y) <= 1 &&
+      trackedBodyNdc.z >= -1 &&
+      trackedBodyNdc.z <= 1,
+    )
+    const finalDistance = camera.position.distanceTo(controls.target)
+    const resolvedTrackedBodyId = trackedBody?.id ?? null
+    const cameraPositionStep = previousFinalTransformValid
+      ? camera.position.distanceTo(previousFinalCameraPosition)
+      : 0
+    const targetStep = previousFinalTransformValid
+      ? controls.target.distanceTo(previousFinalControlsTarget)
+      : 0
+    const distanceStep = previousFinalTransformValid
+      ? Math.abs(finalDistance - previousFinalDistance)
+      : 0
+    const trackedBodyWorldStep = trackedPosition && previousTrackedBodyPositionValid &&
+      previousResolvedTrackedBodyId === resolvedTrackedBodyId
+      ? trackedPosition.distanceTo(previousTrackedBodyPosition)
+      : null
+    const screenSpaceStep = trackedBodyPixel && previousTrackedBodyPixel
+      ? Math.hypot(
+        trackedBodyPixel.x - previousTrackedBodyPixel.x,
+        trackedBodyPixel.y - previousTrackedBodyPixel.y,
+      )
+      : null
+    const desiredCameraPositionStep = telemetryDesiredCameraPositionValid &&
+      previousDesiredCameraPositionValid
+      ? telemetryDesiredCameraPosition.distanceTo(previousDesiredCameraPosition)
+      : null
+    const desiredTargetStep = telemetryDesiredTargetValid && previousDesiredTargetValid
+      ? telemetryDesiredTarget.distanceTo(previousDesiredTarget)
+      : null
+    const controlsUpdateBefore: CameraTransformTelemetry = {
+      cameraPosition: toTelemetryVector(controlsUpdatePositionBefore),
+      controlsTarget: toTelemetryVector(controlsUpdateTargetBefore),
+      distance: controlsUpdatePositionBefore.distanceTo(controlsUpdateTargetBefore),
+    }
+    const controlsUpdateAfter = captureCameraTransform()
+
     callback({
+      renderFrameSequence,
       nowMs: performance.now(),
+      simulationTime: state.simulationTime,
+      simulationSpeed: state.simulationSpeed,
+      renderStateGeneration: state.renderStateGeneration,
       mode,
       trackedBodyId: state.trackedBodyId,
-      resolvedTrackedBodyId: trackedBody?.id ?? null,
+      resolvedTrackedBodyId,
       collisionCameraFocused,
+      collisionWatchPhase: state.collisionWatchPhase,
+      collisionWatchPairKey: state.collisionWatchPairKey,
+      collisionImpactObserved: state.collisionImpactObserved,
       collisionCameraJustReleased,
       trackingFocusNeedsReset,
       trackingFocusSettleFrames,
+      trackingTransitionActive,
+      trackingTransitionFrameIndex,
+      trackedBodyVelocity: trackedBody
+        ? { x: trackedBody.velocity.x, y: trackedBody.velocity.y, z: trackedBody.velocity.z }
+        : null,
+      trackedBodyMass: trackedBody?.mass ?? null,
+      trackedBodyRadius: trackedBody?.radius ?? null,
+      cameraPositionBeforeFrame: toTelemetryVector(frameCameraPositionBefore),
+      controlsTargetBeforeFrame: toTelemetryVector(frameControlsTargetBefore),
+      distanceBeforeFrame: frameDistanceBefore,
       cameraPosition: toTelemetryVector(camera.position),
       controlsTarget: toTelemetryVector(controls.target),
       trackedBodyPosition: trackedPosition ? toTelemetryVector(trackedPosition) : null,
       trackedBodyNdc: trackedBodyNdc ? toTelemetryVector(trackedBodyNdc) : null,
+      trackedBodyPixel,
+      trackedBodyVisible,
       cameraDistanceToTrackedBody: trackedPosition
         ? camera.position.distanceTo(trackedPosition)
         : null,
@@ -1187,8 +1337,33 @@ export function createSimulationRenderer(
       trackingTransitionDestinationDistance: telemetryTransitionDestinationDistance,
       cameraWriteSource,
       finalCameraWriteSource,
+      cameraWrites: [...cameraWrites],
+      controlsUpdateBefore,
+      controlsUpdateAfter,
       controlsUpdateChangedTransform,
+      cameraPositionStep,
+      targetStep,
+      distanceStep,
+      trackedBodyWorldStep,
+      screenSpaceStep,
+      desiredCameraPositionStep,
+      desiredTargetStep,
     })
+
+    previousFinalCameraPosition.copy(camera.position)
+    previousFinalControlsTarget.copy(controls.target)
+    previousFinalDistance = finalDistance
+    previousFinalTransformValid = true
+    previousResolvedTrackedBodyId = resolvedTrackedBodyId
+    previousTrackedBodyPositionValid = trackedPosition !== null
+    if (trackedPosition) previousTrackedBodyPosition.copy(trackedPosition)
+    previousTrackedBodyPixel = trackedBodyPixel
+    previousDesiredCameraPositionValid = telemetryDesiredCameraPositionValid
+    if (telemetryDesiredCameraPositionValid) {
+      previousDesiredCameraPosition.copy(telemetryDesiredCameraPosition)
+    }
+    previousDesiredTargetValid = telemetryDesiredTargetValid
+    if (telemetryDesiredTargetValid) previousDesiredTarget.copy(telemetryDesiredTarget)
   }
 
   const resetAutoDistanceLimits = () => {
@@ -1280,6 +1455,7 @@ export function createSimulationRenderer(
       return false
     }
 
+    const writeBefore = captureCameraTransform()
     collisionPrimaryPosition.set(primary.position.x, primary.position.y, primary.position.z)
     moveCameraTargetTo(collisionPrimaryPosition)
     applyAutoDistanceLimits(primary)
@@ -1316,6 +1492,7 @@ export function createSimulationRenderer(
           : RENDER_TUNING.camera.collisionTransition,
       )
     }
+    recordCameraWrite('collision-camera', writeBefore)
 
     wasTrackingBody = true
     return true
@@ -1342,6 +1519,7 @@ export function createSimulationRenderer(
     selectionChanged: boolean,
     collisionCameraJustReleased = false,
   ) => {
+    const writeBefore = captureCameraTransform()
     targetScratch.set(trackedBody.position.x, trackedBody.position.y, trackedBody.position.z)
     applyAutoDistanceLimits(trackedBody)
 
@@ -1390,6 +1568,7 @@ export function createSimulationRenderer(
       telemetryTransitionDestinationValid = true
       telemetryTransitionDestinationDistance = desiredDistance
       cameraWriteSource = 'tracking-transition'
+      recordCameraWrite('tracking-transition', writeBefore)
 
       trackingFocusSettleFrames = Math.max(
         0,
@@ -1422,6 +1601,7 @@ export function createSimulationRenderer(
     }
 
     cameraWriteSource = 'normal-tracking'
+    recordCameraWrite('normal-tracking', writeBefore)
     wasTrackingBody = true
   }
 
@@ -1447,8 +1627,10 @@ export function createSimulationRenderer(
     } else {
       clearTrackingTransition()
       if (compositionMode === null) {
+        const writeBefore = captureCameraTransform()
         moveCameraTargetTo(compositionOffset)
         cameraWriteSource = 'default-composition'
+        recordCameraWrite('default-composition', writeBefore)
       }
       resetAutoDistanceLimits()
       trackingFocusSettleFrames = 0
@@ -1478,6 +1660,7 @@ export function createSimulationRenderer(
   let frame = 0
   const animate = () => {
     frame = requestAnimationFrame(animate)
+    renderFrameSequence += 1
     resetFrameCameraTelemetry()
     const state = getState()
     const current = state.bodies
@@ -1601,11 +1784,13 @@ export function createSimulationRenderer(
     options.onTrailTelemetry?.({ retainedTrailIds: [...retainedTrailIds] })
     controlsUpdatePositionBefore.copy(camera.position)
     controlsUpdateTargetBefore.copy(controls.target)
+    const controlsWriteBefore = captureCameraTransform()
     controls.update()
     controlsUpdateChangedTransform =
       camera.position.distanceToSquared(controlsUpdatePositionBefore) > 1e-16 ||
       controls.target.distanceToSquared(controlsUpdateTargetBefore) > 1e-16
     finalCameraWriteSource = controlsUpdateChangedTransform ? 'controls-update' : cameraWriteSource
+    if (controlsUpdateChangedTransform) recordCameraWrite('controls-update', controlsWriteBefore)
     emitCameraTelemetry(
       state,
       trackedBody,
