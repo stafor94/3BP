@@ -119,6 +119,7 @@ declare global {
     __setTrackingCameraHandoffStage?: (stage: string) => void
     __trackingCameraHandoffStage?: string
     __trackingCameraHandoffTelemetry?: SimulationCameraTelemetry
+    __trackingCameraHandoffHistory?: SimulationCameraTelemetry[]
     __trackingCameraHandoffSamples?: TimedCameraTelemetry[]
     __trackingCameraHandoffRetainedTrailIds?: string[]
   }
@@ -134,6 +135,7 @@ export function TrackingCameraHandoffVisualHarness() {
     let currentState = makeState('tracking')
     let releaseStartedAt: number | null = null
     let releaseArmed = false
+    const cameraHistory: SimulationCameraTelemetry[] = []
     const releaseSamples: TimedCameraTelemetry[] = []
 
     const dispose = createSimulationRenderer(
@@ -142,6 +144,10 @@ export function TrackingCameraHandoffVisualHarness() {
       {
         onCameraTelemetry: (telemetry) => {
           window.__trackingCameraHandoffTelemetry = telemetry
+          cameraHistory.push(telemetry)
+          if (cameraHistory.length > 300) cameraHistory.shift()
+          window.__trackingCameraHandoffHistory = [...cameraHistory]
+
           if (releaseArmed && telemetry.collisionCameraJustReleased) {
             releaseStartedAt = telemetry.nowMs
             releaseArmed = false
@@ -174,6 +180,7 @@ export function TrackingCameraHandoffVisualHarness() {
       window.__trackingCameraHandoffStage = nextStage
       document.body.dataset.visualStage = nextStage
     }
+    window.__trackingCameraHandoffHistory = []
     window.__setTrackingCameraHandoffStage('tracking')
 
     return () => {
@@ -181,6 +188,7 @@ export function TrackingCameraHandoffVisualHarness() {
       delete window.__setTrackingCameraHandoffStage
       delete window.__trackingCameraHandoffStage
       delete window.__trackingCameraHandoffTelemetry
+      delete window.__trackingCameraHandoffHistory
       delete window.__trackingCameraHandoffSamples
       delete window.__trackingCameraHandoffRetainedTrailIds
       delete document.body.dataset.visualStage
