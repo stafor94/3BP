@@ -1,4 +1,5 @@
 import { getEffectiveBodyType } from './bodyTypes'
+import { bodyCarriesCollisionLineage } from './collisionIdentity'
 import { getCollisionContactDistance } from './physics/collisionContact'
 import type { BodyState } from './types'
 
@@ -16,7 +17,7 @@ export function resolveBodyDescendant(bodies: BodyState[], sourceId: string) {
   if (exact) return exact
 
   return bodies
-    .filter((body) => body.bodyType !== 'effect' && isBodyDescendedFrom(body.id, sourceId))
+    .filter((body) => body.bodyType !== 'effect' && bodyCarriesCollisionLineage(body, sourceId))
     .reduce<BodyState | undefined>((largest, body) => {
       if (!largest) return body
       if (body.mass !== largest.mass) return body.mass > largest.mass ? body : largest
@@ -36,8 +37,8 @@ export function areSourceLineagesMerged(
 
   return bodies.some((body) =>
     body.bodyType !== 'effect' &&
-    isBodyDescendedFrom(body.id, sourceAId) &&
-    isBodyDescendedFrom(body.id, sourceBId),
+    bodyCarriesCollisionLineage(body, sourceAId) &&
+    bodyCarriesCollisionLineage(body, sourceBId),
   )
 }
 
