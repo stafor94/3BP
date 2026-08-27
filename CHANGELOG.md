@@ -6,6 +6,20 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.10] - 2026-08-27
+
+### Changed
+- 일반 비항성 충돌의 시각 handoff를 1.5초에서 2.6초로 늘리고 `impact hold → fracture → breakup → result reveal` 단계 간격을 확장해 두 천체가 접촉한 뒤 구조가 무너지고 결과물이 드러나는 흐름을 더 천천히 읽을 수 있도록 했습니다.
+- 흡수 충돌의 작은 천체는 0.7초 만에 접촉점에서 축소·페이드하지 않고 1.7초 동안 접촉면을 유지한 뒤 움직이는 remnant 중심으로 연속적으로 침강·축소되도록 변경했습니다.
+- `merged-survivor`는 충돌 직후 완성된 최종 반지름으로 즉시 바뀌지 않고 지배적 source의 기존 실루엣에서 최종 물리 반지름까지 1.7초 동안 성장하도록 연결했습니다.
+- 일반 solid-body collision watch의 impact/post-impact 관찰 및 복원 시간을 늘려 확장된 충돌 연출이 너무 일찍 정상 재생으로 복귀하지 않도록 했습니다.
+
+### Fixed
+- 흡수 충돌에서 피흡수체가 접촉면 근처에서 빠르게 작아지며 사라지고 생존 remnant가 같은 순간 최종 크기로 튀어, 실제로 질량이 넘어가기보다 한 천체가 교체되는 것처럼 보이던 전환을 자연스럽게 연결했습니다.
+
+### Unchanged
+- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial-mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
+
 ## [0.19.9] - 2026-08-27
 
 ### Fixed
@@ -271,7 +285,7 @@
 - 항성 합체의 display-only 중첩 구간을 짧게 줄여 0.03x에서 수 초간 topology 해석을 지연시키던 흐름을 제거했습니다.
 - physical collision VFX의 시각 age를 real-time으로 계산해 저속 관찰 중 flash/plasma 수명이 과도하게 늘어나지 않도록 했습니다.
 - synthetic stellar overlap retire 260ms와 physical shear/plasma fade-in 140ms의 cross-fade를 유지하며 contact flash는 즉시 표시합니다.
-- 대형 항성 VFX는 opacity/brightness와 world-space 최대 직경을 clamp하고, 기존 동적 천체 상한 안에서 flash/shock/afterglow 슬롯을 먼저 예약하도록 제한했습니다.
+- 대형 항성 VFX는 opacity/brightness와 world-space 최대 직경을 clamp하고, 기존 동적 천체 상한 28개 안에서 flash/shock/afterglow 슬롯을 먼저 예약하도록 제한했습니다.
 - collision camera framing은 기존 physical body/remnant 기준을 유지하며 VFX radius는 auto framing에 포함하지 않습니다.
 
 ### Fixed
