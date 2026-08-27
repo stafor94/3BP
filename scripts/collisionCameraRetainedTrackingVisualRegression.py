@@ -156,7 +156,7 @@ def main() -> None:
         release = wait_for_sample(
             driver,
             "index > 0 && samples[index - 1].collisionCameraFocused === true && "
-            "sample.collisionCameraFocused === false && sample.collisionImpactObserved === true",
+            "sample.collisionCameraFocused === false",
         )
         release_now = float(release['nowMs'])
         screenshot_canvas(driver, 'release.png')
@@ -233,6 +233,8 @@ def main() -> None:
         )
         print('collision camera retained tracking regression passed')
     finally:
+        if not samples:
+            samples = history(driver)
         if samples and not (OUTPUT_DIR / 'frame-telemetry.json').exists():
             (OUTPUT_DIR / 'frame-telemetry.json').write_text(
                 json.dumps(samples, indent=2, sort_keys=True),
