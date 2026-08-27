@@ -1,3 +1,4 @@
+import { bodyCarriesCollisionLineage } from '../src/collisionIdentity'
 import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
 import {
   deriveStellarRemnantTransition,
@@ -53,8 +54,8 @@ function findMergedStar(bodies: BodyState[], firstId: string, secondId: string) 
   return bodies.find((body) => (
     body.bodyType === 'star' &&
     body.stellarCollisionOutcome === 'merge' &&
-    body.id.includes(firstId) &&
-    body.id.includes(secondId)
+    bodyCarriesCollisionLineage(body, firstId) &&
+    bodyCarriesCollisionLineage(body, secondId)
   ))
 }
 
@@ -115,6 +116,7 @@ function testEqualMassHeadOnMergeRelaxesFromUnsettledRemnant() {
   const physicalRadius = remnant?.radius ?? 0
   const transition = getTransition(resolved.previous, resolved.current, remnant)
 
+  assert(remnant?.id === a.id, 'equal-mass merge must keep the collision primary identity')
   assert(transition.role === 'remnant', 'merge must create the strong remnant relaxation profile')
   assert(transition.outcome === 'merge', 'merge transition must retain collision outcome')
   assertNear(transition.targetVisualRadius, physicalRadius, 1e-12, 'visual target must equal physical radius')
@@ -150,6 +152,7 @@ function testUnequalMassMergeKeepsPhysicalTargetSeparate() {
   const remnant = findMergedStar(resolved.current, a.id, b.id)
   const transition = getTransition(resolved.previous, resolved.current, remnant)
 
+  assert(remnant?.id === a.id, 'unequal merge must keep the larger collision primary identity')
   assertNear(transition.massRatio, 0.85, 0.01, 'presentation metadata should preserve mass ratio')
   assert(transition.massLoss >= 0, 'merge presentation mass loss must be non-negative')
   assertNear(

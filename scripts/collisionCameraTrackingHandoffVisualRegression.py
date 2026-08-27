@@ -147,6 +147,7 @@ def main() -> None:
         )
         remnant_id = driver.execute_script('return window.__trackingCameraPhysicalRemnantId')
         require(isinstance(remnant_id, str) and remnant_id, 'browser fixture must expose the real physics merge remnant id')
+        require(remnant_id == 'handoff-a', 'physics merge remnant must preserve the collision-primary id')
         payload['physical_remnant_id'] = remnant_id
 
         time.sleep(0.45)
@@ -319,8 +320,8 @@ def main() -> None:
             'return window.__trackingCameraHandoffRetainedTrailIds || []'
         )
         require(
-            'handoff-a' in retained_trail_ids and 'handoff-b' in retained_trail_ids,
-            f'collision source trails must remain after physical merge body-id replacement: {retained_trail_ids}',
+            'handoff-b' in retained_trail_ids and 'handoff-a' not in retained_trail_ids,
+            f'primary trail must stay on the stable live body while the consumed secondary trail remains retained: {retained_trail_ids}',
         )
         payload['retained_trail_ids'] = retained_trail_ids
 

@@ -1,4 +1,5 @@
 import { getEffectiveBodyType } from '../bodyTypes'
+import { bodyCarriesCollisionLineage } from '../collisionIdentity'
 import { FRAGMENT_LIFETIME } from '../fragmentLifecycle'
 import type { BodyState, Vec3 } from '../types'
 import { getCollisionContactDistance } from './collisionContact'
@@ -68,6 +69,9 @@ function cloneBody(body: BodyState): BodyState {
     ...body,
     position: { ...body.position },
     velocity: { ...body.velocity },
+    collisionLineageIds: body.collisionLineageIds
+      ? [...body.collisionLineageIds]
+      : undefined,
     trackingContinuationIds: body.trackingContinuationIds
       ? [...body.trackingContinuationIds]
       : undefined,
@@ -77,6 +81,19 @@ function cloneBody(body: BodyState): BodyState {
 function isBodyDescendedFrom(bodyId: string, ancestorId: string) {
   const bodyParts = new Set(bodyId.split('+'))
   return ancestorId.split('+').every((part) => bodyParts.has(part))
+}
+
+function findMergedPhysicalRemnant(
+  stepped: BodyState[],
+  bodyA: BodyState,
+  bodyB: BodyState,
+) {
+  return stepped.find((body) =>
+    body.bodyType !== 'effect' &&
+    body.bodyType !== 'fragment' &&
+    bodyCarriesCollisionLineage(body, bodyA.id) &&
+    bodyCarriesCollisionLineage(body, bodyB.id),
+  )
 }
 
 function isStellarSolidFragment(body: BodyState, inputStars: BodyState[]) {
@@ -292,14 +309,7 @@ function normalizeExtremeMassRatioAbsorption(
   const geometry = getTrackingCollisionGeometry(bodyA, bodyB)
   if (!isExtremeMassRatioLowEnergyAbsorption(bodyA, bodyB, geometry)) return stepped
 
-  const remnant = stepped.find((body) =>
-    body.bodyType !== 'effect' &&
-    body.bodyType !== 'fragment' &&
-    body.id !== bodyA.id &&
-    body.id !== bodyB.id &&
-    isBodyDescendedFrom(body.id, bodyA.id) &&
-    isBodyDescendedFrom(body.id, bodyB.id),
-  )
+  const remnant = findMergedPhysicalRemnant(stepped, bodyA, bodyB)
   if (!remnant) return stepped
 
   const totalMass = bodyA.mass + bodyB.mass
@@ -453,14 +463,7 @@ function localizeExtremeAbsorptionEjecta(
   const geometry = getTrackingCollisionGeometry(bodyA, bodyB)
   if (!isExtremeMassRatioLowEnergyAbsorption(bodyA, bodyB, geometry)) return stepped
 
-  const remnant = stepped.find((body) =>
-    body.bodyType !== 'effect' &&
-    body.bodyType !== 'fragment' &&
-    body.id !== bodyA.id &&
-    body.id !== bodyB.id &&
-    isBodyDescendedFrom(body.id, bodyA.id) &&
-    isBodyDescendedFrom(body.id, bodyB.id),
-  )
+  const remnant = findMergedPhysicalRemnant(stepped, bodyA, bodyB)
   if (!remnant) return stepped
 
   const delta = {
@@ -559,40 +562,18 @@ function attachCollisionTrackingContinuity(
   const mode = inferCollisionPresentationMode(stepped, bodyA, bodyB)
   if (mode !== 'merge') return stepped
 
-  const remnant = stepped.find((body) =>
-    body.bodyType !== 'effect' &&
-    body.bodyType !== 'fragment' &&
-    body.id !== bodyA.id &&
-    body.id !== bodyB.id &&
-    isBodyDescendedFrom(body.id, bodyA.id) &&
-    isBodyDescendedFrom(body.id, bodyB.id),
-  )
+  const remnant = findMergedPhysicalRemnant(stepped, bodyA, bodyB)
   if (!remnant) return stepped
 
-  let continuationSources: BodyState[]
-  if (isAbsorptionCollision(bodyA, bodyB, mode)) {
-    // Absorption is identity-asymmetric: only the dominant absorber keeps
-    // ordinary user tracking. The absorbed source must not jump to it.
-    const larger = bodyA.mass > bodyB.mass
-      ? bodyA
-      : bodyB.mass > bodyA.mass
-        ? bodyB
-        : null
-    if (!larger) return stepped
-    continuationSources = [larger]
-  } else {
-    // A true merge produces one body from both physical sources. Carry both
-    // explicit source lineages; App.tsx still applies the captured initial-mass
-    // 50% gate before ordinary tracking can continue.
-    continuationSources = [bodyA, bodyB]
-  }
-
-  const continuationIds = Array.from(new Set(
-    continuationSources.flatMap((source) => [
-      ...(source.trackingContinuationIds ?? []),
-      source.id,
-    ]),
-  ))
+  // Any physical 2→1 result continues both source selections onto the one
+  // surviving body. App.tsx still applies the original captured 50% mass gate,
+  // so this metadata authorizes lineage transfer without weakening eligibility.
+  const continuationIds = Array.from(new Set([
+    ...(bodyA.trackingContinuationIds ?? []),
+    bodyA.id,
+    ...(bodyB.trackingContinuationIds ?? []),
+    bodyB.id,
+  ]))
 
   return stepped.map((body) => (
     body === remnant

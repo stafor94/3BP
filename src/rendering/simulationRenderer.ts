@@ -1513,8 +1513,7 @@ export function createSimulationRenderer(
     trackingTransitionActive = true
     trackingTransitionFrameIndex = 0
     const bodyPosition = targetScratch
-    const previousBodyPosition = previousCameraTrackedBodyPositionValid &&
-      previousCameraTrackedBodyId === trackedBody.id
+    const previousBodyPosition = previousCameraTrackedBodyPositionValid
       ? previousCameraTrackedBodyPosition
       : bodyPosition
     trackingTransitionStartCameraOffset.copy(camera.position).sub(previousBodyPosition)

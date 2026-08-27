@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SimulationView } from '../components/SimulationView'
+import { bodyCarriesCollisionLineage } from '../collisionIdentity'
 import { stepBodies } from '../physics/fragmentAwareEngine'
 import type { BodyState } from '../types'
 
@@ -54,8 +55,8 @@ export function AbsorptionContinuityVisualHarness() {
     const remnant = bodies.find((body) =>
       body.bodyType !== 'effect' &&
       body.bodyType !== 'fragment' &&
-      body.id.includes('visual-absorption-primary') &&
-      body.id.includes('visual-absorption-impactor'),
+      bodyCarriesCollisionLineage(body, 'visual-absorption-primary') &&
+      bodyCarriesCollisionLineage(body, 'visual-absorption-impactor'),
     )
     const massCarryingEffects = bodies.filter((body) => body.bodyType === 'effect' && body.mass > 0)
     const solidFragments = bodies.filter((body) => body.bodyType === 'fragment')

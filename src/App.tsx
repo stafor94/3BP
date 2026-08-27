@@ -323,19 +323,19 @@ export default function App() {
           sourceId: current,
           initialMass: Math.max(candidate.mass, 0),
         }
-        return current
+        return candidate.id
       }
 
-      // Always resolve from the original user-selected source id. Descendant ids
-      // never become the new baseline, and the mass gate is evaluated before any
-      // general-tracking handoff can be committed.
+      // Always resolve from the original user-selected source id. The currently
+      // selected physical id may move onto a 2→1 remnant, but that descendant
+      // never replaces the baseline and the original initial-mass gate remains.
       const candidate = findTrackingCandidate(bodies, baseline.sourceId)
       if (!candidate || !isTrackingMassEligible(candidate.mass, baseline.initialMass)) {
         trackingBaselineRef.current = null
         return null
       }
 
-      return baseline.sourceId
+      return candidate.id
     })
   }, [bodies])
   useEffect(() => {
@@ -846,7 +846,7 @@ export default function App() {
     : null
   const cameraTrackedBodyId = trackedBodyId && trackingBaseline && cameraTrackingCandidate &&
     isTrackingMassEligible(cameraTrackingCandidate.mass, trackingBaseline.initialMass)
-    ? trackingBaseline.sourceId
+    ? cameraTrackingCandidate.id
     : null
 
   return (
