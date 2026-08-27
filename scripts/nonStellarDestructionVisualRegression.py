@@ -177,18 +177,16 @@ def main() -> None:
         trigger_destruction(driver)
         destruction_started_at = time.monotonic()
 
-        # Target absolute offsets from the committed destruction state. Screenshot
-        # capture itself can take hundreds of milliseconds on CI, so cumulative
-        # sleeps would otherwise push later captures past the 1.5s handoff.
-        wait_until(destruction_started_at, 0.30)
+        # Target absolute offsets from the committed destruction state. The
+        # extended 2.6s handoff intentionally keeps each fracture/breakup stage
+        # readable before the physical debris is left on its own.
+        wait_until(destruction_started_at, 0.45)
         early = capture_canvas(driver, '02-early-fracture')
-        wait_until(destruction_started_at, 0.78)
+        wait_until(destruction_started_at, 1.15)
         middle = capture_canvas(driver, '03-mid-breakup')
-        wait_until(destruction_started_at, 1.18)
+        wait_until(destruction_started_at, 2.05)
         reveal = capture_canvas(driver, '04-result-reveal')
-        # Capture final debris well after the 1.5s source handoff so the final
-        # frame proves that physical fragment separation continues after reveal.
-        wait_until(destruction_started_at, 2.25)
+        wait_until(destruction_started_at, 3.40)
         final = capture_canvas(driver, '05-final-debris')
 
         captures = {
@@ -211,10 +209,10 @@ def main() -> None:
         early_surface_shift = math.dist(contact_centroid[:2], early_centroid[:2])
 
         payload['capture_targets_seconds'] = {
-            'early_fracture': 0.30,
-            'mid_breakup': 0.78,
-            'result_reveal': 1.18,
-            'final_debris': 2.25,
+            'early_fracture': 0.45,
+            'mid_breakup': 1.15,
+            'result_reveal': 2.05,
+            'final_debris': 3.40,
         }
         payload['non_dark_pixels'] = energies
         payload['mean_frame_differences'] = differences
