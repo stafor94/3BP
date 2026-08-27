@@ -13,20 +13,16 @@ export function mergeCollisionLineageIds(a: BodyState, b: BodyState) {
   ]))
 }
 
-function getAtomicLineageIds(ids: string[]) {
-  return new Set(ids.flatMap((id) => [
-    id,
-    ...id.split('+').map((part) => part.trim()).filter(Boolean),
-  ]))
+function getAtomicLineageParts(id: string) {
+  return id.split('+').map((part) => part.trim()).filter(Boolean)
 }
 
 export function bodyCarriesCollisionLineage(body: BodyState, sourceId: string) {
   if (body.id === sourceId) return true
 
-  const bodyLineage = getAtomicLineageIds([
-    body.id,
-    ...(body.collisionLineageIds ?? []),
+  const bodyLineage = new Set([
+    ...getAtomicLineageParts(body.id),
+    ...(body.collisionLineageIds ?? []).flatMap(getAtomicLineageParts),
   ])
-  const sourceLineage = getAtomicLineageIds([sourceId])
-  return [...sourceLineage].every((id) => bodyLineage.has(id))
+  return getAtomicLineageParts(sourceId).every((id) => bodyLineage.has(id))
 }
