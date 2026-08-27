@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { stepBodies } from '../physics/fragmentAwareEngine'
 import {
   createSimulationRenderer,
   type SimulationCameraTelemetry,
@@ -10,7 +11,7 @@ type HandoffStage = 'tracking' | 'collision' | 'collision-result' | 'release'
 type TimedCameraTelemetry = SimulationCameraTelemetry & { elapsedMs: number }
 
 const SOURCE_ID = 'handoff-a'
-const REMNANT_ID = 'handoff-a+handoff-b'
+const SECONDARY_ID = 'handoff-b'
 
 function makeBody(
   id: string,
@@ -34,29 +35,40 @@ function makeBody(
 
 const sourceA = makeBody(
   SOURCE_ID,
-  1,
-  0.3,
-  { x: 0, y: 0, z: 0 },
+  0.4013,
+  0.0754,
+  { x: -0.073, y: 0, z: 0 },
   { x: 0, y: 0, z: 0 },
   '#f0aa68',
 )
 const sourceB = makeBody(
-  'handoff-b',
-  0.35,
-  0.18,
-  { x: 0.58, y: 0.12, z: 0 },
-  { x: 0, y: 0.4, z: 0 },
+  SECONDARY_ID,
+  0.4013,
+  0.0754,
+  { x: 0.073, y: 0, z: 0 },
+  { x: 0, y: 0, z: 0 },
   '#83afff',
 )
-const remnant = makeBody(
-  REMNANT_ID,
-  0.76,
-  0.31,
-  { x: 0.035, y: 0.01, z: 0 },
-  { x: 0, y: 0, z: 0 },
-  '#f0aa68',
-)
-remnant.trackingContinuationIds = [SOURCE_ID]
+
+function createPhysicalMergeFixture() {
+  let bodies: BodyState[] = [sourceA, sourceB]
+  for (let step = 0; step < 24; step += 1) bodies = stepBodies(bodies, 0.0015)
+
+  const remnant = bodies.find((body) =>
+    body.bodyType !== 'effect' &&
+    body.bodyType !== 'fragment' &&
+    body.id.includes(SOURCE_ID) &&
+    body.id.includes(SECONDARY_ID),
+  )
+  if (!remnant) throw new Error('tracking-camera handoff fixture must produce a physical equal-mass merge remnant')
+  if (!remnant.trackingContinuationIds?.includes(SOURCE_ID)) {
+    throw new Error('physical merge remnant must explicitly continue the tracked source id')
+  }
+  return { bodies, remnant }
+}
+
+const physicalMerge = createPhysicalMergeFixture()
+const remnant = physicalMerge.remnant
 
 function makeTrailBatch(stage: HandoffStage): SimulationRenderState['trailSampleBatch'] {
   if (stage === 'tracking') return { sequence: 0, samples: [] }
@@ -64,12 +76,12 @@ function makeTrailBatch(stage: HandoffStage): SimulationRenderState['trailSample
     return {
       sequence: 1,
       samples: [
-        { bodyId: sourceA.id, color: sourceA.color, position: { x: -0.9, y: -0.08, z: 0 }, simulatedAt: 0.1 },
-        { bodyId: sourceA.id, color: sourceA.color, position: { x: -0.6, y: -0.05, z: 0 }, simulatedAt: 0.2 },
-        { bodyId: sourceA.id, color: sourceA.color, position: { x: -0.3, y: -0.02, z: 0 }, simulatedAt: 0.3 },
-        { bodyId: sourceB.id, color: sourceB.color, position: { x: 1.1, y: 0.28, z: 0 }, simulatedAt: 0.1 },
-        { bodyId: sourceB.id, color: sourceB.color, position: { x: 0.9, y: 0.22, z: 0 }, simulatedAt: 0.2 },
-        { bodyId: sourceB.id, color: sourceB.color, position: { x: 0.7, y: 0.16, z: 0 }, simulatedAt: 0.3 },
+        { bodyId: sourceA.id, color: sourceA.color, position: { x: -0.22, y: -0.01, z: 0 }, simulatedAt: 0.1 },
+        { bodyId: sourceA.id, color: sourceA.color, position: { x: -0.15, y: -0.005, z: 0 }, simulatedAt: 0.2 },
+        { bodyId: sourceA.id, color: sourceA.color, position: { ...sourceA.position }, simulatedAt: 0.3 },
+        { bodyId: sourceB.id, color: sourceB.color, position: { x: 0.22, y: 0.01, z: 0 }, simulatedAt: 0.1 },
+        { bodyId: sourceB.id, color: sourceB.color, position: { x: 0.15, y: 0.005, z: 0 }, simulatedAt: 0.2 },
+        { bodyId: sourceB.id, color: sourceB.color, position: { ...sourceB.position }, simulatedAt: 0.3 },
       ],
     }
   }
@@ -94,7 +106,7 @@ function makeState(stage: HandoffStage): SimulationRenderState {
   if (stage === 'collision' || stage === 'collision-result') {
     return {
       ...common,
-      bodies: stage === 'collision' ? [sourceA, sourceB] : [remnant],
+      bodies: stage === 'collision' ? [sourceA, sourceB] : physicalMerge.bodies,
       collisionCameraFocus: {
         pairKey: `${sourceA.id}~${sourceB.id}`,
         bodyAId: sourceA.id,
@@ -105,7 +117,7 @@ function makeState(stage: HandoffStage): SimulationRenderState {
 
   return {
     ...common,
-    bodies: stage === 'release' ? [remnant] : [sourceA],
+    bodies: stage === 'release' ? physicalMerge.bodies : [sourceA],
     collisionCameraFocus: null,
   }
 }
@@ -122,6 +134,7 @@ declare global {
     __trackingCameraHandoffHistory?: SimulationCameraTelemetry[]
     __trackingCameraHandoffSamples?: TimedCameraTelemetry[]
     __trackingCameraHandoffRetainedTrailIds?: string[]
+    __trackingCameraPhysicalRemnantId?: string
   }
 }
 
@@ -168,6 +181,7 @@ export function TrackingCameraHandoffVisualHarness() {
       },
     )
 
+    window.__trackingCameraPhysicalRemnantId = remnant.id
     window.__setTrackingCameraHandoffStage = (nextStage: string) => {
       if (!isHandoffStage(nextStage)) throw new Error(`Unknown tracking handoff visual stage: ${nextStage}`)
       if (nextStage === 'release') {
@@ -191,6 +205,7 @@ export function TrackingCameraHandoffVisualHarness() {
       delete window.__trackingCameraHandoffHistory
       delete window.__trackingCameraHandoffSamples
       delete window.__trackingCameraHandoffRetainedTrailIds
+      delete window.__trackingCameraPhysicalRemnantId
       delete document.body.dataset.visualStage
     }
   }, [])
