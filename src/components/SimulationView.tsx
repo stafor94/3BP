@@ -62,14 +62,14 @@ export function SimulationView({
   const renderStateGenerationRef = useRef(0)
   const collisionCameraPairKeyRef = useRef<string | null>(null)
   const collisionCameraPrimarySourceIdRef = useRef<string | null>(null)
-  const retainedCollisionCameraBodyIdRef = useRef<string | null>(null)
+  const retainedCollisionCameraSourceIdRef = useRef<string | null>(null)
   renderStateGenerationRef.current += 1
 
   // User tracking always wins and permanently releases any earlier automatic
-  // collision-camera retention. The retained id exists only as a camera-level
+  // collision-camera retention. The retained source exists only as a camera-level
   // continuation, so ordinary tracking lineage and the 50% mass policy remain
   // entirely owned by App/BodyTrackingRail.
-  if (trackedBodyId) retainedCollisionCameraBodyIdRef.current = null
+  if (trackedBodyId) retainedCollisionCameraSourceIdRef.current = null
 
   if (collisionCameraFocus) {
     if (collisionCameraPairKeyRef.current !== collisionCameraFocus.pairKey) {
@@ -89,33 +89,30 @@ export function SimulationView({
       collisionCameraPairKeyRef.current = collisionCameraFocus.pairKey
     }
 
-    if (!trackedBodyId) {
-      const primarySourceId = collisionCameraPrimarySourceIdRef.current
-      const focusedBody = primarySourceId
-        ? resolveBodyDescendant(bodies, primarySourceId)
-        : undefined
-      retainedCollisionCameraBodyIdRef.current = isRetainableCollisionCameraBody(focusedBody)
-        ? focusedBody.id
-        : null
+    if (!trackedBodyId && collisionCameraPrimarySourceIdRef.current) {
+      retainedCollisionCameraSourceIdRef.current = collisionCameraPrimarySourceIdRef.current
     }
   } else {
     collisionCameraPairKeyRef.current = null
     collisionCameraPrimarySourceIdRef.current = null
   }
 
-  let retainedCollisionCameraBody = retainedCollisionCameraBodyIdRef.current
-    ? bodies.find((body) =>
-      body.id === retainedCollisionCameraBodyIdRef.current &&
-      body.bodyType !== 'effect' &&
-      body.bodyType !== 'fragment',
-    )
+  const retainedCollisionCameraBody = !trackedBodyId && retainedCollisionCameraSourceIdRef.current
+    ? resolveBodyDescendant(bodies, retainedCollisionCameraSourceIdRef.current)
     : undefined
-  if (!collisionCameraFocus && retainedCollisionCameraBodyIdRef.current && !retainedCollisionCameraBody) {
-    retainedCollisionCameraBodyIdRef.current = null
-    retainedCollisionCameraBody = undefined
+  if (
+    retainedCollisionCameraSourceIdRef.current &&
+    !collisionCameraFocus &&
+    !isRetainableCollisionCameraBody(retainedCollisionCameraBody)
+  ) {
+    retainedCollisionCameraSourceIdRef.current = null
   }
 
-  const cameraTrackedBodyId = trackedBodyId ?? retainedCollisionCameraBody?.id ?? null
+  const cameraTrackedBodyId = trackedBodyId ?? (
+    isRetainableCollisionCameraBody(retainedCollisionCameraBody)
+      ? retainedCollisionCameraBody.id
+      : null
+  )
   const renderStateRef = useRef<SimulationRenderState>({
     bodies,
     simulationTime,
