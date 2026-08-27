@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { resolveBodyDescendant } from '../collisionWatch'
 import { installBodyLighting, syncBodyLightingState } from '../rendering/bodyLighting'
 import {
   installLiveCollisionVfxBridge,
@@ -39,6 +40,10 @@ declare global {
   }
 }
 
+function isRetainableCollisionCameraBody(body: BodyState | undefined): body is BodyState {
+  return Boolean(body && body.bodyType !== 'effect' && body.bodyType !== 'fragment')
+}
+
 export function SimulationView({
   bodies,
   simulationTime,
@@ -55,7 +60,62 @@ export function SimulationView({
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const renderStateGenerationRef = useRef(0)
+  const collisionCameraPairKeyRef = useRef<string | null>(null)
+  const collisionCameraPrimarySourceIdRef = useRef<string | null>(null)
+  const retainedCollisionCameraBodyIdRef = useRef<string | null>(null)
   renderStateGenerationRef.current += 1
+
+  // User tracking always wins and permanently releases any earlier automatic
+  // collision-camera retention. The retained id exists only as a camera-level
+  // continuation, so ordinary tracking lineage and the 50% mass policy remain
+  // entirely owned by App/BodyTrackingRail.
+  if (trackedBodyId) retainedCollisionCameraBodyIdRef.current = null
+
+  if (collisionCameraFocus) {
+    if (collisionCameraPairKeyRef.current !== collisionCameraFocus.pairKey) {
+      const bodyA = resolveBodyDescendant(bodies, collisionCameraFocus.bodyAId)
+      const bodyB = resolveBodyDescendant(bodies, collisionCameraFocus.bodyBId)
+      if (bodyA && bodyB) {
+        const primary = bodyA.mass > bodyB.mass ||
+          (bodyA.mass === bodyB.mass && bodyA.radius >= bodyB.radius)
+          ? bodyA
+          : bodyB
+        collisionCameraPrimarySourceIdRef.current = primary === bodyA
+          ? collisionCameraFocus.bodyAId
+          : collisionCameraFocus.bodyBId
+      } else {
+        collisionCameraPrimarySourceIdRef.current = null
+      }
+      collisionCameraPairKeyRef.current = collisionCameraFocus.pairKey
+    }
+
+    if (!trackedBodyId) {
+      const primarySourceId = collisionCameraPrimarySourceIdRef.current
+      const focusedBody = primarySourceId
+        ? resolveBodyDescendant(bodies, primarySourceId)
+        : undefined
+      retainedCollisionCameraBodyIdRef.current = isRetainableCollisionCameraBody(focusedBody)
+        ? focusedBody.id
+        : null
+    }
+  } else {
+    collisionCameraPairKeyRef.current = null
+    collisionCameraPrimarySourceIdRef.current = null
+  }
+
+  let retainedCollisionCameraBody = retainedCollisionCameraBodyIdRef.current
+    ? bodies.find((body) =>
+      body.id === retainedCollisionCameraBodyIdRef.current &&
+      body.bodyType !== 'effect' &&
+      body.bodyType !== 'fragment',
+    )
+    : undefined
+  if (!collisionCameraFocus && retainedCollisionCameraBodyIdRef.current && !retainedCollisionCameraBody) {
+    retainedCollisionCameraBodyIdRef.current = null
+    retainedCollisionCameraBody = undefined
+  }
+
+  const cameraTrackedBodyId = trackedBodyId ?? retainedCollisionCameraBody?.id ?? null
   const renderStateRef = useRef<SimulationRenderState>({
     bodies,
     simulationTime,
@@ -65,7 +125,7 @@ export function SimulationView({
     trailEnabled,
     trailDuration,
     trailSampleBatch,
-    trackedBodyId,
+    trackedBodyId: cameraTrackedBodyId,
     collisionCameraFocus,
     collisionWatchPhase,
     collisionWatchPairKey,
@@ -81,7 +141,7 @@ export function SimulationView({
     trailEnabled,
     trailDuration,
     trailSampleBatch,
-    trackedBodyId,
+    trackedBodyId: cameraTrackedBodyId,
     collisionCameraFocus,
     collisionWatchPhase,
     collisionWatchPairKey,

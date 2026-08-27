@@ -52,6 +52,8 @@ jobs:
         run: python scripts/collisionCameraTrackingHandoffVisualRegression.py
       - name: Production camera handoff browser regression
         run: python scripts/productionCameraHandoffVisualRegression.py
+      - name: Collision camera retained tracking without prior selection
+        run: python scripts/collisionCameraRetainedTrackingVisualRegression.py
       - name: Production camera handoff desktop 1x regression
         env:
           PRODUCTION_CAMERA_HANDOFF_OUTPUT_DIR: production-camera-handoff-desktop-artifacts
@@ -97,6 +99,14 @@ jobs:
         with:
           name: production-camera-handoff-regression
           path: production-camera-handoff-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision camera retained tracking captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-camera-retained-tracking-regression
+          path: collision-camera-retained-tracking-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload production camera handoff desktop captures
@@ -175,11 +185,21 @@ jobs:
           PRODUCTION_CAMERA_VIEWPORT_WIDTH: '390'
           PRODUCTION_CAMERA_VIEWPORT_HEIGHT: '844'
         run: python scripts/productionCameraHandoffVisualRegression.py
+      - name: Verify deployed Pages retained collision tracking
+        env:
+          COLLISION_CAMERA_RETAINED_BASE_URL: ${{ needs.deploy.outputs.page_url }}
+          COLLISION_CAMERA_RETAINED_OUTPUT_DIR: collision-camera-retained-tracking-pages-artifacts
+          COLLISION_CAMERA_RETAINED_SPEED: '3'
+          COLLISION_CAMERA_RETAINED_VIEWPORT_WIDTH: '390'
+          COLLISION_CAMERA_RETAINED_VIEWPORT_HEIGHT: '844'
+        run: python scripts/collisionCameraRetainedTrackingVisualRegression.py
       - name: Upload deployed Pages verification
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: production-camera-handoff-pages-regression
-          path: production-camera-handoff-pages-artifacts
+          path: |
+            production-camera-handoff-pages-artifacts
+            collision-camera-retained-tracking-pages-artifacts
           if-no-files-found: warn
           retention-days: 7
