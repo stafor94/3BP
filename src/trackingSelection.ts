@@ -24,12 +24,11 @@ function selectBestTrackingCandidate(candidates: BodyState[]) {
 }
 
 /**
- * Ordinary user tracking is deliberately narrower than collision lineage.
- * The exact selected body remains eligible while it exists. If physics replaces
- * it, tracking may continue only through an explicit absorption continuation
- * recorded by the physics layer. Generic collision descendants and fragments
- * are never automatic user-tracking targets; collision watch resolves its own
- * source lineage independently.
+ * Ordinary user tracking is deliberately narrower than generic collision lineage.
+ * The exact selected body remains eligible while it exists. If a physical 2→1
+ * result replaces it, tracking may continue only through explicit continuation
+ * metadata recorded by the physics layer. Generic fragments/effects are never
+ * automatic user-tracking targets; App.tsx still applies the initial-mass gate.
  */
 export function findTrackingCandidate(bodies: BodyState[], sourceId: string) {
   const exact = findDirectTrackingCandidate(bodies, sourceId)
