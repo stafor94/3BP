@@ -15,12 +15,13 @@ export function shouldResetTrackingFocus(
   return selectionChanged || collisionCameraJustReleased
 }
 
-export function getTrackingHandoffProgress(completedFrames: number, totalFrames: number): number {
-  if (totalFrames <= 0) return 1
-  const progress = Math.min(1, Math.max(0, completedFrames / totalFrames))
-  // Cubic ease-out starts almost exactly at the existing 0.16 tracking lerp
-  // rate for an 18-frame settle, while reaching the destination without a
-  // residual snap on the final frame.
+export function getTrackingHandoffProgress(frameIndex: number, totalFrames: number): number {
+  if (totalFrames <= 1) return 1
+  const progress = Math.min(1, Math.max(0, frameIndex / (totalFrames - 1)))
+  // Cubic ease-out begins at the collision camera's exact rendered transform
+  // and reaches the tracking composition inside the existing settle-frame
+  // budget. With 18 frames the first moving step is ~0.166, matching the
+  // existing 0.16 tracking lerp without lengthening the transition.
   return 1 - (1 - progress) ** 3
 }
 
