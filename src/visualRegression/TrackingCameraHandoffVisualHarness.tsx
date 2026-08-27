@@ -96,11 +96,22 @@ function makeTrailBatch(stage: HandoffStage): SimulationRenderState['trailSample
 function makeState(stage: HandoffStage): SimulationRenderState {
   const common = {
     simulationTime: stage === 'tracking' ? 0 : stage === 'collision' ? 0.4 : stage === 'collision-result' ? 0.9 : 1,
+    simulationSpeed: 1,
+    renderStateGeneration: stage === 'tracking' ? 0 : stage === 'collision' ? 1 : stage === 'collision-result' ? 2 : 3,
     trailVersion: 0,
     trailEnabled: true,
     trailDuration: 8,
     trailSampleBatch: makeTrailBatch(stage),
     trackedBodyId: SOURCE_ID,
+    collisionWatchPhase: stage === 'tracking' || stage === 'release'
+      ? null
+      : stage === 'collision'
+        ? 'approach' as const
+        : 'postImpact' as const,
+    collisionWatchPairKey: stage === 'tracking' || stage === 'release'
+      ? null
+      : `${sourceA.id}~${sourceB.id}`,
+    collisionImpactObserved: stage === 'collision-result',
   }
 
   if (stage === 'collision' || stage === 'collision-result') {

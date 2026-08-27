@@ -6,6 +6,19 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.8] - 2026-08-27
+
+### Fixed
+- collision 정보 UI가 사라진 뒤 실제 camera hold가 끝나는 release frame에서, 3x로 계속 이동 중인 tracked remnant가 한 프레임에 크게 튀거나 화면 밖으로 이탈하던 문제를 수정했습니다.
+- v0.19.7의 tracking transition이 마지막 collision transform을 고정 world-space 시작값으로 저장한 뒤 progress 0에서 그대로 다시 써, 새로 publish된 remnant는 이동했지만 camera/target은 이동하지 않던 원인을 제거했습니다. handoff는 이제 현재 resolved tracked-body position과 부드럽게 변하는 camera/target 상대 offset으로 구성되며, 마지막 offset은 동일 시점의 normal tracking 수식과 정확히 같습니다.
+
+### Added
+- 실제 App physics scheduler, collision prediction/watch, slowdown, impact/merge, wall-clock camera hold, speed restore, moving remnant, handoff, 이후 1초 normal tracking을 통과하는 production-path Chromium regression과 frame별 writer/transform/identity/OrbitControls/NDC telemetry를 추가했습니다.
+- moving target의 정지/등속/가속, 1x/3x, 빠른 remnant를 검증하고 CI/Pages에서 mobile 3x 및 desktop 1x artifact를 생성하도록 회귀 범위를 확장했습니다.
+
+### Unchanged
+- collision physics, merge/disruption 조건, collision prediction, tracking source identity와 50% initial-mass rule, VFX, trail 생성·수명·보존 정책은 변경하지 않았습니다.
+
 ## [0.19.7] - 2026-08-27
 
 ### Fixed

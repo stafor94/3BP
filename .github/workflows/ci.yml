@@ -49,6 +49,15 @@ jobs:
         run: python scripts/collisionWatchVisualRegression.py
       - name: Collision camera tracking handoff browser regression
         run: python scripts/collisionCameraTrackingHandoffVisualRegression.py
+      - name: Production camera handoff browser regression
+        run: python scripts/productionCameraHandoffVisualRegression.py
+      - name: Production camera handoff desktop 1x regression
+        env:
+          PRODUCTION_CAMERA_HANDOFF_OUTPUT_DIR: production-camera-handoff-desktop-artifacts
+          PRODUCTION_CAMERA_HANDOFF_SPEED: '1'
+          PRODUCTION_CAMERA_VIEWPORT_WIDTH: '1024'
+          PRODUCTION_CAMERA_VIEWPORT_HEIGHT: '768'
+        run: python scripts/productionCameraHandoffVisualRegression.py
       - name: Non-stellar destruction browser visual regression
         run: python scripts/nonStellarDestructionVisualRegression.py
       - name: Survivor absorption browser visual regression
@@ -79,6 +88,22 @@ jobs:
         with:
           name: collision-camera-tracking-handoff-regression
           path: collision-camera-tracking-handoff-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload production camera handoff captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-camera-handoff-regression
+          path: production-camera-handoff-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload production camera handoff desktop captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-camera-handoff-desktop-regression
+          path: production-camera-handoff-desktop-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload non-stellar destruction visual captures
