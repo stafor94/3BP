@@ -1,3 +1,4 @@
+import { mergeCollisionLineageIds, selectCollisionPrimary } from '../collisionIdentity'
 import { getEquilibriumStellarDisplayColor, getStellarTemperatureKelvin } from '../starColors'
 import type { BodyState, BodyType, EffectVisualState, StellarCollisionOutcome, Vec3 } from '../types'
 import { getCollisionContactDistance } from './collisionContact'
@@ -1022,6 +1023,7 @@ function makeEjecta(
   if (requestedMass <= 1e-9 || requestedVolume <= 1e-12 || availableSlots <= 0) return []
 
   const serial = collisionSerial
+  const collisionLineageIds = mergeCollisionLineageIds(a, b)
   const stellarEjecta = inferBodyType(a) === 'star' || inferBodyType(b) === 'star'
   const stellarCollision = isStellarCollision(a, b)
   const ejectaFraction = requestedMass / Math.max(a.mass + b.mass, 1e-9)
@@ -1131,6 +1133,7 @@ function makeEjecta(
         position,
         velocity,
         bodyType: 'effect',
+        collisionLineageIds,
         age: 0,
         lifetime,
         effectVisual: makeStellarEffectVisual(
@@ -1162,6 +1165,7 @@ function makeEjecta(
       position,
       velocity,
       bodyType: tiny ? 'effect' : 'fragment',
+      collisionLineageIds,
       age: tiny ? 0 : undefined,
       lifetime: tiny ? EFFECT_LIFETIME : undefined,
       collisionCooldown: FRAGMENT_COOLDOWN,
@@ -1222,13 +1226,15 @@ function resolveMergedCollision(
     1 / remnantMass,
   )
   const dominant = a.mass >= b.mass ? a : b
+  const identityPrimary = selectCollisionPrimary(a, b)
+  const preservePrimaryIdentity = decision.mode === 'absorb' || decision.mode === 'merge'
   const bodyType = dominantBodyType(a, b)
   const remnantRadius = bodyType === 'star'
     ? getMergedStellarRadius(a, b, remnantMass, remnantVolume)
     : Math.cbrt(remnantVolume)
   const stellarOutcome = decision.stellarOutcome ?? 'merge'
   const remnant: BodyState = {
-    id: `${a.id}+${b.id}`,
+    id: preservePrimaryIdentity ? identityPrimary.id : `${a.id}+${b.id}`,
     name: mergedBodyName(a, b),
     color: dominant.color,
     mass: remnantMass,
@@ -1236,6 +1242,7 @@ function resolveMergedCollision(
     position: centerOfMassPosition(a, b),
     velocity: remnantVelocity,
     bodyType,
+    collisionLineageIds: mergeCollisionLineageIds(a, b),
     ...(bodyType === 'star'
       ? getStellarCollisionAppearance(dominant, remnantMass, stellarOutcome, geometry)
       : {}),
