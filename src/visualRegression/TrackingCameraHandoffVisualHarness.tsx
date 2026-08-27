@@ -6,7 +6,7 @@ import {
 } from '../rendering/simulationRenderer'
 import type { BodyState } from '../types'
 
-type HandoffStage = 'tracking' | 'collision' | 'release'
+type HandoffStage = 'tracking' | 'collision' | 'collision-result' | 'release'
 type TimedCameraTelemetry = SimulationCameraTelemetry & { elapsedMs: number }
 
 const SOURCE_ID = 'handoff-a'
@@ -53,7 +53,7 @@ const remnant = makeBody(
   0.76,
   0.31,
   { x: 0.035, y: 0.01, z: 0 },
-  { x: 0.02, y: 0, z: 0 },
+  { x: 0, y: 0, z: 0 },
   '#f0aa68',
 )
 remnant.trackingContinuationIds = [SOURCE_ID]
@@ -74,16 +74,16 @@ function makeTrailBatch(stage: HandoffStage): SimulationRenderState['trailSample
     }
   }
   return {
-    sequence: 2,
+    sequence: stage === 'collision-result' ? 2 : 3,
     samples: [
-      { bodyId: remnant.id, color: remnant.color, position: { ...remnant.position }, simulatedAt: 1 },
+      { bodyId: remnant.id, color: remnant.color, position: { ...remnant.position }, simulatedAt: stage === 'collision-result' ? 0.9 : 1 },
     ],
   }
 }
 
 function makeState(stage: HandoffStage): SimulationRenderState {
   const common = {
-    simulationTime: stage === 'release' ? 1 : 0,
+    simulationTime: stage === 'tracking' ? 0 : stage === 'collision' ? 0.4 : stage === 'collision-result' ? 0.9 : 1,
     trailVersion: 0,
     trailEnabled: true,
     trailDuration: 8,
@@ -91,10 +91,10 @@ function makeState(stage: HandoffStage): SimulationRenderState {
     trackedBodyId: SOURCE_ID,
   }
 
-  if (stage === 'collision') {
+  if (stage === 'collision' || stage === 'collision-result') {
     return {
       ...common,
-      bodies: [sourceA, sourceB],
+      bodies: stage === 'collision' ? [sourceA, sourceB] : [remnant],
       collisionCameraFocus: {
         pairKey: `${sourceA.id}~${sourceB.id}`,
         bodyAId: sourceA.id,
@@ -111,7 +111,7 @@ function makeState(stage: HandoffStage): SimulationRenderState {
 }
 
 function isHandoffStage(value: string): value is HandoffStage {
-  return value === 'tracking' || value === 'collision' || value === 'release'
+  return value === 'tracking' || value === 'collision' || value === 'collision-result' || value === 'release'
 }
 
 declare global {
