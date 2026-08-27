@@ -144,13 +144,19 @@ def main() -> None:
         screenshot_canvas(driver, '00-tracking-stable')
 
         set_stage(driver, 'collision')
+        time.sleep(0.35)
+        set_stage(driver, 'collision-result')
         time.sleep(0.75)
         before_release = driver.execute_script('return window.__trackingCameraHandoffTelemetry')
         require(before_release and before_release['mode'] == 'collision', 'collision camera must own the frame before release')
         require(before_release['trackedBodyId'] == 'handoff-a', 'collision camera must not clear the tracking selection')
+        require(before_release['resolvedTrackedBodyId'] == 'handoff-a+handoff-b', 'collision camera must already be observing the merged result before release')
         history = driver.execute_script('return window.__trackingCameraHandoffHistory || []')
-        collision_history = [sample for sample in history if sample.get('mode') == 'collision'][-10:]
-        require(len(collision_history) >= 4, 'must retain multiple collision-camera frames before release')
+        collision_history = [
+            sample for sample in history
+            if sample.get('mode') == 'collision' and sample.get('resolvedTrackedBodyId') == 'handoff-a+handoff-b'
+        ][-10:]
+        require(len(collision_history) >= 4, 'merged result must remain under collision-camera control for multiple frames before release')
         screenshot_canvas(driver, '01-before-release')
 
         set_stage(driver, 'release')
