@@ -1,5 +1,6 @@
 import { calculatePerspectiveBodyDistance, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION } from '../src/rendering/cameraFraming'
 import {
+  getTrackingHandoffProgress,
   isCollisionCameraJustReleased,
   resolveCameraMode,
   shouldResetTrackingFocus,
@@ -53,7 +54,7 @@ function testSameSelectionUsesCameraModeHandoff() {
   assert(trackingBaseline.initialMass === 1, 'camera handoff must preserve tracking baseline mass')
 }
 
-function testTrackingSettleConvergesWithoutDistanceOvershoot() {
+function testTrackingSettleStartsAtCollisionTransformAndConvergesWithoutOvershoot() {
   const viewportWidth = 900
   const viewportHeight = 700
   const radius = 0.3
@@ -76,23 +77,30 @@ function testTrackingSettleConvergesWithoutDistanceOvershoot() {
 
   assert(trackingDistance > collisionDistance, 'fixture must require a collision-to-tracking distance handoff')
 
-  let distance = collisionDistance
-  let previousError = Math.abs(distance - trackingDistance)
-  for (let frame = 0; frame < 18; frame += 1) {
-    const next = distance + (trackingDistance - distance) * 0.16
-    const error = Math.abs(next - trackingDistance)
-    const relativeStep = Math.abs(next - distance) / Math.max(distance, 1e-9)
-    assert(error <= previousError + 1e-12, 'tracking handoff distance error must decrease every settle frame')
-    assert(relativeStep <= 0.25, 'tracking handoff must not produce a one-frame distance jump')
-    assert(next <= trackingDistance + 1e-12, 'tracking handoff must not overshoot the auto-distance target')
-    distance = next
+  const totalFrames = 18
+  let previousDistance = collisionDistance
+  let previousError = Math.abs(collisionDistance - trackingDistance)
+  for (let frame = 0; frame < totalFrames; frame += 1) {
+    const progress = getTrackingHandoffProgress(frame, totalFrames)
+    const distance = collisionDistance + (trackingDistance - collisionDistance) * progress
+    const error = Math.abs(distance - trackingDistance)
+    const relativeStep = Math.abs(distance - previousDistance) / Math.max(previousDistance, 1e-9)
+
+    if (frame === 0) {
+      assert(progress === 0, 'release frame must start at exact collision-camera transform')
+      assert(distance === collisionDistance, 'release frame must preserve collision-camera distance exactly')
+    } else {
+      assert(error <= previousError + 1e-12, 'tracking handoff distance error must decrease every moving frame')
+      assert(relativeStep <= 0.25, 'tracking handoff must stay inside normal one-frame zoom motion')
+      assert(distance <= trackingDistance + 1e-12, 'tracking handoff must not overshoot the auto-distance target')
+    }
+
+    previousDistance = distance
     previousError = error
   }
 
-  assert(
-    previousError / trackingDistance < 0.05,
-    '18-frame tracking settle must converge close to the tracked-body auto distance',
-  )
+  assert(getTrackingHandoffProgress(totalFrames - 1, totalFrames) === 1, 'existing 18-frame settle budget must end at progress one')
+  assert(previousError <= 1e-12, 'tracking handoff must reach the normal tracking distance without a residual snap')
 }
 
 function testBelowHalfContinuationStaysReleased() {
@@ -113,7 +121,7 @@ function testBelowHalfContinuationStaysReleased() {
 
 const tests = [
   testSameSelectionUsesCameraModeHandoff,
-  testTrackingSettleConvergesWithoutDistanceOvershoot,
+  testTrackingSettleStartsAtCollisionTransformAndConvergesWithoutOvershoot,
   testBelowHalfContinuationStaysReleased,
 ]
 

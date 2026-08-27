@@ -6,6 +6,16 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.7] - 2026-08-27
+
+### Fixed
+- collision camera가 종료되고 일반 tracking camera가 제어권을 되찾는 첫 프레임에 collision camera가 실제로 렌더한 camera position/target/distance 대신 일반 tracking framing을 즉시 적용해 화면 transform과 zoom이 점프하던 문제를 수정했습니다.
+- collision camera의 마지막 transform을 tracking transition의 시작값으로 보존하고 첫 release frame의 progress를 0으로 시작한 뒤 기존 18-frame settle 구간 안에서 정상 tracking composition으로 연속적으로 수렴하도록 변경했습니다. 기존 tracking identity, 50% initial-mass rule, 충돌 물리/VFX, trail lifetime 정책은 변경하지 않았습니다.
+
+### Added
+- camera writer, 최종 writer, desired target/position/distance, transition start/destination/progress, `controls.update()` overwrite 여부를 기록하는 renderer camera telemetry를 추가했습니다.
+- 실제 physics equal-mass merge → collision camera → merged remnant 관찰 → release → tracking handoff 경로를 통과하면서 release 직전/첫 프레임의 P/T/D 연속성, NDC 중심 유지, zoom 수렴, writer 경로를 수치 검증하고 단계별 Chromium 캡처와 telemetry JSON을 artifact로 남기는 회귀 테스트를 강화했습니다.
+
 ## [0.19.6] - 2026-08-27
 
 ### Fixed
@@ -48,7 +58,7 @@
 ### Fixed
 - 큰 천체가 작은 천체를 흡수해 대부분의 질량과 실루엣을 유지하는 경우에도 큰 천체 전체에 fracture/dissolve snapshot이 생성되던 문제를 수정했습니다.
 - 생존 천체에는 destruction snapshot·전역 crack·global discard·opacity fade를 생성하지 않고, 실제 접촉점 주변 약 10% 구면 범위에만 700ms 이내의 국소 impact 흔적을 적용하도록 수정했습니다.
-- 충돌 후 살아남은 큰 천체 위에 동일 크기의 검은 shell/ghost sphere가 겹치던 현상을 제거했습니다.
+- 충돌 후 살아남은 큰 천체 위에 동일 크기의 검은 shell/ghost sphere가 겹치던 문제를 제거했습니다.
 - survivor의 표면 정체성 seed와 렌더 body lookup seed를 분리해 흡수 후 비항성 천체가 self-luminous/glow 상태로 고착될 수 있던 경로를 제거했습니다.
 - world-space contact normal을 body mesh local-space로 변환해 회전된 천체에서도 국소 충돌 흔적이 실제 접촉면에 고정되도록 수정했습니다.
 - bodyLighting이 최종 셰이더를 교체한 뒤 survivor impact 코드를 주입하도록 순서를 고쳐 국소 heat/crack가 실제 렌더 셰이더에서 누락되던 문제를 수정했습니다.
@@ -236,7 +246,7 @@
 - 항성 합체의 display-only 중첩 구간을 짧게 줄여 0.03x에서 수 초간 topology 해석을 지연시키던 흐름을 제거했습니다.
 - physical collision VFX의 시각 age를 real-time으로 계산해 저속 관찰 중 flash/plasma 수명이 과도하게 늘어나지 않도록 했습니다.
 - synthetic stellar overlap retire 260ms와 physical shear/plasma fade-in 140ms의 cross-fade를 유지하며 contact flash는 즉시 표시합니다.
-- 대형 항성 VFX는 opacity/brightness와 world-space 최대 직경을 clamp하고, 기존 동적 천체 상한 안에서 flash/shock/afterglow 슬롯을 먼저 예약하도록 했습니다.
+- 대형 항성 VFX는 opacity/brightness와 world-space 최대 직경을 clamp하고, 기존 동적 천체 상한 안에서 flash/shock/afterglow 슬롯을 먼저 예약하도록 제한했습니다.
 - collision camera framing은 기존 physical body/remnant 기준을 유지하며 VFX radius는 auto framing에 포함하지 않습니다.
 
 ### Fixed
@@ -533,8 +543,8 @@
 - 추적 레일에서 천체를 누르면 해당 천체를 카메라가 추적하고, 선택된 버튼 테두리를 초록색으로 표시하도록 했습니다.
 
 ### Changed
-- 자동 충돌 관찰이 추적 대상을 선택할 때도 왼쪽 추적 레일의 선택 상태가 함께 반영되도록 했습니다.
-- 합체 이후에는 선택한 초기 천체의 계보에서 가장 큰 생존 천체를 계속 추적 대상으로 연결하도록 했습니다.
+- 자동 충돌 관찰이 추적 대상을 선택할 때도 왼쪽 추적 레일의 선택 상태가 함께 반영되도록 변경했습니다.
+- 합체 이후에는 선택한 초기 천체의 계보에서 가장 큰 생존 천체를 계속 추적 대상으로 연결하도록 변경했습니다.
 
 ### Fixed
 - 초기 질량의 절반 이하로 감소했거나 더 이상 생존 계보를 찾을 수 없는 천체는 추적 레일에서 흑백·비활성 상태로 표시하고 선택할 수 없도록 했습니다.

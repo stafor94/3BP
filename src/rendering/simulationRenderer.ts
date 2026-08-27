@@ -14,6 +14,7 @@ import {
 } from './cameraFraming'
 import { createFragmentGeometry } from './fragmentGeometry'
 import {
+  getTrackingHandoffProgress,
   isCollisionCameraJustReleased,
   resolveCameraMode,
   shouldResetTrackingFocus,
@@ -37,6 +38,13 @@ export type SimulationRenderState = {
   collisionCameraFocus: CollisionCameraFocus | null
 }
 
+export type CameraWriteSource =
+  | 'collision-camera'
+  | 'tracking-transition'
+  | 'normal-tracking'
+  | 'default-composition'
+  | 'preserve'
+
 export type SimulationCameraTelemetry = {
   nowMs: number
   mode: CameraMode
@@ -51,8 +59,21 @@ export type SimulationCameraTelemetry = {
   trackedBodyPosition: { x: number; y: number; z: number } | null
   trackedBodyNdc: { x: number; y: number; z: number } | null
   cameraDistanceToTrackedBody: number | null
+  cameraDistanceToControlsTarget: number
   desiredCameraDistance: number | null
+  desiredTarget: { x: number; y: number; z: number } | null
+  desiredCameraPosition: { x: number; y: number; z: number } | null
   targetErrorToTrackedBody: number | null
+  trackingTransitionProgress: number | null
+  trackingTransitionStartPosition: { x: number; y: number; z: number } | null
+  trackingTransitionStartTarget: { x: number; y: number; z: number } | null
+  trackingTransitionStartDistance: number | null
+  trackingTransitionDestinationPosition: { x: number; y: number; z: number } | null
+  trackingTransitionDestinationTarget: { x: number; y: number; z: number } | null
+  trackingTransitionDestinationDistance: number | null
+  cameraWriteSource: CameraWriteSource
+  finalCameraWriteSource: CameraWriteSource | 'controls-update'
+  controlsUpdateChangedTransform: boolean
 }
 
 export type SimulationTrailTelemetry = {
@@ -1002,6 +1023,45 @@ export function createSimulationRenderer(
   const collisionViewDirection = new THREE.Vector3()
   const trackingDesiredCameraPosition = new THREE.Vector3()
   const trackingViewDirection = new THREE.Vector3()
+  const trackingTransitionStartPosition = new THREE.Vector3()
+  const trackingTransitionStartTarget = new THREE.Vector3()
+  const trackingTransitionDestinationTarget = new THREE.Vector3()
+  const trackingTransitionInterpolatedTarget = new THREE.Vector3()
+  const controlsUpdatePositionBefore = new THREE.Vector3()
+  const controlsUpdateTargetBefore = new THREE.Vector3()
+  const telemetryDesiredTarget = new THREE.Vector3()
+  const telemetryDesiredCameraPosition = new THREE.Vector3()
+  const telemetryTransitionStartPosition = new THREE.Vector3()
+  const telemetryTransitionStartTarget = new THREE.Vector3()
+  const telemetryTransitionDestinationPosition = new THREE.Vector3()
+  const telemetryTransitionDestinationTarget = new THREE.Vector3()
+
+  let trackingTransitionActive = false
+  let trackingTransitionFrameIndex = 0
+  let trackingTransitionStartDistance = 0
+  let telemetryDesiredTargetValid = false
+  let telemetryDesiredCameraPositionValid = false
+  let telemetryTransitionProgress: number | null = null
+  let telemetryTransitionStartValid = false
+  let telemetryTransitionDestinationValid = false
+  let telemetryTransitionStartDistance: number | null = null
+  let telemetryTransitionDestinationDistance: number | null = null
+  let cameraWriteSource: CameraWriteSource = 'preserve'
+  let finalCameraWriteSource: CameraWriteSource | 'controls-update' = 'preserve'
+  let controlsUpdateChangedTransform = false
+
+  const resetFrameCameraTelemetry = () => {
+    telemetryDesiredTargetValid = false
+    telemetryDesiredCameraPositionValid = false
+    telemetryTransitionProgress = null
+    telemetryTransitionStartValid = false
+    telemetryTransitionDestinationValid = false
+    telemetryTransitionStartDistance = null
+    telemetryTransitionDestinationDistance = null
+    cameraWriteSource = 'preserve'
+    finalCameraWriteSource = 'preserve'
+    controlsUpdateChangedTransform = false
+  }
 
   const moveCameraTargetTo = (target: THREE.Vector3) => {
     cameraShift.copy(target).sub(controls.target)
@@ -1010,6 +1070,19 @@ export function createSimulationRenderer(
     camera.position.add(cameraShift)
     controls.target.copy(target)
     starLayers.forEach((layer) => layer.points.position.addScaledVector(cameraShift, layer.follow))
+  }
+
+  const setCameraTargetOnly = (target: THREE.Vector3) => {
+    cameraShift.copy(target).sub(controls.target)
+    if (cameraShift.lengthSq() <= 1e-12) return
+
+    controls.target.copy(target)
+    starLayers.forEach((layer) => layer.points.position.addScaledVector(cameraShift, layer.follow))
+  }
+
+  const clearTrackingTransition = () => {
+    trackingTransitionActive = false
+    trackingTransitionFrameIndex = 0
   }
 
   const getTrackedBody = (current: BodyState[], trackedBodyId: string | null) => {
@@ -1050,6 +1123,8 @@ export function createSimulationRenderer(
     controls.maxDistance = Math.min(RENDER_TUNING.camera.maxDistance, camera.far * 0.9)
   }
 
+  const toTelemetryVector = (vector: THREE.Vector3) => ({ x: vector.x, y: vector.y, z: vector.z })
+
   const emitCameraTelemetry = (
     state: SimulationRenderState,
     trackedBody: BodyState | undefined,
@@ -1079,21 +1154,40 @@ export function createSimulationRenderer(
       collisionCameraJustReleased,
       trackingFocusNeedsReset,
       trackingFocusSettleFrames,
-      cameraPosition: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-      controlsTarget: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
-      trackedBodyPosition: trackedPosition
-        ? { x: trackedPosition.x, y: trackedPosition.y, z: trackedPosition.z }
-        : null,
-      trackedBodyNdc: trackedBodyNdc
-        ? { x: trackedBodyNdc.x, y: trackedBodyNdc.y, z: trackedBodyNdc.z }
-        : null,
+      cameraPosition: toTelemetryVector(camera.position),
+      controlsTarget: toTelemetryVector(controls.target),
+      trackedBodyPosition: trackedPosition ? toTelemetryVector(trackedPosition) : null,
+      trackedBodyNdc: trackedBodyNdc ? toTelemetryVector(trackedBodyNdc) : null,
       cameraDistanceToTrackedBody: trackedPosition
         ? camera.position.distanceTo(trackedPosition)
         : null,
+      cameraDistanceToControlsTarget: camera.position.distanceTo(controls.target),
       desiredCameraDistance: trackedBody ? getAutoCameraDistance(trackedBody) : null,
+      desiredTarget: telemetryDesiredTargetValid ? toTelemetryVector(telemetryDesiredTarget) : null,
+      desiredCameraPosition: telemetryDesiredCameraPositionValid
+        ? toTelemetryVector(telemetryDesiredCameraPosition)
+        : null,
       targetErrorToTrackedBody: trackedPosition
         ? controls.target.distanceTo(trackedPosition)
         : null,
+      trackingTransitionProgress: telemetryTransitionProgress,
+      trackingTransitionStartPosition: telemetryTransitionStartValid
+        ? toTelemetryVector(telemetryTransitionStartPosition)
+        : null,
+      trackingTransitionStartTarget: telemetryTransitionStartValid
+        ? toTelemetryVector(telemetryTransitionStartTarget)
+        : null,
+      trackingTransitionStartDistance: telemetryTransitionStartDistance,
+      trackingTransitionDestinationPosition: telemetryTransitionDestinationValid
+        ? toTelemetryVector(telemetryTransitionDestinationPosition)
+        : null,
+      trackingTransitionDestinationTarget: telemetryTransitionDestinationValid
+        ? toTelemetryVector(telemetryTransitionDestinationTarget)
+        : null,
+      trackingTransitionDestinationDistance: telemetryTransitionDestinationDistance,
+      cameraWriteSource,
+      finalCameraWriteSource,
+      controlsUpdateChangedTransform,
     })
   }
 
@@ -1190,9 +1284,6 @@ export function createSimulationRenderer(
     moveCameraTargetTo(collisionPrimaryPosition)
     applyAutoDistanceLimits(primary)
 
-    // Collision-watch framing intentionally depends only on the primary body's
-    // rendered radius. Secondary bodies, contact effects, trails, and ejecta are
-    // allowed to leave the frame instead of forcing a zoom-out.
     const desiredDistance = getAutoCameraDistance(
       primary,
       COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION,
@@ -1201,6 +1292,12 @@ export function createSimulationRenderer(
       .copy(collisionViewDirection)
       .multiplyScalar(desiredDistance)
       .add(collisionPrimaryPosition)
+
+    telemetryDesiredTarget.copy(collisionPrimaryPosition)
+    telemetryDesiredTargetValid = true
+    telemetryDesiredCameraPosition.copy(collisionDesiredCameraPosition)
+    telemetryDesiredCameraPositionValid = true
+    cameraWriteSource = 'collision-camera'
 
     const currentDistance = camera.position.distanceTo(collisionPrimaryPosition)
     const positionError = camera.position.distanceTo(collisionDesiredCameraPosition) /
@@ -1211,9 +1308,6 @@ export function createSimulationRenderer(
       COLLISION_CAMERA_DISTANCE_TOLERANCE,
     )
 
-    // Keep converging for the full collision-watch lifetime instead of stopping
-    // after a fixed number of frames. A remnant radius change automatically
-    // changes desiredDistance and wakes the same smooth convergence path again.
     if (!distanceConverged || positionError > COLLISION_CAMERA_DISTANCE_TOLERANCE) {
       camera.position.lerp(
         collisionDesiredCameraPosition,
@@ -1231,17 +1325,89 @@ export function createSimulationRenderer(
     observedTrackedBodyId !== nextTrackedBodyId
   )
 
-  const applyTrackingCameraFocus = (trackedBody: BodyState, selectionChanged: boolean) => {
+  const beginTrackingTransitionFromCurrentTransform = () => {
+    trackingTransitionActive = true
+    trackingTransitionFrameIndex = 0
+    trackingTransitionStartPosition.copy(camera.position)
+    trackingTransitionStartTarget.copy(controls.target)
+    trackingViewDirection.copy(camera.position).sub(controls.target)
+    if (trackingViewDirection.lengthSq() <= 1e-10) trackingViewDirection.set(0, 0, 1)
+    trackingViewDirection.normalize()
+    trackingTransitionStartDistance = camera.position.distanceTo(controls.target)
+    trackingFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
+  }
+
+  const applyTrackingCameraFocus = (
+    trackedBody: BodyState,
+    selectionChanged: boolean,
+    collisionCameraJustReleased = false,
+  ) => {
     targetScratch.set(trackedBody.position.x, trackedBody.position.y, trackedBody.position.z)
-    moveCameraTargetTo(targetScratch)
     applyAutoDistanceLimits(trackedBody)
 
-    if (selectionChanged) {
+    if (collisionCameraJustReleased) {
+      beginTrackingTransitionFromCurrentTransform()
+    } else if (selectionChanged) {
+      clearTrackingTransition()
+      moveCameraTargetTo(targetScratch)
       trackingViewDirection.copy(camera.position).sub(controls.target)
       if (trackingViewDirection.lengthSq() <= 1e-10) trackingViewDirection.set(0, 0, 1)
       trackingViewDirection.normalize()
       trackingFocusSettleFrames = RENDER_TUNING.camera.focusSettleFrames
     }
+
+    if (trackingTransitionActive) {
+      const desiredDistance = getAutoCameraDistance(trackedBody)
+      trackingTransitionDestinationTarget.copy(targetScratch)
+      trackingDesiredCameraPosition
+        .copy(trackingViewDirection)
+        .multiplyScalar(desiredDistance)
+        .add(trackingTransitionDestinationTarget)
+
+      const progress = getTrackingHandoffProgress(
+        trackingTransitionFrameIndex,
+        RENDER_TUNING.camera.focusSettleFrames,
+      )
+      trackingTransitionInterpolatedTarget
+        .copy(trackingTransitionStartTarget)
+        .lerp(trackingTransitionDestinationTarget, progress)
+      camera.position
+        .copy(trackingTransitionStartPosition)
+        .lerp(trackingDesiredCameraPosition, progress)
+      setCameraTargetOnly(trackingTransitionInterpolatedTarget)
+
+      telemetryDesiredTarget.copy(trackingTransitionDestinationTarget)
+      telemetryDesiredTargetValid = true
+      telemetryDesiredCameraPosition.copy(trackingDesiredCameraPosition)
+      telemetryDesiredCameraPositionValid = true
+      telemetryTransitionProgress = progress
+      telemetryTransitionStartPosition.copy(trackingTransitionStartPosition)
+      telemetryTransitionStartTarget.copy(trackingTransitionStartTarget)
+      telemetryTransitionStartValid = true
+      telemetryTransitionStartDistance = trackingTransitionStartDistance
+      telemetryTransitionDestinationPosition.copy(trackingDesiredCameraPosition)
+      telemetryTransitionDestinationTarget.copy(trackingTransitionDestinationTarget)
+      telemetryTransitionDestinationValid = true
+      telemetryTransitionDestinationDistance = desiredDistance
+      cameraWriteSource = 'tracking-transition'
+
+      trackingFocusSettleFrames = Math.max(
+        0,
+        RENDER_TUNING.camera.focusSettleFrames - trackingTransitionFrameIndex - 1,
+      )
+      if (trackingTransitionFrameIndex >= RENDER_TUNING.camera.focusSettleFrames - 1) {
+        clearTrackingTransition()
+      } else {
+        trackingTransitionFrameIndex += 1
+      }
+
+      wasTrackingBody = true
+      return
+    }
+
+    moveCameraTargetTo(targetScratch)
+    telemetryDesiredTarget.copy(targetScratch)
+    telemetryDesiredTargetValid = true
 
     if (trackingFocusSettleFrames > 0) {
       const desiredDistance = getAutoCameraDistance(trackedBody)
@@ -1249,10 +1415,13 @@ export function createSimulationRenderer(
         .copy(trackingViewDirection)
         .multiplyScalar(desiredDistance)
         .add(targetScratch)
+      telemetryDesiredCameraPosition.copy(trackingDesiredCameraPosition)
+      telemetryDesiredCameraPositionValid = true
       camera.position.lerp(trackingDesiredCameraPosition, RENDER_TUNING.camera.trackingTransition)
       trackingFocusSettleFrames -= 1
     }
 
+    cameraWriteSource = 'normal-tracking'
     wasTrackingBody = true
   }
 
@@ -1264,6 +1433,7 @@ export function createSimulationRenderer(
 
     compositionOffset.set(0, nextMode === 'mobile' ? -1 : 0, 0)
     if (applyCollisionCameraFocus(state)) {
+      clearTrackingTransition()
       controls.update()
       compositionMode = nextMode
       return
@@ -1275,7 +1445,11 @@ export function createSimulationRenderer(
       applyTrackingCameraFocus(trackedBody, selectionChanged)
       observedTrackedBodyId = state.trackedBodyId
     } else {
-      if (compositionMode === null) moveCameraTargetTo(compositionOffset)
+      clearTrackingTransition()
+      if (compositionMode === null) {
+        moveCameraTargetTo(compositionOffset)
+        cameraWriteSource = 'default-composition'
+      }
       resetAutoDistanceLimits()
       trackingFocusSettleFrames = 0
       wasTrackingBody = false
@@ -1304,6 +1478,7 @@ export function createSimulationRenderer(
   let frame = 0
   const animate = () => {
     frame = requestAnimationFrame(animate)
+    resetFrameCameraTelemetry()
     const state = getState()
     const current = state.bodies
     const currentIds = new Set(current.map((body) => body.id))
@@ -1314,6 +1489,7 @@ export function createSimulationRenderer(
     const trackedBody = getTrackedBody(current, state.trackedBodyId)
     const trackingSelectionChanged = isTrackingSelectionChanged(state.trackedBodyId)
     const collisionCameraFocused = applyCollisionCameraFocus(state)
+    if (collisionCameraFocused) clearTrackingTransition()
     const collisionCameraJustReleased = isCollisionCameraJustReleased(
       wasCollisionCameraFocused,
       collisionCameraFocused,
@@ -1326,11 +1502,17 @@ export function createSimulationRenderer(
     const cameraMode = resolveCameraMode(collisionCameraFocused, trackedBody !== undefined)
 
     if (cameraMode === 'tracking' && trackedBody) {
-      applyTrackingCameraFocus(trackedBody, trackingFocusNeedsReset)
+      applyTrackingCameraFocus(
+        trackedBody,
+        trackingSelectionChanged,
+        collisionCameraJustReleased,
+      )
     } else if (cameraMode === 'preserve' && (wasTrackingBody || trackingSelectionChanged)) {
+      clearTrackingTransition()
       resetAutoDistanceLimits()
       trackingFocusSettleFrames = 0
       wasTrackingBody = false
+      cameraWriteSource = 'preserve'
     }
     observedTrackedBodyId = state.trackedBodyId
     wasCollisionCameraFocused = collisionCameraFocused
@@ -1417,7 +1599,13 @@ export function createSimulationRenderer(
     })
 
     options.onTrailTelemetry?.({ retainedTrailIds: [...retainedTrailIds] })
+    controlsUpdatePositionBefore.copy(camera.position)
+    controlsUpdateTargetBefore.copy(controls.target)
     controls.update()
+    controlsUpdateChangedTransform =
+      camera.position.distanceToSquared(controlsUpdatePositionBefore) > 1e-16 ||
+      controls.target.distanceToSquared(controlsUpdateTargetBefore) > 1e-16
+    finalCameraWriteSource = controlsUpdateChangedTransform ? 'controls-update' : cameraWriteSource
     emitCameraTelemetry(
       state,
       trackedBody,
