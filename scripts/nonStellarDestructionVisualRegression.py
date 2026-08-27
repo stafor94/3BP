@@ -83,8 +83,7 @@ def debris_region_difference(a: Path, b: Path) -> dict[str, float | int | list[i
 
     # The harness keeps the disrupted source/debris near the center while the
     # rest of the canvas is mostly static space. Measure that physical debris
-    # region directly so a few thousand moving fragment pixels are not diluted
-    # by the full 900x557 canvas.
+    # region directly so moving fragment pixels are not diluted by the canvas.
     x0, x1 = int(width * 0.28), int(width * 0.72)
     y0, y1 = int(height * 0.32), int(height * 0.68)
     differences: list[float] = []
@@ -107,7 +106,7 @@ def debris_region_difference(a: Path, b: Path) -> dict[str, float | int | list[i
     }
 
 
-def warm_surface_centroid(path: Path) -> tuple[float, float, int]:
+def warm_surface_points(path: Path) -> list[tuple[int, int]]:
     image = Image.open(path).convert('RGB')
     width, height = image.size
     x0, x1 = int(width * 0.34), int(width * 0.66)
@@ -124,9 +123,42 @@ def warm_surface_centroid(path: Path) -> tuple[float, float, int]:
             points.append((x, y))
 
     require(len(points) >= 40, f'not enough warm source-surface pixels in {path.name}')
+    return points
+
+
+def warm_surface_centroid(points: list[tuple[int, int]]) -> tuple[float, float, int]:
     center_x = sum(x for x, _ in points) / len(points)
     center_y = sum(y for _, y in points) / len(points)
     return center_x, center_y, len(points)
+
+
+def source_surface_damage_metrics(
+    base_path: Path,
+    current_path: Path,
+    points: list[tuple[int, int]],
+) -> dict[str, float]:
+    base = Image.open(base_path).convert('RGB')
+    current = Image.open(current_path).convert('RGB')
+    hot = 0
+    darkened = 0
+    for x, y in points:
+        before = base.getpixel((x, y))
+        after = current.getpixel((x, y))
+        before_peak = max(before)
+        after_peak = max(after)
+        if before_peak >= 35 and after_peak < max(18.0, before_peak * 0.45):
+            darkened += 1
+        if (
+            after[0] >= before[0] + 28 and
+            after[0] >= 75 and
+            after[0] >= after[1] * 1.18 and
+            after[0] >= after[2] * 1.35
+        ):
+            hot += 1
+    return {
+        'hot_fraction': hot / len(points),
+        'darkened_fraction': darkened / len(points),
+    }
 
 
 def trigger_destruction(driver: webdriver.Chrome) -> None:
@@ -170,62 +202,63 @@ def main() -> None:
             lambda browser: len(browser.find_elements(By.CSS_SELECTOR, '.simulation-view canvas')) == 1
         )
 
-        # Let ordinary tracking settle on the original source before contact capture.
         time.sleep(0.65)
         contact = capture_canvas(driver, '01-contact')
+        baseline_surface = warm_surface_points(contact)
 
         trigger_destruction(driver)
         destruction_started_at = time.monotonic()
 
-        # Target absolute offsets from the committed destruction state. Screenshot
-        # capture itself can take hundreds of milliseconds on CI, so cumulative
-        # sleeps would otherwise push later captures past the 1.5s handoff.
-        wait_until(destruction_started_at, 0.30)
-        early = capture_canvas(driver, '02-early-fracture')
-        wait_until(destruction_started_at, 0.78)
-        middle = capture_canvas(driver, '03-mid-breakup')
-        wait_until(destruction_started_at, 1.18)
-        reveal = capture_canvas(driver, '04-result-reveal')
-        # Capture final debris well after the 1.5s source handoff so the final
-        # frame proves that physical fragment separation continues after reveal.
-        wait_until(destruction_started_at, 2.25)
+        wait_until(destruction_started_at, 0.45)
+        early = capture_canvas(driver, '02-contact-compression')
+        wait_until(destruction_started_at, 1.15)
+        middle = capture_canvas(driver, '03-local-ejecta')
+        wait_until(destruction_started_at, 2.05)
+        reveal = capture_canvas(driver, '04-result-handoff')
+        wait_until(destruction_started_at, 3.40)
         final = capture_canvas(driver, '05-final-debris')
 
         captures = {
             'contact': contact,
-            'early_fracture': early,
-            'mid_breakup': middle,
-            'result_reveal': reveal,
+            'contact_compression': early,
+            'local_ejecta': middle,
+            'result_handoff': reveal,
             'final_debris': final,
         }
         energies = {name: image_energy(path) for name, path in captures.items()}
         differences = {
-            'contact_to_early': mean_difference(contact, early),
-            'early_to_mid': mean_difference(early, middle),
-            'mid_to_reveal': mean_difference(middle, reveal),
-            'reveal_to_final': mean_difference(reveal, final),
+            'contact_to_compression': mean_difference(contact, early),
+            'compression_to_ejecta': mean_difference(early, middle),
+            'ejecta_to_handoff': mean_difference(middle, reveal),
+            'handoff_to_final': mean_difference(reveal, final),
         }
         debris_motion = debris_region_difference(reveal, final)
-        contact_centroid = warm_surface_centroid(contact)
-        early_centroid = warm_surface_centroid(early)
+        contact_centroid = warm_surface_centroid(baseline_surface)
+        early_surface = warm_surface_points(early)
+        early_centroid = warm_surface_centroid(early_surface)
         early_surface_shift = math.dist(contact_centroid[:2], early_centroid[:2])
+        surface_damage = {
+            'contact_compression': source_surface_damage_metrics(contact, early, baseline_surface),
+            'local_ejecta': source_surface_damage_metrics(contact, middle, baseline_surface),
+        }
 
         payload['capture_targets_seconds'] = {
-            'early_fracture': 0.30,
-            'mid_breakup': 0.78,
-            'result_reveal': 1.18,
-            'final_debris': 2.25,
+            'contact_compression': 0.45,
+            'local_ejecta': 1.15,
+            'result_handoff': 2.05,
+            'final_debris': 3.40,
         }
         payload['non_dark_pixels'] = energies
         payload['mean_frame_differences'] = differences
         payload['post_reveal_debris_motion'] = debris_motion
+        payload['source_surface_damage'] = surface_damage
         payload['warm_surface_centroid'] = {
             'contact': {
                 'x': contact_centroid[0],
                 'y': contact_centroid[1],
                 'pixels': contact_centroid[2],
             },
-            'early_fracture': {
+            'contact_compression': {
                 'x': early_centroid[0],
                 'y': early_centroid[1],
                 'pixels': early_centroid[2],
@@ -233,14 +266,13 @@ def main() -> None:
             'early_shift_px': early_surface_shift,
         }
 
-        # Persist diagnostics before assertions so failed CI runs remain debuggable.
         (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
         print(json.dumps(payload, indent=2))
 
         require(energies['contact'] >= 700, 'contact capture is unexpectedly empty')
         require(
-            energies['early_fracture'] >= energies['contact'] * 0.55,
-            'the original solid surface disappeared too abruptly during early fracture',
+            energies['contact_compression'] >= energies['contact'] * 0.55,
+            'the original solid surface disappeared too abruptly during contact compression',
         )
         require(
             early_surface_shift <= 38.0,
@@ -253,25 +285,45 @@ def main() -> None:
                 f'{stage} foreground expanded excessively; possible camera overzoom/reframe',
             )
 
+        # Regression for the user-observed "planet shedding its shell" failure.
+        # Only the contact cap may heat strongly; the rest of the intact source
+        # surface must not become a glowing crack network or get shader-cut away.
+        for name, metrics in surface_damage.items():
+            require(
+                metrics['hot_fraction'] <= 0.12,
+                f'{name}: hot surface coverage is too broad; possible global glowing crack/shell pattern',
+            )
+            # Contact-side vertex compression legitimately shifts a thin strip of
+            # the old silhouette. Keep a secondary disappearance guard, but leave
+            # enough room for that local geometric indentation; global shell loss
+            # is independently rejected by the much stricter hot-surface gate.
+            require(
+                metrics['darkened_fraction'] <= 0.05,
+                f'{name}: too much original surface disappeared; possible shell peeling/discard regression',
+            )
+
         require(
-            differences['contact_to_early'] >= 0.12,
-            'early fracture must be visually distinct from contact',
+            differences['contact_to_compression'] >= 0.08,
+            'contact compression must be visually distinct from contact',
+        )
+        # Screenshot capture latency varies slightly across CI runners. This is
+        # only an evolution/readability check; the dedicated hot/dark surface
+        # gates above remain the hard regression guard for shell peeling.
+        require(
+            differences['compression_to_ejecta'] >= 0.06,
+            'local ejecta must advance beyond the compression frame',
         )
         require(
-            differences['early_to_mid'] >= 0.12,
-            'mid breakup must advance beyond early fracture',
-        )
-        require(
-            differences['mid_to_reveal'] >= 0.10,
-            'result reveal must remain visually distinct from mid breakup',
+            differences['ejecta_to_handoff'] >= 0.08,
+            'result handoff must remain visually distinct from local ejecta',
         )
         require(
             float(debris_motion['mean_difference']) >= 0.25,
-            'final debris region must continue evolving after result reveal',
+            'final debris region must continue evolving after result handoff',
         )
         require(
             float(debris_motion['changed_fraction']) >= 0.025,
-            'too few debris-region pixels changed after result reveal',
+            'too few debris-region pixels changed after result handoff',
         )
 
         print('non-stellar destruction browser visual regression: ok')

@@ -39,7 +39,8 @@ type CollisionVisualEvent = {
   transitions: CollisionVisualTransition[]
 }
 
-export const SURVIVOR_IMPACT_DURATION_MS = 700
+export const SURVIVOR_IMPACT_DURATION_MS = 1500
+export const MERGED_SURVIVOR_SETTLE_DURATION_MS = 1700
 export const SURVIVOR_IMPACT_MIN_DOT = 0.8
 export const SURVIVOR_IMPACT_MAX_SURFACE_FRACTION = (1 - SURVIVOR_IMPACT_MIN_DOT) / 2
 const SOURCE_FRAGMENT_OUTPUT = 'gl_FragColor = vec4(color, uOpacity);'
@@ -108,20 +109,35 @@ function smooth01(value: number) {
 
 export function getSurvivorImpactEnvelope(elapsedMs: number) {
   const elapsed = Math.max(0, elapsedMs)
-  const flash = elapsed < 100
-    ? 1 - smooth01(elapsed / 100)
+  const flash = elapsed < 120
+    ? 1 - smooth01(elapsed / 120)
     : 0
   let heat = 0
-  if (elapsed < 100) {
-    heat = 0.28 + smooth01(elapsed / 100) * 0.72
-  } else if (elapsed < 300) {
-    heat = 1 - smooth01((elapsed - 100) / 200) * 0.28
-  } else if (elapsed < 500) {
-    heat = 0.72 - smooth01((elapsed - 300) / 200) * 0.56
+  if (elapsed < 120) {
+    heat = 0.28 + smooth01(elapsed / 120) * 0.72
+  } else if (elapsed < 520) {
+    heat = 1 - smooth01((elapsed - 120) / 400) * 0.28
+  } else if (elapsed < 1050) {
+    heat = 0.72 - smooth01((elapsed - 520) / 530) * 0.48
   } else if (elapsed < SURVIVOR_IMPACT_DURATION_MS) {
-    heat = 0.16 * (1 - smooth01((elapsed - 500) / 200))
+    heat = 0.24 * (1 - smooth01(
+      (elapsed - 1050) / Math.max(1, SURVIVOR_IMPACT_DURATION_MS - 1050),
+    ))
   }
   return { flash, heat }
+}
+
+export function getMergedSurvivorRevealScale(
+  elapsedMs: number,
+  sourceRadius: number,
+  resultRadius: number,
+) {
+  const safeResultRadius = Math.max(Math.abs(resultRadius), 1e-9)
+  const inheritedScale = clamp01(Math.abs(sourceRadius) / safeResultRadius)
+  const initialScale = Math.min(1, Math.max(0.72, inheritedScale))
+  const progress = smooth01(Math.max(0, elapsedMs) / MERGED_SURVIVOR_SETTLE_DURATION_MS)
+  const easeOut = 1 - Math.pow(1 - progress, 3)
+  return THREE.MathUtils.lerp(initialScale, 1, easeOut)
 }
 
 function getSimulationBodySeed(id: string) {
@@ -213,10 +229,15 @@ function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Objec
 
   const event = collisionVisualEventsByResultId.get(body.id)
   if (!event) return
+  const elapsedMs = Math.max(0, now - event.startedAt)
   const identitySeed = surfaceIdentitySeedByBodyId.get(body.id) ?? getSimulationBodySeed(transition.source.id)
   surfaceIdentitySeedByBodyId.set(body.id, identitySeed)
   if (material.uniforms.uSurfaceSeed) material.uniforms.uSurfaceSeed.value = identitySeed
-  if (material.uniforms.uCollisionRevealScale) material.uniforms.uCollisionRevealScale.value = 1
+  if (material.uniforms.uCollisionRevealScale) {
+    material.uniforms.uCollisionRevealScale.value = transition.outcome === 'merged-survivor'
+      ? getMergedSurvivorRevealScale(elapsedMs, transition.source.radius, body.radius)
+      : 1
+  }
 
   const direction = material.uniforms.uCollisionImpactDirection?.value
   if (direction instanceof THREE.Vector3) {
@@ -228,7 +249,7 @@ function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Objec
       transition.contactNormal.z,
     ).applyQuaternion(worldQuaternion.invert()).normalize()
   }
-  const { flash, heat } = getSurvivorImpactEnvelope(now - event.startedAt)
+  const { flash, heat } = getSurvivorImpactEnvelope(elapsedMs)
   if (material.uniforms.uCollisionImpactFlash) material.uniforms.uCollisionImpactFlash.value = flash
   if (material.uniforms.uCollisionImpactHeat) material.uniforms.uCollisionImpactHeat.value = heat
 }

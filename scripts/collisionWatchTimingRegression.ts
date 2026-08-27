@@ -19,18 +19,20 @@ assert(fragment.postImpactHoldMs >= 700 && fragment.postImpactHoldMs <= 1000, 'f
 
 const mixed = getCollisionWatchTimingProfile('star', 'planet')
 assert(!mixed.isStellarCollision, 'star-planet must not use the star-star timing profile')
-assert(mixed.impactHoldMs < stellar.impactHoldMs, 'star-planet slow motion must be shorter than star-star')
+assert(mixed.impactHoldMs >= 650, 'star-planet impact must remain readable longer than a fragment collision')
+assert(mixed.postImpactHoldMs >= 1300, 'star-planet post-impact observation must remain visible')
+assert(mixed.cameraHoldMs >= 2700, 'star-planet camera hold must cover the extended mixed-body presentation')
 
 const standard = getCollisionWatchTimingProfile('planet', 'moon')
-assert(standard.impactHoldMs >= 800, 'solid-body impact hold must remain long enough to read the contact')
-assert(standard.postImpactHoldMs >= 1700, 'solid-body post-impact observation must remain visible after the flash')
-assert(standard.restoreRampMs >= 850, 'solid-body speed restore must not jump abruptly back to a high user speed')
-assert(standard.cameraHoldMs >= 3600, 'solid-body collision camera must remain on the surviving primary long enough to observe the result')
-assert(standard.infoHoldMs >= 3300, 'solid-body collision info must remain visible through the result observation window')
+assert(standard.impactHoldMs >= 1150, 'solid-body impact hold must remain long enough to read sustained contact')
+assert(standard.postImpactHoldMs >= 2400, 'solid-body post-impact observation must cover the longer handoff')
+assert(standard.restoreRampMs >= 950, 'solid-body speed restore must not jump abruptly back to a high user speed')
+assert(standard.cameraHoldMs >= 4900, 'solid-body collision camera must remain on the result through the extended absorption/breakup')
+assert(standard.infoHoldMs >= 4500, 'solid-body collision info must remain visible through the result observation window')
 
 const start = 0.08
 const target = 2
-const duration = 900
+const duration = 1000
 assert(getCollisionWatchRestoreSpeed(start, target, 0, duration) === start, 'restore ramp must start at its captured speed')
 const mid = getCollisionWatchRestoreSpeed(start, target, duration / 2, duration)
 assert(mid > start && mid < target, 'restore ramp must interpolate instead of jumping')

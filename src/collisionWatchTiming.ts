@@ -54,22 +54,22 @@ export function getCollisionWatchTimingProfile(
     return {
       collisionType: 'stellarMixed',
       isStellarCollision: false,
-      impactHoldMs: 500,
-      postImpactHoldMs: 1000,
-      restoreRampMs: 600,
-      cameraHoldMs: 1750,
-      infoHoldMs: 1600,
+      impactHoldMs: 700,
+      postImpactHoldMs: 1400,
+      restoreRampMs: 750,
+      cameraHoldMs: 2850,
+      infoHoldMs: 2600,
     }
   }
 
   return {
     collisionType: 'standard',
     isStellarCollision: false,
-    impactHoldMs: 850,
-    postImpactHoldMs: 1800,
-    restoreRampMs: 900,
-    cameraHoldMs: 3800,
-    infoHoldMs: 3500,
+    impactHoldMs: 1200,
+    postImpactHoldMs: 2500,
+    restoreRampMs: 1000,
+    cameraHoldMs: 5000,
+    infoHoldMs: 4600,
   }
 }
 

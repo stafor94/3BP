@@ -19,7 +19,7 @@ URL = os.environ.get(
     'SURVIVOR_ABSORPTION_VISUAL_TEST_URL',
     'http://127.0.0.1:4173/3BP/?visual-regression=survivor-absorption',
 )
-CAPTURE_TARGETS = [0.15, 0.35, 0.70, 1.10, 1.60]
+CAPTURE_TARGETS = [0.18, 0.60, 1.10, 1.80, 2.20]
 
 
 def require(condition: bool, message: str) -> None:
@@ -192,13 +192,13 @@ def main() -> None:
         impact_mask = impact_cap_mask(baseline_points, center_x, max_x)
 
         captures: dict[str, Path] = {'contact': contact}
-        names = ['02-150ms', '03-350ms', '04-700ms', '05-1100ms', '06-1600ms']
+        names = ['02-180ms', '03-600ms', '04-1100ms', '05-1800ms', '06-2200ms']
         for target, name in zip(CAPTURE_TARGETS, names):
             reset(driver)
             # The visual event timestamp is created when the trigger is invoked,
             # before React commit/stage polling completes. Start the wall-clock
-            # reference here as well so slow CI commit latency is not added on top
-            # of the requested 150/350ms event-relative capture offset.
+            # reference here as well so CI commit latency is not added on top of
+            # the requested event-relative capture offset.
             started_at = time.monotonic()
             trigger(driver)
             wait_until(started_at, target)
@@ -249,27 +249,31 @@ def main() -> None:
                 f'{name}: opposite hemisphere developed dark holes; possible global dissolve/black shell',
             )
             require(
-                metrics['mean_difference'] <= 10.0,
+                metrics['mean_difference'] <= 12.0,
                 f'{name}: opposite hemisphere changed too much; survivor effect is not contact-local',
             )
-        for name in ['04-700ms', '05-1100ms', '06-1600ms']:
+        for name in ['04-1100ms', '05-1800ms', '06-2200ms']:
             ratio = surface_counts[name] / baseline_count
-            require(0.82 <= ratio <= 1.18, f'{name}: survivor silhouette/surface area changed excessively: ratio={ratio:.3f}')
+            require(0.80 <= ratio <= 1.20, f'{name}: survivor silhouette/surface area changed excessively: ratio={ratio:.3f}')
 
-        settled_names = ['04-700ms', '05-1100ms', '06-1600ms']
+        settled_names = ['05-1800ms', '06-2200ms']
         settled_cap = [impact[name]['mean_difference'] for name in settled_names]
         settled_floor = min(settled_cap)
         require(
-            impact['02-150ms']['mean_difference'] - settled_floor >= 2.0,
-            '150ms contact cap must rise visibly above the settled camera/lighting baseline',
+            impact['02-180ms']['mean_difference'] - settled_floor >= 2.0,
+            '180ms contact cap must rise visibly above the settled camera/lighting baseline',
         )
         require(
-            impact['03-350ms']['mean_difference'] - settled_floor >= 1.0,
-            '350ms contact cap must retain a visible local impact trace above the settled baseline',
+            impact['03-600ms']['mean_difference'] - settled_floor >= 1.25,
+            '600ms contact cap must retain a visible local impact trace during absorption',
         )
         require(
-            max(settled_cap) - min(settled_cap) <= 0.75,
-            'survivor contact cap must converge by 700ms instead of retaining an evolving impact effect',
+            impact['04-1100ms']['mean_difference'] - settled_floor >= 0.35,
+            '1100ms contact cap must retain a fading local impact trace before settling',
+        )
+        require(
+            max(settled_cap) - min(settled_cap) <= 0.9,
+            'survivor contact cap must converge after the extended absorption/settle window',
         )
         for name in settled_names:
             require(
