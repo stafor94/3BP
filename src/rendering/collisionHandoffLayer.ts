@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { BodyState, Vec3 } from '../types'
 import {
   findCollisionVisualTransitions,
+  isCollisionVisualDescendant,
   type CollisionVisualTransition,
 } from './collisionVisualOutcome'
 
@@ -33,6 +34,11 @@ type HandoffVisual = {
   origin: THREE.Vector3
   contactPoint: THREE.Vector3
   surfaceRadius: number
+  resultId: string | null
+  anchorOrigin: THREE.Vector3 | null
+  lastAnchorPosition: THREE.Vector3 | null
+  lastAnchorObservedAt: number | null
+  anchorVelocityPerMs: THREE.Vector3
   particles: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>
   particleGeometry: THREE.BufferGeometry
   particleMaterial: THREE.ShaderMaterial
@@ -313,6 +319,42 @@ function findLiveBodyMesh(scene: THREE.Scene, bodyId: string) {
   return found
 }
 
+function bodyPosition(body: BodyState) {
+  return new THREE.Vector3(body.position.x, body.position.y, body.position.z)
+}
+
+function findFragmentSystemAnchor(sourceId: string, bodies: BodyState[]) {
+  const descendants = bodies.filter((candidate) =>
+    candidate.id !== sourceId &&
+    (candidate.bodyType === 'fragment' || (candidate.bodyType === 'effect' && candidate.mass > 0)) &&
+    isCollisionVisualDescendant(candidate.id, sourceId),
+  )
+  if (descendants.length === 0) return null
+
+  const anchor = new THREE.Vector3()
+  let totalWeight = 0
+  descendants.forEach((candidate) => {
+    const weight = Math.max(0, candidate.mass)
+    if (weight <= 1e-12) return
+    anchor.addScaledVector(bodyPosition(candidate), weight)
+    totalWeight += weight
+  })
+  if (totalWeight > 1e-12) return anchor.multiplyScalar(1 / totalWeight)
+
+  descendants.forEach((candidate) => anchor.add(bodyPosition(candidate)))
+  return anchor.multiplyScalar(1 / descendants.length)
+}
+
+function findResultAnchor(scene: THREE.Scene, resultId: string, bodies: BodyState[]) {
+  const resultMesh = findLiveBodyMesh(scene, resultId)
+  if (resultMesh) {
+    resultMesh.updateWorldMatrix(true, false)
+    return resultMesh.getWorldPosition(new THREE.Vector3())
+  }
+  const resultBody = bodies.find((body) => body.id === resultId)
+  return resultBody ? bodyPosition(resultBody) : null
+}
+
 function createPreservedSurfaceMaterial(
   sourceMaterial: THREE.ShaderMaterial,
   sourceId: string,
@@ -425,7 +467,53 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     else disposeAbsorption(oldest.id)
   }
 
-  const createVisual = (transition: CollisionVisualTransition, now: number) => {
+  const resolveAnchor = (
+    visual: Pick<
+      HandoffVisual,
+      | 'source'
+      | 'resultId'
+      | 'anchorOrigin'
+      | 'lastAnchorPosition'
+      | 'lastAnchorObservedAt'
+      | 'anchorVelocityPerMs'
+    >,
+    bodies: BodyState[],
+    now: number,
+  ) => {
+    const resolved = visual.resultId
+      ? findResultAnchor(scene, visual.resultId, bodies)
+      : findFragmentSystemAnchor(visual.source.id, bodies)
+
+    if (resolved) {
+      if (visual.lastAnchorPosition && visual.lastAnchorObservedAt !== null && now > visual.lastAnchorObservedAt) {
+        visual.anchorVelocityPerMs
+          .subVectors(resolved, visual.lastAnchorPosition)
+          .multiplyScalar(1 / (now - visual.lastAnchorObservedAt))
+      }
+      if (!visual.anchorOrigin) visual.anchorOrigin = resolved.clone()
+      visual.lastAnchorPosition = resolved.clone()
+      visual.lastAnchorObservedAt = now
+      return resolved
+    }
+
+    if (!visual.lastAnchorPosition) return null
+    if (
+      visual.resultId === null &&
+      visual.lastAnchorObservedAt !== null &&
+      visual.anchorVelocityPerMs.lengthSq() > 1e-16
+    ) {
+      return visual.lastAnchorPosition
+        .clone()
+        .addScaledVector(visual.anchorVelocityPerMs, Math.max(0, now - visual.lastAnchorObservedAt))
+    }
+    return visual.lastAnchorPosition.clone()
+  }
+
+  const createVisual = (
+    transition: CollisionVisualTransition,
+    bodies: BodyState[],
+    now: number,
+  ) => {
     const source = transition.source
     if (active.has(source.id) || absorbing.has(source.id)) return
     const sourceMesh = lastLiveMeshById.get(source.id)
@@ -462,6 +550,8 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     mesh.frustumCulled = false
     mesh.renderOrder = sourceMesh.renderOrder
     mesh.userData.collisionHandoffSnapshot = true
+    mesh.userData.collisionHandoffSourceId = source.id
+    mesh.userData.collisionHandoffResultId = transition.resultId
 
     const surfaceRadius = Math.max(
       Math.abs(worldScale.x),
@@ -502,6 +592,10 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     particles.frustumCulled = false
     particles.renderOrder = Math.max(15, sourceMesh.renderOrder + 1)
 
+    const initialAnchor = transition.resultId
+      ? findResultAnchor(scene, transition.resultId, bodies)
+      : findFragmentSystemAnchor(source.id, bodies)
+
     scene.add(mesh, particles)
     active.set(source.id, {
       source: cloneBody(source),
@@ -516,6 +610,11 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
         transition.contactPoint.z,
       ),
       surfaceRadius,
+      resultId: transition.resultId,
+      anchorOrigin: initialAnchor?.clone() ?? null,
+      lastAnchorPosition: initialAnchor?.clone() ?? null,
+      lastAnchorObservedAt: initialAnchor ? now : null,
+      anchorVelocityPerMs: new THREE.Vector3(),
       particles,
       particleGeometry,
       particleMaterial,
@@ -568,7 +667,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     })
   }
 
-  const updateVisual = (visual: HandoffVisual, now: number) => {
+  const updateVisual = (visual: HandoffVisual, bodies: BodyState[], now: number) => {
     const elapsedMs = Math.max(0, now - visual.startedAt)
     const fractureProgress = getCollisionHandoffFractureProgress(elapsedMs)
     const breakupProgress = getCollisionHandoffBreakupProgress(elapsedMs)
@@ -583,14 +682,27 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
         visual.baseOpacity * getCollisionHandoffSourceOpacity(elapsedMs)
     }
 
+    // The preserved surface is a rendering handoff, not a second physical body.
+    // Keep the collision-time source/result offset, but carry the whole snapshot
+    // by the live result (or fragment-system centroid) translation so it cannot
+    // remain behind as a stationary full-body ghost at the impact coordinates.
+    const currentAnchor = resolveAnchor(visual, bodies, now)
+    const anchorDelta = currentAnchor && visual.anchorOrigin
+      ? currentAnchor.clone().sub(visual.anchorOrigin)
+      : new THREE.Vector3()
+    visual.mesh.position.copy(visual.origin).add(anchorDelta)
+
+    const contactX = visual.contactPoint.x + anchorDelta.x
+    const contactY = visual.contactPoint.y + anchorDelta.y
+    const contactZ = visual.contactPoint.z + anchorDelta.z
     const travel = visual.surfaceRadius * particleProgress * 2.15
     for (let index = 0; index < PARTICLE_COUNT; index += 1) {
       const offset = index * 3
       const direction = visual.particleDirections[index]
       const distance = travel * visual.particleSpeeds[index]
-      visual.particlePositions[offset] = visual.contactPoint.x + direction.x * distance
-      visual.particlePositions[offset + 1] = visual.contactPoint.y + direction.y * distance
-      visual.particlePositions[offset + 2] = visual.contactPoint.z + direction.z * distance
+      visual.particlePositions[offset] = contactX + direction.x * distance
+      visual.particlePositions[offset + 1] = contactY + direction.y * distance
+      visual.particlePositions[offset + 2] = contactZ + direction.z * distance
     }
     const position = visual.particleGeometry.getAttribute('position') as THREE.BufferAttribute
     position.needsUpdate = true
@@ -649,13 +761,13 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     update(bodies: BodyState[], now = performance.now()) {
       if (previousBodies) {
         findCollisionVisualTransitions(previousBodies, bodies).forEach((transition) => {
-          if (transition.outcome === 'disrupted') createVisual(transition, now)
+          if (transition.outcome === 'disrupted') createVisual(transition, bodies, now)
           else if (transition.outcome === 'absorbed') createAbsorptionVisual(transition, now)
         })
       }
 
       active.forEach((visual, id) => {
-        if (updateVisual(visual, now)) disposeVisual(id)
+        if (updateVisual(visual, bodies, now)) disposeVisual(id)
       })
       absorbing.forEach((visual, id) => {
         if (updateAbsorptionVisual(visual, now)) disposeAbsorption(id)

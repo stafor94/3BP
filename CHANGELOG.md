@@ -6,6 +6,23 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.11] - 2026-08-28
+
+### Fixed
+- disruption collision에서 제거된 원본 천체의 `collisionHandoffSnapshot` full-body mesh가 충돌 당시 world position에 고정된 채 실제 result/remnant와 독립적으로 2.6초 동안 남아, 충돌 지점에 원본 천체 복제본이 남아 있는 것처럼 보이던 문제를 수정했습니다.
+- retained result가 있는 disruption은 collision 시점 source↔result 상대 위치를 보존하면서 result의 최신 world translation delta를 source snapshot과 handoff ejecta anchor에 동일하게 적용하도록 변경했습니다. product reveal 직전 live result mesh가 아직 resolve되지 않는 frame은 현재 result `BodyState` 위치를 사용하고 live mesh가 나타난 뒤에도 위치가 튀지 않도록 동일 anchor 계열을 유지합니다.
+- `resultId === null`인 pure fragmentation은 실제 fragment descendants의 mass-weighted centroid motion을 handoff anchor로 사용해 surviving remnant가 없어도 원본 full sphere가 충돌 지점에 정지하지 않도록 수정했습니다.
+
+### Added
+- retained-result disruption의 result association, delayed live-mesh resolve 연속성, source/result 상대 offset 보존, gross translation 일치, pure-fragment centroid 추적, stationary ghost-body 방지, 2.6초 lifecycle 종료 후 snapshot scene removal을 world-space로 검증하는 collision handoff anchor regression을 추가했습니다.
+- moving disruption production-browser fixture를 별도로 추가하고 impact, +260ms, +520ms, +700ms, +1050ms, +1500ms, +1880ms, +2200ms, +2600ms capture에서 source motion, 원래 collision-site full-disc 잔존, cross-fade foreground energy와 lifecycle completion을 검증하도록 했습니다.
+
+### Changed
+- 기존 non-stellar destruction visual regression의 `early_shift_px <= 38` 정적 위치 성공 조건을 제거했습니다. source-surface 이동량은 deformation mask registration 진단값으로만 사용하고, 실제 handoff 이동 정합성은 body-radius/world-space 기준의 전용 moving-anchor regression에서 검증합니다.
+
+### Unchanged
+- collision physics, merge/disruption 판정 threshold, collision prediction/watch, 50% initial-mass tracking rule, tracking lineage semantics, collision/tracking camera, trail 정책, stellar collision VFX, absorption/merge visual 의미 및 일반 UI는 변경하지 않았습니다.
+
 ## [0.19.10] - 2026-08-27
 
 ### Changed
@@ -285,11 +302,11 @@
 - 항성 합체의 display-only 중첩 구간을 짧게 줄여 0.03x에서 수 초간 topology 해석을 지연시키던 흐름을 제거했습니다.
 - physical collision VFX의 시각 age를 real-time으로 계산해 저속 관찰 중 flash/plasma 수명이 과도하게 늘어나지 않도록 했습니다.
 - synthetic stellar overlap retire 260ms와 physical shear/plasma fade-in 140ms의 cross-fade를 유지하며 contact flash는 즉시 표시합니다.
-- 대형 항성 VFX는 opacity/brightness와 world-space 최대 직경을 clamp하고, 기존 동적 천체 상한 안에서 flash/shock/afterglow 슬롯을 먼저 예약하도록 제한했습니다.
+- 대형 항성 VFX는 opacity/brightness와 world-space 최대 직경을 clamp하고, 기존 동적 천체 상한 28개 안에서 flash/shock/afterglow 슬롯을 먼저 예약하도록 제한했습니다.
 - collision camera framing은 기존 physical body/remnant 기준을 유지하며 VFX radius는 auto framing에 포함하지 않습니다.
 
 ### Fixed
-- 충돌 정보 UI 종료가 곧바로 극저속 해제와 카메라 종료까지 발생시키던 결합을 제거했습니다.
+- 충돌 정보 UI 종료가 곧바로 극저속 해제와 카메라 종료까지 발생하던 결합을 제거했습니다.
 - 연속 충돌에서 이전 restore ramp가 다음 충돌의 0.03x/0.08x phase를 덮어쓸 수 있는 경로를 차단했습니다.
 - v0.17.23의 일반 tracking/충돌 camera continuity 규칙은 그대로 유지해 merge frame 줌 점프와 합체 후손 자동 일반 추적이 재발하지 않도록 했습니다.
 
@@ -1027,12 +1044,12 @@
 ## [0.1.8] - 2026-08-24
 
 ### Fixed
-- 우주 배경 별이 지나치게 희미하게 보이는 문제를 수정했습니다.
+- 우주 배경 별이 지나치게 희미하게 보이던 문제를 수정했습니다.
 
 ## [0.1.7] - 2026-08-24
 
 ### Fixed
-- 모바일 화면에서 우주 배경 별이 잘 보이지 않는 문제를 개선했습니다.
+- 모바일 화면에서 우주 배경 별이 잘 보이지 않던 문제를 개선했습니다.
 
 ## [0.1.6] - 2026-08-24
 

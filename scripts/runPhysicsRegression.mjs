@@ -13,6 +13,7 @@ const checks = [
   { source: 'collisionVfxRegression.ts', output: 'collisionVfxRegression.mjs' },
   { source: 'collisionEffectRoutingRegression.ts', output: 'collisionEffectRoutingRegression.mjs' },
   { source: 'collisionHandoffRegression.ts', output: 'collisionHandoffRegression.mjs' },
+  { source: 'collisionHandoffAnchorRegression.ts', output: 'collisionHandoffAnchorRegression.mjs' },
   { source: 'collisionCameraFramingRegression.ts', output: 'collisionCameraFramingRegression.mjs' },
   { source: 'stellarRemnantTransitionRegression.ts', output: 'stellarRemnantTransitionRegression.mjs' },
   { source: 'stellarTopologyMaskRegression.ts', output: 'stellarTopologyMaskRegression.mjs' },
