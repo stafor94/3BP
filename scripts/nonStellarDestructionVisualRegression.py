@@ -111,7 +111,7 @@ def warm_surface_points(path: Path) -> list[tuple[int, int]]:
     width, height = image.size
     x0, x1 = int(width * 0.34), int(width * 0.66)
     y0, y1 = int(height * 0.24), int(height * 0.76)
-    points: list[tuple[int, int]] = []
+    candidates: set[tuple[int, int]] = set()
 
     for y in range(y0, y1):
         for x in range(x0, x1):
@@ -120,10 +120,32 @@ def warm_surface_points(path: Path) -> list[tuple[int, int]]:
                 continue
             if r < g * 1.06 or r < b * 1.12:
                 continue
-            points.append((x, y))
+            candidates.add((x, y))
 
-    require(len(points) >= 40, f'not enough warm source-surface pixels in {path.name}')
-    return points
+    # The broad ROI can contain the edge of another warm planet. Comparing all
+    # warm pixels made that unrelated body shift the centroid and look like the
+    # disrupted source had lost surface pixels. Isolate the actual central source
+    # as the largest 4-connected warm component before measuring its damage.
+    components: list[list[tuple[int, int]]] = []
+    remaining = set(candidates)
+    while remaining:
+        seed = remaining.pop()
+        stack = [seed]
+        component = [seed]
+        while stack:
+            x, y = stack.pop()
+            for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if neighbor not in remaining:
+                    continue
+                remaining.remove(neighbor)
+                stack.append(neighbor)
+                component.append(neighbor)
+        components.append(component)
+
+    require(bool(components), f'no warm source-surface component in {path.name}')
+    source = max(components, key=len)
+    require(len(source) >= 40, f'not enough warm source-surface pixels in {path.name}')
+    return source
 
 
 def warm_surface_centroid(points: list[tuple[int, int]]) -> tuple[float, float, int]:
@@ -136,16 +158,26 @@ def source_surface_damage_metrics(
     base_path: Path,
     current_path: Path,
     points: list[tuple[int, int]],
-) -> dict[str, float]:
+    registration_shift: tuple[float, float],
+) -> dict[str, float | int | list[float]]:
     base = Image.open(base_path).convert('RGB')
     current = Image.open(current_path).convert('RGB')
+    shift_x, shift_y = registration_shift
     hot = 0
     darkened = 0
+    samples = 0
+
     for x, y in points:
+        current_x = int(round(x + shift_x))
+        current_y = int(round(y + shift_y))
+        if not (0 <= current_x < current.width and 0 <= current_y < current.height):
+            continue
+
         before = base.getpixel((x, y))
-        after = current.getpixel((x, y))
+        after = current.getpixel((current_x, current_y))
         before_peak = max(before)
         after_peak = max(after)
+        samples += 1
         if before_peak >= 35 and after_peak < max(18.0, before_peak * 0.45):
             darkened += 1
         if (
@@ -155,9 +187,13 @@ def source_surface_damage_metrics(
             after[0] >= after[2] * 1.35
         ):
             hot += 1
+
+    require(samples >= 40, f'not enough registered source-surface samples in {current_path.name}')
     return {
-        'hot_fraction': hot / len(points),
-        'darkened_fraction': darkened / len(points),
+        'hot_fraction': hot / samples,
+        'darkened_fraction': darkened / samples,
+        'samples': samples,
+        'registration_shift_px': [shift_x, shift_y],
     }
 
 
@@ -235,11 +271,31 @@ def main() -> None:
         debris_motion = debris_region_difference(reveal, final)
         contact_centroid = warm_surface_centroid(baseline_surface)
         early_surface = warm_surface_points(early)
+        middle_surface = warm_surface_points(middle)
         early_centroid = warm_surface_centroid(early_surface)
-        early_surface_shift = math.dist(contact_centroid[:2], early_centroid[:2])
+        middle_centroid = warm_surface_centroid(middle_surface)
+        early_registration = (
+            early_centroid[0] - contact_centroid[0],
+            early_centroid[1] - contact_centroid[1],
+        )
+        middle_registration = (
+            middle_centroid[0] - contact_centroid[0],
+            middle_centroid[1] - contact_centroid[1],
+        )
+        early_surface_shift = math.hypot(*early_registration)
         surface_damage = {
-            'contact_compression': source_surface_damage_metrics(contact, early, baseline_surface),
-            'local_ejecta': source_surface_damage_metrics(contact, middle, baseline_surface),
+            'contact_compression': source_surface_damage_metrics(
+                contact,
+                early,
+                baseline_surface,
+                early_registration,
+            ),
+            'local_ejecta': source_surface_damage_metrics(
+                contact,
+                middle,
+                baseline_surface,
+                middle_registration,
+            ),
         }
 
         payload['capture_targets_seconds'] = {
@@ -262,6 +318,11 @@ def main() -> None:
                 'x': early_centroid[0],
                 'y': early_centroid[1],
                 'pixels': early_centroid[2],
+            },
+            'local_ejecta': {
+                'x': middle_centroid[0],
+                'y': middle_centroid[1],
+                'pixels': middle_centroid[2],
             },
             'early_shift_px': early_surface_shift,
         }
@@ -288,17 +349,15 @@ def main() -> None:
         # Regression for the user-observed "planet shedding its shell" failure.
         # Only the contact cap may heat strongly; the rest of the intact source
         # surface must not become a glowing crack network or get shader-cut away.
+        # The source mask is isolated from unrelated warm bodies and registered
+        # for small screen-space source/camera motion before comparing pixels.
         for name, metrics in surface_damage.items():
             require(
-                metrics['hot_fraction'] <= 0.12,
+                float(metrics['hot_fraction']) <= 0.12,
                 f'{name}: hot surface coverage is too broad; possible global glowing crack/shell pattern',
             )
-            # Contact-side vertex compression legitimately shifts a thin strip of
-            # the old silhouette. Keep a secondary disappearance guard, but leave
-            # enough room for that local geometric indentation; global shell loss
-            # is independently rejected by the much stricter hot-surface gate.
             require(
-                metrics['darkened_fraction'] <= 0.05,
+                float(metrics['darkened_fraction']) <= 0.05,
                 f'{name}: too much original surface disappeared; possible shell peeling/discard regression',
             )
 
