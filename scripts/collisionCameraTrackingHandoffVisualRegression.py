@@ -306,7 +306,9 @@ def main() -> None:
             lambda browser: browser.execute_script(
                 """
                 const samples = window.__trackingCameraHandoffSamples || [];
-                return samples.length > 0 && samples[samples.length - 1].elapsedMs >= 650;
+                return samples.length > 0
+                  && samples[samples.length - 1].elapsedMs >= 650
+                  && samples.some((sample) => sample.cameraWriteSource === 'normal-tracking');
                 """
             )
         )
@@ -374,10 +376,24 @@ def main() -> None:
             all(checkpoint_errors[index] <= checkpoint_errors[index - 1] + 1e-4 for index in range(1, len(checkpoint_errors))),
             f'checkpoint camera-distance error must not increase: {checkpoint_errors}',
         )
-        require(
-            checkpoint_errors[-1] / max(float(checkpoints['plus_600ms']['desiredCameraDistance']), 1e-9) <= 0.08,
-            f'camera must converge close to tracked-body distance by +600ms: {checkpoint_errors[-1]}',
+        completed_handoff = next(
+            (
+                sample for sample in samples
+                if sample.get('cameraWriteSource') == 'normal-tracking'
+                and float(sample.get('elapsedMs') or 0) > 0
+            ),
+            None,
         )
+        require(completed_handoff is not None, 'renderer must finish the frame-count handoff before stability checks')
+        completed_error = abs(
+            float(completed_handoff['cameraDistanceToTrackedBody'])
+            - float(completed_handoff['desiredCameraDistance'])
+        )
+        require(
+            completed_error / max(float(completed_handoff['desiredCameraDistance']), 1e-9) <= 1e-6,
+            f'handoff completion must equal normal tracking distance: {completed_error}',
+        )
+        payload['completed_handoff'] = completed_handoff
         require(
             all(error <= checkpoint_target_errors[0] + 1e-5 for error in checkpoint_target_errors[1:]),
             f'camera target error must stay non-increasing after release: {checkpoint_target_errors}',
