@@ -18,8 +18,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 OUTPUT_DIR = Path('production-camera-handoff-artifacts')
 BASE_URL = os.environ.get('PRODUCTION_CAMERA_HANDOFF_BASE_URL', 'http://127.0.0.1:4173/3BP/')
-URL = f'{BASE_URL}?visual-regression=production-camera-handoff'
-TRACKED_BODY_NAME = os.environ.get('PRODUCTION_CAMERA_TRACKED_BODY', 'Atlas')
+URL = (
+    f'{BASE_URL}?visual-regression=production-camera-handoff'
+    '&production-camera-fixture=fast-moving-remnant'
+)
+TRACKED_BODY_NAME = os.environ.get('PRODUCTION_CAMERA_TRACKED_BODY', 'Handoff A')
 VIEWPORT_WIDTH = int(os.environ.get('PRODUCTION_CAMERA_VIEWPORT_WIDTH', '390'))
 VIEWPORT_HEIGHT = int(os.environ.get('PRODUCTION_CAMERA_VIEWPORT_HEIGHT', '844'))
 
@@ -190,8 +193,8 @@ def main() -> None:
         driver.execute_script(
             """
             localStorage.setItem('3bp-space-mode', '3d');
-            localStorage.setItem('3bp-body-count', '6');
-            localStorage.setItem('3bp-preset', 'hexaNested');
+            localStorage.setItem('3bp-body-count', '2');
+            localStorage.setItem('3bp-preset', 'binaryOrbit');
             localStorage.setItem('3bp-collision-watch-enabled', 'true');
             localStorage.setItem('3bp-trail-enabled', 'true');
             localStorage.setItem('3bp-language', 'en');

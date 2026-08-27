@@ -43,6 +43,7 @@ import {
 import { isTrackingMassEligible } from './trackingMassPolicy'
 import { findTrackingCandidate } from './trackingSelection'
 import type { BodyCount, BodyState, BodyType, PresetId, SpaceMode, TrailSample, TrailSampleBatch } from './types'
+import { getProductionCameraHandoffFixture } from './visualRegression/productionCameraHandoffFixture'
 
 const PHYSICS_DT = 0.0015
 const MAX_STEPS_PER_FRAME = 4000
@@ -115,6 +116,8 @@ function getInitialCollisionWatchEnabled() {
 }
 
 function createPresetBodies(preset: PresetId, mode: SpaceMode) {
+  const productionRegressionFixture = getProductionCameraHandoffFixture()
+  if (productionRegressionFixture) return productionRegressionFixture
   const raw = mode === '3d'
     ? getOrbital3dPresetOverride(preset) ?? getPreset(preset)
     : getOrbital2dPresetOverride(preset) ?? getPreset(preset)
