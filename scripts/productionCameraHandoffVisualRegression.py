@@ -146,7 +146,7 @@ def analyze(samples: list[dict[str, object]]) -> dict[str, object]:
         if screen_step is not None and float(screen_step) > screen_threshold:
             first_discontinuity_index = index
             break
-        if index > 0 and samples[index - 1].get('resolvedTrackedBodyId') != sample.get('resolvedTrackedBodyId'):
+        if index > 0 and samples[index - 1].get('trackedBodyId') != sample.get('trackedBodyId'):
             first_discontinuity_index = index
             break
 
