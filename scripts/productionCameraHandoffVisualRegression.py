@@ -122,22 +122,27 @@ def analyze(samples: list[dict[str, object]]) -> dict[str, object]:
         if samples[index].get('cameraWriteSource') == 'normal-tracking'
     )
 
-    pre_error_screen_steps = [
+    stable_collision_screen_steps = [
         float(samples[index].get('screenSpaceStep') or 0)
-        for index in range(release_index, handoff_last_index + 1)
+        for index in range(max(0, release_index - 10), release_index)
+        if samples[index].get('cameraWriteSource') == 'collision-camera'
     ]
-    screen_baseline = percentile(pre_error_screen_steps, 0.9)
+    require(
+        len(stable_collision_screen_steps) >= 4,
+        'continuity baseline requires stable collision-camera frames immediately before release',
+    )
+    screen_baseline = percentile(stable_collision_screen_steps, 0.9)
     viewport_diagonal = math.hypot(VIEWPORT_WIDTH, VIEWPORT_HEIGHT)
-    screen_threshold = max(viewport_diagonal * 0.075, screen_baseline * 4, 24)
+    screen_threshold = max(viewport_diagonal * 0.03, screen_baseline * 4, 12)
 
     first_discontinuity_index: int | None = None
-    for index in range(release_index + 1, len(samples)):
+    for index in range(release_index, len(samples)):
         sample = samples[index]
         screen_step = sample.get('screenSpaceStep')
         if screen_step is not None and float(screen_step) > screen_threshold:
             first_discontinuity_index = index
             break
-        if samples[index - 1].get('resolvedTrackedBodyId') != sample.get('resolvedTrackedBodyId'):
+        if index > 0 and samples[index - 1].get('resolvedTrackedBodyId') != sample.get('resolvedTrackedBodyId'):
             first_discontinuity_index = index
             break
 
@@ -148,7 +153,7 @@ def analyze(samples: list[dict[str, object]]) -> dict[str, object]:
         else None
     )
     metrics: dict[str, object] = {
-        'rootCause': 'UNCLASSIFIED_PRE_FIX',
+        'rootCause': 'C_MOVING_TARGET_FIXED_WORLD_TRANSFORM',
         'trackedBodyName': TRACKED_BODY_NAME,
         'viewport': {'width': VIEWPORT_WIDTH, 'height': VIEWPORT_HEIGHT},
         'releaseFrame': samples[release_index].get('renderFrameSequence'),
