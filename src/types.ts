@@ -100,10 +100,15 @@ export type BodyState = {
   collisionScarIntensity?: number
   trailExcitation01?: number
   /**
+   * Physical source identities represented by this collision result. This is
+   * separate from `id`: a 2→1 absorb/merge may keep the primary body's stable id
+   * while still carrying both source lineages for collision-watch resolution.
+   */
+  collisionLineageIds?: string[]
+  /**
    * Source body ids whose ordinary camera tracking may continue onto this body.
-   * This is intentionally narrower than generic collision lineage: absorption
-   * carries only the dominant absorber, while a true merge may carry both merged
-   * physical source lineages. The captured initial-mass gate still applies.
+   * A 2→1 absorption or true merge may carry both physical source lineages; the
+   * captured initial-mass 50% gate still decides whether that handoff is eligible.
    */
   trackingContinuationIds?: string[]
 }
