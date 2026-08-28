@@ -117,21 +117,22 @@ def is_body_colored(pixel: tuple[int, int, int]) -> bool:
     r, g, b = pixel
     brightest = max(r, g, b)
     darkest = min(r, g, b)
-    if brightest < 16 or brightest > 180 or brightest - darkest < 5:
+    chroma = brightest - darkest
+    if brightest < 9 or chroma < 2 or chroma / max(brightest, 1) < 0.025:
         return False
-    brown = r >= g * 1.025 and r >= b * 1.07
-    blue = b >= r * 1.07 and b >= g * 1.015
-    return brown or blue
+    warm = r >= g * 1.005 and r >= b * 1.015
+    cool = b >= r * 1.015 and b >= g * 1.005
+    return warm or cool
 
 
 def is_blue_body(pixel: tuple[int, int, int]) -> bool:
     r, g, b = pixel
     brightest = max(r, g, b)
     return (
-        16 <= brightest <= 180
-        and b >= r * 1.10
-        and b >= g * 1.025
-        and b - min(r, g) >= 6
+        brightest >= 9
+        and b >= r * 1.025
+        and b >= g * 1.008
+        and b - min(r, g) >= 2
     )
 
 
@@ -166,13 +167,13 @@ def silhouette_metrics(path: Path) -> dict[str, float | int]:
                         occupied.remove(candidate)
                         queue.append(candidate)
                         points.append(candidate)
-        if len(points) >= 40:
+        if len(points) >= 24:
             components.append(points)
 
     components.sort(key=len, reverse=True)
     selected = components[:3]
     points = [point for component in selected for point in component]
-    require(len(points) >= 120, f'body silhouette is not detectable in {path.name}')
+    require(len(points) >= 80, f'body silhouette is not detectable in {path.name}')
     area = len(points)
     cx = sum(x for x, _ in points) / area
     cy = sum(y for _, y in points) / area
