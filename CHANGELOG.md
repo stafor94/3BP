@@ -6,6 +6,20 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.21] - 2026-08-29
+
+### Fixed
+- 작은 non-stellar collision의 impact staging이 마지막 presentation contact보다 바깥쪽으로 되감기며 `겹침 → 다시 벌어짐 → 재접촉`으로 보이던 outward rewind를 제거했습니다.
+- non-stellar 2→1 merge의 physical result는 즉시 확정하면서도 마지막 source solid geometry를 보존해 survivor는 실제 remnant 위치·크기로 연속 수렴하고 absorbed source는 remnant 안쪽으로 침강·축소되도록 solid silhouette handoff를 추가해 한 프레임 topology 교체를 제거했습니다.
+- 작은 high-head-on non-stellar collision에서 contact flash가 밝은 세로 spike/기둥처럼 보이고 synthetic disruption chunk가 큰 검정·갈색 debris column을 만들던 presentation artifact를 제거했습니다.
+
+### Added
+- 실제 `fragmentAwareEngine.stepBodies()` → physical 2→1 result → production renderer 경로를 사용하는 browser regression을 추가해 source 유지, remnant pop-in 방지, screen-space centroid/면적 연속성, absorbed source의 monotonic sink/collapse, handoff 종료 후 ghost 제거를 검증합니다.
+- 기존 small head-on artifact browser regression과 physics regression에 A의 no-rewind staging 및 C의 flash/chunk suppression을 함께 유지하는 통합 검증을 포함했습니다.
+
+### Unchanged
+- physical collision resolution과 merge/absorb/disrupt 판정, mass, physical radius, velocity, momentum, collision threshold, fragment/ejecta 물리, stellar collision 전용 동작, tracking 50% eligibility 규칙은 변경하지 않았습니다.
+
 ## [0.19.20] - 2026-08-28
 
 ### Fixed
@@ -987,7 +1001,7 @@
 ## [0.12.0] - 2026-08-24
 
 ### Added
-- 모든 초기 천체의 질량과 반지름을 한 번에 조절하는 전역 스케일 슬라이더를 추가했습니다.
+- 모든 초기 천체의 질량과 반지름 배율을 한 번에 조절하는 전역 스케일 슬라이더를 추가했습니다.
 - 스케일 컨트롤 UI와 한국어/영어 문구를 추가했습니다.
 
 ## [0.11.2] - 2026-08-24
