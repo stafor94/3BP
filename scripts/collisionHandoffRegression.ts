@@ -1,8 +1,10 @@
+import * as THREE from 'three'
 import {
   COLLISION_FRACTURE_END_MS,
   COLLISION_HANDOFF_DURATION_MS,
   COLLISION_IMPACT_HOLD_END_MS,
   COLLISION_TRANSFER_END_MS,
+  createCollisionHandoffLayer,
   findCollisionAbsorptionSources,
   findCollisionHandoffSources,
   getCollisionHandoffFractureProgress,
@@ -11,6 +13,13 @@ import {
   getCollisionHandoffTransferProgress,
   getCollisionTransferParticleOpacity,
 } from '../src/rendering/collisionHandoffLayer'
+import {
+  DISRUPTION_CHUNK_MAX_COUNT,
+  DISRUPTION_CHUNK_MIN_COUNT,
+  createDisruptionChunkDescriptors,
+  getDisruptionChunkOpacity,
+  getDisruptionChunkSeparation,
+} from '../src/rendering/disruptionChunkVisual'
 import {
   COLLISION_REMNANT_FORMATION_START_MS,
   COLLISION_VISUAL_DISRUPTION_MASS_LOSS_THRESHOLD,
@@ -53,6 +62,20 @@ function body(
   }
 }
 
+function makeDisruptionFixture() {
+  const alpha = body('Alpha', 'planet', 1, -0.2)
+  const beta = body('Beta', 'planet', 1, 0.2)
+  const remnant = body('Alpha+Beta', 'planet', 1.18, 0)
+  const fragmentA = body('Alpha+Beta+frag1-0', 'fragment', 0.45, -0.05)
+  const fragmentB = body('Alpha+Beta+frag1-1', 'fragment', 0.37, 0.06)
+  const previous = [alpha, beta]
+  const current = [remnant, fragmentA, fragmentB]
+  const transition = findCollisionVisualTransitions(previous, current)
+    .find((candidate) => candidate.source.id === alpha.id)
+  assert(transition?.outcome === 'disrupted', 'fixture must classify Alpha as disrupted')
+  return { alpha, beta, remnant, fragmentA, fragmentB, previous, current, transition }
+}
+
 function testVisualLifecycleUsesExplicitPhases() {
   assert(getCollisionVisualLifecycle(0).phase === 'IMPACT', 'collision must begin in IMPACT')
   assert(
@@ -88,6 +111,147 @@ function testSourceTransferUsesFractureThenTransferData() {
   assert(getCollisionHandoffParticleProgress(COLLISION_IMPACT_HOLD_END_MS) === 0, 'particle transfer must not pre-empt impact')
   assert(getCollisionTransferParticleOpacity(700) > 0, 'fracture phase must expose transfer particles')
   assert(getCollisionTransferParticleOpacity(COLLISION_HANDOFF_DURATION_MS) === 0, 'transfer particles must dispose visually at completion')
+}
+
+function testDisruptionChunksStayContactLocalAndDeterministic() {
+  const { alpha, transition } = makeDisruptionFixture()
+  const chunks = createDisruptionChunkDescriptors(alpha, transition)
+  const repeated = createDisruptionChunkDescriptors(alpha, transition)
+  assert(
+    chunks.length >= DISRUPTION_CHUNK_MIN_COUNT && chunks.length <= DISRUPTION_CHUNK_MAX_COUNT,
+    'disrupted source must create a bounded medium/large chunk cluster',
+  )
+  assert(chunks.some((chunk) => chunk.isLarge), 'chunk cluster must include large solid debris')
+  assert(chunks.some((chunk) => !chunk.isLarge), 'chunk cluster must include medium solid debris')
+  assert(repeated.length === chunks.length, 'deterministic seed must preserve chunk count')
+
+  const contactPoint = new THREE.Vector3(
+    transition.contactPoint.x,
+    transition.contactPoint.y,
+    transition.contactPoint.z,
+  )
+  const contactNormal = new THREE.Vector3(
+    transition.contactNormal.x,
+    transition.contactNormal.y,
+    transition.contactNormal.z,
+  ).normalize()
+  const sourceCenter = new THREE.Vector3(alpha.position.x, alpha.position.y, alpha.position.z)
+  chunks.forEach((chunk, index) => {
+    assert(
+      chunk.initialCenter.distanceTo(contactPoint) <= alpha.radius * 0.36,
+      'solid chunk must begin inside the contact-local cap instead of across the source body',
+    )
+    const facingDistance = chunk.initialCenter.clone().sub(sourceCenter).dot(contactNormal)
+    assert(
+      facingDistance >= alpha.radius * 0.72,
+      'solid chunk must not originate on the opposite hemisphere',
+    )
+    assert(
+      chunk.initialCenter.distanceTo(repeated[index].initialCenter) <= 1e-12 &&
+        chunk.direction.distanceTo(repeated[index].direction) <= 1e-12,
+      'solid chunk placement and direction must remain deterministic',
+    )
+  })
+}
+
+function testDisruptionChunkSeparationGrowsFromFractureIntoTransfer() {
+  const { alpha, transition } = makeDisruptionFixture()
+  const chunks = createDisruptionChunkDescriptors(alpha, transition)
+  const meanSeparationAt = (elapsedMs: number) => {
+    const lifecycle = getCollisionVisualLifecycle(elapsedMs)
+    const fractureProgress = getCollisionHandoffFractureProgress(elapsedMs)
+    const transferProgress = getCollisionHandoffTransferProgress(elapsedMs)
+    const settleProgress = lifecycle.phase === 'REMNANT_SETTLE' ? lifecycle.phaseProgress : 0
+    return chunks.reduce((sum, chunk) => sum + getDisruptionChunkSeparation(
+      chunk,
+      alpha.radius,
+      fractureProgress,
+      transferProgress,
+      settleProgress,
+    ), 0) / chunks.length
+  }
+
+  const earlyFracture = meanSeparationAt(360)
+  const lateFracture = meanSeparationAt(880)
+  const transfer = meanSeparationAt(1500)
+  assert(lateFracture > earlyFracture + alpha.radius * 0.02, 'chunk separation must grow through FRACTURE')
+  assert(transfer > lateFracture + alpha.radius * 0.02, 'chunk separation must keep growing through TRANSFER')
+
+  const impactOpacity = getDisruptionChunkOpacity(getCollisionVisualLifecycle(120))
+  const fractureOpacity = getDisruptionChunkOpacity(getCollisionVisualLifecycle(700))
+  const settleOpacity = getDisruptionChunkOpacity(getCollisionVisualLifecycle(2350))
+  assert(impactOpacity > 0 && fractureOpacity > impactOpacity, 'solid mass must remain visible as fracture begins')
+  assert(settleOpacity < fractureOpacity, 'synthetic chunks must hand visual ownership off during settle')
+  assert(
+    getDisruptionChunkOpacity(getCollisionVisualLifecycle(COLLISION_HANDOFF_DURATION_MS)) === 0,
+    'solid chunks must be fully invisible at handoff completion',
+  )
+}
+
+function testRuntimeChunkLayerUsesInstancingAnchorAndCleanup() {
+  const { alpha, previous, current } = makeDisruptionFixture()
+  const scene = new THREE.Scene()
+  const layer = createCollisionHandoffLayer(scene)
+  layer.update(previous, 100)
+  layer.update(current, 101)
+
+  const chunkMesh = scene.children.find((child) =>
+    child instanceof THREE.InstancedMesh &&
+    child.userData.collisionVisualSolidChunks === true &&
+    child.userData.collisionVisualSourceId === alpha.id,
+  ) as THREE.InstancedMesh | undefined
+  assert(chunkMesh instanceof THREE.InstancedMesh, 'FRACTURE handoff must own a solid InstancedMesh chunk layer')
+  assert(
+    chunkMesh.count >= DISRUPTION_CHUNK_MIN_COUNT && chunkMesh.count <= DISRUPTION_CHUNK_MAX_COUNT,
+    'runtime chunk layer must retain the bounded deterministic instance count',
+  )
+  assert(
+    scene.children.some((child) =>
+      child instanceof THREE.Points &&
+      child.userData.collisionVisualSourceId === alpha.id,
+    ),
+    'solid chunks must coexist with the existing fine particle transfer',
+  )
+  assert(
+    chunkMesh.geometry.type === 'IcosahedronGeometry',
+    'solid breakup must use local low-poly chunks rather than a cloned source sphere',
+  )
+
+  const moved = current.map((candidate) => ({
+    ...candidate,
+    position: {
+      ...candidate.position,
+      y: candidate.position.y + 0.6,
+    },
+  }))
+  layer.update(moved, 1501)
+  assert(chunkMesh.userData.collisionVisualPhase === 'TRANSFER', 'solid chunk layer must follow the shared visual lifecycle')
+  assert(
+    Math.abs(chunkMesh.position.y - 0.6) <= 1e-9,
+    'moving disrupted chunks must reuse result-anchor delta instead of staying at impact coordinates',
+  )
+
+  layer.dispose()
+  assert(
+    !scene.children.some((child) => child.userData.collisionVisualSolidChunks === true),
+    'disposing the handoff layer must remove all solid chunk instances from the scene',
+  )
+}
+
+function testAbsorptionDoesNotCreateSolidDisruptionChunks() {
+  const primary = body('Primary', 'planet', 1, 0)
+  const impactor = body('Impactor', 'moon', 0.08, 0.28)
+  const remnant = body('Primary+Impactor', 'planet', 1.04, 0.01)
+  const debris = body('Primary+Impactor+frag1-0', 'fragment', 0.04, 0.25)
+  const scene = new THREE.Scene()
+  const layer = createCollisionHandoffLayer(scene)
+  layer.update([primary, impactor], 100)
+  layer.update([remnant, debris], 101)
+  assert(
+    !scene.children.some((child) => child.userData.collisionVisualSolidChunks === true),
+    'absorbed sources must keep the existing particle-only sink/transfer path',
+  )
+  layer.dispose()
 }
 
 function testRemnantLifecycleIsIndependentAndGradual() {
@@ -129,12 +293,8 @@ function testSurvivorAbsorptionClassificationIsUnchanged() {
 }
 
 function testActualDisruptionClassificationIsUnchanged() {
-  const alpha = body('Alpha', 'planet', 1, -0.2)
-  const beta = body('Beta', 'planet', 1, 0.2)
-  const remnant = body('Alpha+Beta', 'planet', 1.18, 0)
-  const fragmentA = body('Alpha+Beta+frag1-0', 'fragment', 0.45, -0.05)
-  const fragmentB = body('Alpha+Beta+frag1-1', 'fragment', 0.37, 0.06)
-  const retired = findCollisionHandoffSources([alpha, beta], [remnant, fragmentA, fragmentB])
+  const { alpha, beta, current } = makeDisruptionFixture()
+  const retired = findCollisionHandoffSources([alpha, beta], current)
   assert(retired.length === 2, 'actual disruption must still classify both originals')
 }
 
@@ -196,6 +356,10 @@ const tests = [
   testVisualLifecycleUsesExplicitPhases,
   testHandoffProgressRemainsSmoothAndBounded,
   testSourceTransferUsesFractureThenTransferData,
+  testDisruptionChunksStayContactLocalAndDeterministic,
+  testDisruptionChunkSeparationGrowsFromFractureIntoTransfer,
+  testRuntimeChunkLayerUsesInstancingAnchorAndCleanup,
+  testAbsorptionDoesNotCreateSolidDisruptionChunks,
   testRemnantLifecycleIsIndependentAndGradual,
   testSurvivorAbsorptionClassificationIsUnchanged,
   testActualDisruptionClassificationIsUnchanged,
