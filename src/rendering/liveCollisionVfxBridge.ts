@@ -73,6 +73,7 @@ const SOURCE_FRAGMENT_OUTPUT = 'gl_FragColor = vec4(color, uOpacity);'
 const collisionRevealVertexShader = `
   uniform float uSeed;
   uniform float uCollisionRevealScale;
+  uniform float uCollisionFormationActive;
   uniform vec3 uCollisionFormationAxis;
   uniform float uCollisionFormationDeformation;
   uniform float uCollisionFormationCompression;
@@ -83,34 +84,38 @@ const collisionRevealVertexShader = `
 
   void main() {
     vec3 objectNormal = normalize(normal);
-    vec3 formationAxis = normalize(
-      uCollisionFormationAxis + vec3(0.000001, 0.000002, 0.000003)
-    );
-    float axisProjection = dot(position, formationAxis);
-    float tangentScale = 1.0 + uCollisionFormationCompression * 0.16;
-    float axisScale = 1.0 - uCollisionFormationCompression;
-    vec3 anisotropicPosition =
-      position * tangentScale +
-      formationAxis * axisProjection * (axisScale - tangentScale);
+    vec3 revealPosition = position * uCollisionRevealScale;
 
-    float lowFrequencyA = sin(
-      dot(objectNormal, vec3(2.9, 4.1, 3.3)) * 2.15 + uSeed * 0.017
-    );
-    float lowFrequencyB = sin(
-      objectNormal.x * 4.7 -
-      objectNormal.y * 3.5 +
-      objectNormal.z * 5.3 +
-      uSeed * 0.031
-    );
-    float impactLobe = dot(objectNormal, formationAxis);
-    float radialDeformation = 1.0 + uCollisionFormationDeformation * (
-      lowFrequencyA * 0.34 +
-      lowFrequencyB * 0.19 +
-      impactLobe * 0.14
-    );
+    if (uCollisionFormationActive > 0.5) {
+      vec3 formationAxis = normalize(
+        uCollisionFormationAxis + vec3(0.000001, 0.000002, 0.000003)
+      );
+      float axisProjection = dot(position, formationAxis);
+      float tangentScale = 1.0 + uCollisionFormationCompression * 0.16;
+      float axisScale = 1.0 - uCollisionFormationCompression;
+      vec3 anisotropicPosition =
+        position * tangentScale +
+        formationAxis * axisProjection * (axisScale - tangentScale);
+
+      float lowFrequencyA = sin(
+        dot(objectNormal, vec3(2.9, 4.1, 3.3)) * 2.15 + uSeed * 0.017
+      );
+      float lowFrequencyB = sin(
+        objectNormal.x * 4.7 -
+        objectNormal.y * 3.5 +
+        objectNormal.z * 5.3 +
+        uSeed * 0.031
+      );
+      float impactLobe = dot(objectNormal, formationAxis);
+      float radialDeformation = 1.0 + uCollisionFormationDeformation * (
+        lowFrequencyA * 0.34 +
+        lowFrequencyB * 0.19 +
+        impactLobe * 0.14
+      );
+      revealPosition = anisotropicPosition * radialDeformation * uCollisionRevealScale;
+    }
 
     vObjectNormal = objectNormal;
-    vec3 revealPosition = anisotropicPosition * radialDeformation * uCollisionRevealScale;
     vec4 worldPosition = modelMatrix * vec4(revealPosition, 1.0);
     vWorldPosition = worldPosition.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
@@ -144,34 +149,36 @@ const survivorImpactFragmentCode = `
 `
 
 const remnantFormationFragmentCode = `
-  vec3 remnantFormationNormal = normalize(vObjectNormal);
-  vec3 remnantFormationAxis = normalize(
-    uCollisionFormationAxis + vec3(0.000001, 0.000002, 0.000003)
-  );
-  float remnantFormationFacing = 0.5 + 0.5 * dot(
-    remnantFormationNormal,
-    remnantFormationAxis
-  );
-  float remnantFormationNoise = valueNoise(
-    remnantFormationNormal * 4.6 +
-    vec3(uSeed * 0.019, -uSeed * 0.011, uSeed * 0.023)
-  );
-  float remnantFormationPatch = smoothstep(
-    0.54,
-    0.86,
-    remnantFormationFacing * 0.60 + remnantFormationNoise * 0.40
-  );
-  float remnantFormationUnrest = uCollisionFormationHeat * (
-    0.16 + remnantFormationPatch * 0.84
-  );
-  color = mix(
-    color,
-    vec3(1.0, 0.38, 0.15),
-    remnantFormationUnrest * 0.14
-  );
-  color += vec3(1.0, 0.60, 0.30) * remnantFormationUnrest * (
-    0.035 + remnantFormationPatch * 0.055
-  );
+  if (uCollisionFormationActive > 0.5) {
+    vec3 remnantFormationNormal = normalize(vObjectNormal);
+    vec3 remnantFormationAxis = normalize(
+      uCollisionFormationAxis + vec3(0.000001, 0.000002, 0.000003)
+    );
+    float remnantFormationFacing = 0.5 + 0.5 * dot(
+      remnantFormationNormal,
+      remnantFormationAxis
+    );
+    float remnantFormationNoise = valueNoise(
+      remnantFormationNormal * 4.6 +
+      vec3(uSeed * 0.019, -uSeed * 0.011, uSeed * 0.023)
+    );
+    float remnantFormationPatch = smoothstep(
+      0.54,
+      0.86,
+      remnantFormationFacing * 0.60 + remnantFormationNoise * 0.40
+    );
+    float remnantFormationUnrest = uCollisionFormationHeat * (
+      0.16 + remnantFormationPatch * 0.84
+    );
+    color = mix(
+      color,
+      vec3(1.0, 0.38, 0.15),
+      remnantFormationUnrest * 0.14
+    );
+    color += vec3(1.0, 0.60, 0.30) * remnantFormationUnrest * (
+      0.035 + remnantFormationPatch * 0.055
+    );
+  }
 `
 
 let installed = false
@@ -394,11 +401,30 @@ function updateCollisionEventLifecycle(event: CollisionVisualEvent, now: number)
   return event.lifecycle
 }
 
+function resetRemnantFormationUniforms(material: THREE.ShaderMaterial) {
+  if (material.uniforms.uCollisionFormationActive) {
+    material.uniforms.uCollisionFormationActive.value = 0
+  }
+  if (material.uniforms.uCollisionFormationDeformation) {
+    material.uniforms.uCollisionFormationDeformation.value = 0
+  }
+  if (material.uniforms.uCollisionFormationCompression) {
+    material.uniforms.uCollisionFormationCompression.value = 0
+  }
+  if (material.uniforms.uCollisionFormationHeat) {
+    material.uniforms.uCollisionFormationHeat.value = 0
+  }
+}
+
 function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Object3D, now: number) {
   const body = resolveMaterialBody(material)
   if (!body) return
   const transition = getSurvivorTransition(body.id)
   if (!transition) return
+
+  // Stage-3 formation is disruption-remnant-only. Keep survivor/absorption on
+  // the exact pre-existing shader path even if a material instance was reused.
+  resetRemnantFormationUniforms(material)
 
   const event = collisionVisualEventsByResultId.get(body.id)
   if (!event) return
@@ -435,18 +461,6 @@ function readBaseOpacity(material: THREE.ShaderMaterial) {
   const baseOpacity = Number.isFinite(value) ? value : 1
   material.userData.collisionVisualBaseOpacity = baseOpacity
   return baseOpacity
-}
-
-function resetRemnantFormationUniforms(material: THREE.ShaderMaterial) {
-  if (material.uniforms.uCollisionFormationDeformation) {
-    material.uniforms.uCollisionFormationDeformation.value = 0
-  }
-  if (material.uniforms.uCollisionFormationCompression) {
-    material.uniforms.uCollisionFormationCompression.value = 0
-  }
-  if (material.uniforms.uCollisionFormationHeat) {
-    material.uniforms.uCollisionFormationHeat.value = 0
-  }
 }
 
 function applyRemnantFormationAxis(
@@ -495,6 +509,9 @@ function applyCollisionProductLifecycle(
     remnantState = getCollisionRemnantPresentationState(elapsedMs, seed01)
     scaleUniform.value = remnantState.scale
     applyRemnantFormationAxis(material, object, getRemnantFormationTransition(body.id))
+    if (material.uniforms.uCollisionFormationActive) {
+      material.uniforms.uCollisionFormationActive.value = 1
+    }
     if (material.uniforms.uCollisionFormationDeformation) {
       material.uniforms.uCollisionFormationDeformation.value = remnantState.deformation
     }
@@ -641,6 +658,7 @@ export function installLiveCollisionVfxBridge() {
     material.uniforms.uCollisionImpactDirection ??= { value: new THREE.Vector3(1, 0, 0) }
     material.uniforms.uCollisionImpactFlash ??= { value: 0 }
     material.uniforms.uCollisionImpactHeat ??= { value: 0 }
+    material.uniforms.uCollisionFormationActive ??= { value: 0 }
     material.uniforms.uCollisionFormationAxis ??= { value: new THREE.Vector3(1, 0, 0) }
     material.uniforms.uCollisionFormationDeformation ??= { value: 0 }
     material.uniforms.uCollisionFormationCompression ??= { value: 0 }
@@ -654,6 +672,7 @@ export function installLiveCollisionVfxBridge() {
         uniform vec3 uCollisionImpactDirection;
         uniform float uCollisionImpactFlash;
         uniform float uCollisionImpactHeat;
+        uniform float uCollisionFormationActive;
         uniform vec3 uCollisionFormationAxis;
         uniform float uCollisionFormationHeat;
       ${material.fragmentShader.replace(
