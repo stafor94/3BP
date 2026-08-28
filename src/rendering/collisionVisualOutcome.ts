@@ -279,13 +279,13 @@ function transitionFor(
   }
 }
 
-function findCollisionResultSources(
+function findCollisionResultIdentitySources(
   result: BodyState,
   previous: BodyState[],
   currentIds: Set<string>,
 ) {
   return previous.filter((source) =>
-    isNonStellarSource(source) &&
+    source.bodyType !== 'effect' &&
     bodyCarriesCollisionLineage(result, source.id) &&
     (source.id === result.id || !currentIds.has(source.id)),
   )
@@ -302,8 +302,10 @@ export function findCollisionVisualTransitions(
   const resultCandidates = current.filter(isNonStellarResult)
 
   for (const result of resultCandidates) {
-    const sources = findCollisionResultSources(result, previous, currentIds)
-    if (sources.length < 2) continue
+    const identitySources = findCollisionResultIdentitySources(result, previous, currentIds)
+    if (identitySources.length < 2) continue
+    const sources = identitySources.filter(isNonStellarSource)
+    if (sources.length === 0) continue
 
     const incomingMass = sources.reduce((sum, source) => sum + Math.max(0, source.mass), 0)
     const massLossFraction = incomingMass > 1e-12
