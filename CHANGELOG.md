@@ -6,6 +6,18 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.18] - 2026-08-28
+
+### Fixed
+- 작은 non-stellar 천체의 collision impact staging이 physical radius만 기준으로 접촉 위치를 잡아 renderer의 최소 표시 반지름보다 훨씬 깊게 겹쳐 보이던 문제를 수정했습니다.
+- display-only impact contact는 renderer와 동일한 최소 표시 반지름 정책을 반영하되, 실제 solver handoff는 기존 physical `radiusA + radiusB`와 microscopic overlap을 그대로 사용하도록 분리했습니다.
+
+### Added
+- small+small, small+normal, normal+normal, solver isolation, moving collision에서 rendered contact 거리, center-of-mass 연속성, physical outcome 불변을 검증하는 collision presentation radius 회귀 체크를 추가했습니다.
+
+### Unchanged
+- collision classification/ownership, merge/disruption 판정, mass/physical radius/velocity/momentum, flash/ejecta VFX, camera, trail, stellar collision VFX 및 최소 표시 반지름 값은 변경하지 않았습니다.
+
 ## [0.19.17] - 2026-08-28
 
 ### Fixed
@@ -690,7 +702,7 @@
 - 합체 이후에는 선택한 초기 천체의 계보에서 가장 큰 생존 천체를 계속 추적 대상으로 연결하도록 변경했습니다.
 
 ### Fixed
-- 초기 질량의 절반 이하로 감소했거나 더 이상 생존 계보를 찾을 수 없는 천체는 추적 레일에서 흑백·비활성 상태로 표시하고 선택할 수 없도록 했습니다.
+- 초기 질량의 절반 이하로 감소했거나 더 이상 생존 계보를 찾을 수 없는 천체는 추적 레일에서 흑백/비활성 상태로 표시하고 선택할 수 없도록 했습니다.
 - 선택 중인 천체가 추적 불가 상태가 되면 선택 상태와 카메라 추적을 자동으로 해제하도록 했습니다.
 
 ## [0.15.25] - 2026-08-25

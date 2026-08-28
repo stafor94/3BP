@@ -13,6 +13,7 @@ import {
   getRenderedBodyRadius,
   isCollisionCameraDistanceConverged,
 } from './cameraFraming'
+import { getBodyPresentationRadius, MIN_BODY_RENDER_RADIUS } from './bodyPresentationRadius'
 import { createFragmentGeometry } from './fragmentGeometry'
 import {
   getTrackingHandoffProgress,
@@ -179,7 +180,7 @@ const RENDER_TUNING = {
   body: {
     sphereWidthSegments: 36,
     sphereHeightSegments: 24,
-    minRenderRadius: 0.025,
+    minRenderRadius: MIN_BODY_RENDER_RADIUS,
     innerGlowScale: 5.4,
     outerGlowScale: 12.0,
     innerGlowOpacityMin: 0.55,
@@ -676,7 +677,7 @@ function updateTrailRibbon(
 }
 
 function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTime: number) {
-  const renderRadius = Math.max(body.radius, RENDER_TUNING.body.minRenderRadius)
+  const renderRadius = getBodyPresentationRadius(body.radius)
   const stellarColor = body.stellarTemperatureK !== undefined
     ? body.color
     : getNearestStellarColor(body.color).hex
