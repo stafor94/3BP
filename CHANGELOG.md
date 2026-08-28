@@ -6,6 +6,18 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.17] - 2026-08-28
+
+### Fixed
+- non-stellar 2→1 merge/absorb가 physics에서 primary의 기존 ID를 보존하는 경우에도 `collisionLineageIds`를 기준으로 실제 surviving result를 찾아, 보존된 source를 `merged-survivor`, 사라진 source를 `absorbed`로 연결하도록 collision visual ownership 판정을 수정했습니다.
+- preserved-ID merge에서 secondary lineage를 가진 mass-bearing ejecta가 존재해도 surviving result association을 먼저 적용해 secondary가 `disrupted`로 잘못 분류되고 disruption solid chunk handoff가 생성되던 문제를 제거했습니다.
+
+### Added
+- preserved-ID normal merge, mass-bearing ejecta 동반 merge, pure fragmentation, ordinary unchanged body, 기존 new-ID merge를 직접 검증하고 preserved merge에서 disruption chunk가 생성되지 않는지 확인하는 collision visual ownership regression을 추가했습니다.
+
+### Unchanged
+- collision physics/판정식/질량/반지름/속도, `getCollisionContactDistance`, `minRenderRadius`, camera/trail, stellar collision VFX, contact flash, ejecta 방향, remnant deformation 및 collision lifecycle timing은 변경하지 않았습니다.
+
 ## [0.19.16] - 2026-08-28
 
 ### Fixed
