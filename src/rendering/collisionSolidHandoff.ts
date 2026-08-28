@@ -374,6 +374,8 @@ export function renderCollisionSolidHandoffFrame(
   renderFrameSequence: number,
   now = performance.now(),
 ) {
+  if (activeHandoffs.size === 0 && retiredPresentationSeeds.size === 0) return null
+
   const frame = sampleCollisionSolidHandoffRenderFrame(now)
   const overridesBySeed = new Map<string, {
     bodyId: string
