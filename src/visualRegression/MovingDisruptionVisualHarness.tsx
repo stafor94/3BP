@@ -38,6 +38,30 @@ const result = body(
 )
 result.velocity = { x: 0.52, y: -0.12, z: 0 }
 
+const impactFlash = body(
+  `${result.id}+flash-continuity`,
+  'effect',
+  0,
+  0.13,
+  0.04,
+  0.01,
+  '#f4b06d',
+)
+impactFlash.velocity = { ...result.velocity }
+impactFlash.age = 0
+impactFlash.lifetime = 0.72
+impactFlash.effectVisual = {
+  kind: 'contactFlash',
+  direction: { x: 0, y: 1, z: 0 },
+  normal: { x: 1, y: 0, z: 0 },
+  stretch: 3.8,
+  widthScale: 0.25,
+  brightness: 2.05,
+  turbulence: 0.42,
+  pulseStrength: 0.26,
+  stellarCollision: false,
+}
+
 const fragments: BodyState[] = [
   body(`${result.id}+fragment-0`, 'fragment', 0.35, 0.12, 0.01, 0.1, '#7892a8'),
   body(`${result.id}+fragment-1`, 'fragment', 0.25, 0.1, 0.1, -0.08, '#66788e'),
@@ -80,9 +104,11 @@ export function MovingDisruptionVisualHarness() {
   const bodies = useMemo(() => {
     if (stage === 'contact') return CONTACT_BODIES
     const elapsedSeconds = destructionElapsedMs / 1000
+    const flash = { ...advance(impactFlash, elapsedSeconds), age: elapsedSeconds }
     return [
       advance(result, elapsedSeconds),
       ...fragments.map((fragment) => advance(fragment, elapsedSeconds)),
+      ...(elapsedSeconds <= 0.72 ? [flash] : []),
     ]
   }, [stage, destructionElapsedMs])
 

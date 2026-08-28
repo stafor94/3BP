@@ -3,6 +3,10 @@ import { resolveBodyDescendant } from '../collisionWatch'
 import { installBodyLighting, syncBodyLightingState } from '../rendering/bodyLighting'
 import { getCelestialBodyRenderBodies } from '../rendering/collisionEffectRouting'
 import {
+  installCollisionVisualContinuity,
+  syncCollisionVisualContinuityState,
+} from '../rendering/collisionVisualContinuity'
+import {
   installLiveCollisionVfxBridge,
   syncLiveCollisionVfxState,
 } from '../rendering/liveCollisionVfxBridge'
@@ -154,6 +158,7 @@ export function SimulationView({
   syncBodyLightingState(bodies)
   syncStellarRemnantPresentationState(bodies, simulationTime)
   syncLiveCollisionVfxState(bodies)
+  syncCollisionVisualContinuityState(bodies)
 
   useEffect(() => {
     const host = hostRef.current
@@ -164,12 +169,14 @@ export function SimulationView({
     installStellarRemnantPresentation()
     // Install last so collision VFX keeps owning its existing draw-path bridge.
     installLiveCollisionVfxBridge()
+    installCollisionVisualContinuity()
     syncBodyLightingState(liveBodiesRef.current)
     syncStellarRemnantPresentationState(
       liveBodiesRef.current,
       renderStateRef.current.simulationTime,
     )
     syncLiveCollisionVfxState(liveBodiesRef.current)
+    syncCollisionVisualContinuityState(liveBodiesRef.current)
     const isProductionCameraHandoffRegression = new URLSearchParams(window.location.search)
       .get('visual-regression') === 'production-camera-handoff'
     let previousWriter: SimulationCameraTelemetry['cameraWriteSource'] | null = null

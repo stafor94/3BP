@@ -110,11 +110,13 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           : clamp(body.radius * 0.32, 0.038, 0.082),
       anisotropicStretch: stellar
         ? clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : 3.05)
-        : clamp(rawStretch, 1.25, 1.70),
+        : clamp(rawStretch, 1.18, 1.45),
       widthScale: stellar
         ? clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66)
-        : clamp(rawWidth, 0.68, 0.90),
-      tailLength: 0,
+        : clamp(rawWidth, 0.86, 1.00),
+      // Negative tail is a renderer-local sentinel for the compact solid-body
+      // impact mask. Stellar contact flashes keep the original zero-tail path.
+      tailLength: stellar ? 0 : -1,
       pulseStrength: stellar
         ? clamp(visual?.pulseStrength ?? (physicalStellar ? 0.055 : 0.16), 0, physicalStellar ? 0.075 : 0.2)
         : clamp(visual?.pulseStrength ?? 0.07, 0, 0.08),
@@ -169,18 +171,20 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       anisotropicStretch: clamp(
         rawStretch * (0.92 + progress * (physicalStellar ? 0.12 : 0.1)),
         stellar ? 1.65 : 1.25,
-        syntheticStellar ? 3.05 : physicalStellar ? 3.35 : stellar ? 3.55 : 1.90,
+        syntheticStellar ? 3.05 : physicalStellar ? 3.35 : stellar ? 3.55 : 1.55,
       ),
       widthScale: clamp(
         rawWidth * (1 + progress * (physicalStellar ? 0.16 : 0.1)),
-        physicalStellar ? 0.4 : stellar ? 0.34 : 0.64,
-        stellar ? 0.78 : 0.90,
+        physicalStellar ? 0.4 : stellar ? 0.34 : 0.86,
+        stellar ? 0.78 : 1.00,
       ),
-      tailLength: clamp(
-        (visual?.tailLength ?? 0.16) * (physicalStellar && stellarOutcome === 'hitAndRun' ? 1.08 : 1),
-        0,
-        0.46,
-      ),
+      tailLength: stellar
+        ? clamp(
+            (visual?.tailLength ?? 0.16) * (physicalStellar && stellarOutcome === 'hitAndRun' ? 1.08 : 1),
+            0,
+            0.46,
+          )
+        : -1,
       pulseStrength: clamp(visual?.pulseStrength ?? 0.05, 0, 0.075),
       brightness: syntheticStellar
         ? (visual?.brightness ?? 1.08) * (0.78 + syntheticBuild * 0.22)
