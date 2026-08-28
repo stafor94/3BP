@@ -110,10 +110,10 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           : clamp(body.radius * 0.32, 0.038, 0.082),
       anisotropicStretch: stellar
         ? clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : 3.05)
-        : clamp(rawStretch, 1.4, 1.95),
+        : clamp(rawStretch, 1.25, 1.70),
       widthScale: stellar
         ? clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66)
-        : clamp(rawWidth, 0.58, 0.82),
+        : clamp(rawWidth, 0.68, 0.90),
       tailLength: 0,
       pulseStrength: stellar
         ? clamp(visual?.pulseStrength ?? (physicalStellar ? 0.055 : 0.16), 0, physicalStellar ? 0.075 : 0.2)
@@ -168,13 +168,13 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           : clamp(body.radius * 0.34, 0.045, 0.11),
       anisotropicStretch: clamp(
         rawStretch * (0.92 + progress * (physicalStellar ? 0.12 : 0.1)),
-        1.65,
-        syntheticStellar ? 3.05 : physicalStellar ? 3.35 : 3.55,
+        stellar ? 1.65 : 1.25,
+        syntheticStellar ? 3.05 : physicalStellar ? 3.35 : stellar ? 3.55 : 1.90,
       ),
       widthScale: clamp(
         rawWidth * (1 + progress * (physicalStellar ? 0.16 : 0.1)),
-        physicalStellar ? 0.4 : 0.34,
-        0.78,
+        physicalStellar ? 0.4 : stellar ? 0.34 : 0.64,
+        stellar ? 0.78 : 0.90,
       ),
       tailLength: clamp(
         (visual?.tailLength ?? 0.16) * (physicalStellar && stellarOutcome === 'hitAndRun' ? 1.08 : 1),

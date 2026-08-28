@@ -6,6 +6,21 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.15] - 2026-08-28
+
+### Fixed
+- 비항성 collision의 contact/compression sheet 종횡비를 제한해 충돌 직후 밝은 세로 기둥처럼 보이던 극단적인 스트레칭을 줄였습니다.
+- disruption remnant가 최종 physical radius의 84~90% 범위에서 형성을 시작하고 FORMING 98%에서 REMNANT_SETTLE을 거쳐 100%로 수렴하도록 조정해, source가 사라진 뒤 본체가 극소 크기로 줄었다가 다시 팽창해 보이던 전환을 제거했습니다.
+
+### Changed
+- irregular remnant core, deterministic low-frequency deformation, contact-axis anisotropic compression 구조는 유지하되 초기 deformation/compression 강도를 낮춰 첫 visible remnant frame에서도 본체 질량감과 실루엣이 유지되도록 조정했습니다.
+
+### Added
+- source 마지막 반지름 대비 초기 remnant visual radius, contact/perpendicular axis 종횡비, phase boundary와 인접 frame 실루엣 변화, REMNANT_SETTLE 잔여 성장폭, non-stellar compression sheet 종횡비를 검증하는 회귀 체크를 추가했습니다.
+
+### Unchanged
+- contact-local solid chunk breakup, detached chunks/fine debris, source→result ownership handoff, irregular remnant core, deterministic deformation, anisotropic collision deformation 자체, REMNANT_SETTLE→STABLE lifecycle, collision physics/판정/질량/반지름/카메라/트레일은 변경하지 않았습니다.
+
 ## [0.19.14] - 2026-08-28
 
 ### Changed
