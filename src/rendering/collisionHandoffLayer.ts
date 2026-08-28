@@ -9,6 +9,12 @@ import {
   type CollisionVisualLifecycle,
   type CollisionVisualTransition,
 } from './collisionVisualOutcome'
+import {
+  createDisruptionChunkVisual,
+  disposeDisruptionChunkVisual,
+  updateDisruptionChunkVisual,
+  type DisruptionChunkVisual,
+} from './disruptionChunkVisual'
 
 export const COLLISION_HANDOFF_DURATION_MS = COLLISION_VISUAL_TIMING_MS.remnantSettleEnd
 export const COLLISION_IMPACT_HOLD_END_MS = COLLISION_VISUAL_TIMING_MS.impactEnd
@@ -42,6 +48,7 @@ type SourceTransferVisual = CollisionSourceVisualState & {
   particlePositions: Float32Array
   particleDirections: Vec3[]
   particleSpeeds: number[]
+  chunks: DisruptionChunkVisual | null
 }
 
 const particleVertexShader = `
@@ -322,6 +329,7 @@ function createParticleMaterial(source: BodyState) {
 
 export function createCollisionHandoffLayer(scene: THREE.Scene) {
   const active = new Map<string, SourceTransferVisual>()
+  const disruptionChunkGeometry = new THREE.IcosahedronGeometry(1, 0)
   let previousBodies: BodyState[] | null = null
 
   const disposeVisual = (id: string) => {
@@ -330,6 +338,10 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     scene.remove(visual.particles)
     visual.particleMaterial.dispose()
     visual.particleGeometry.dispose()
+    if (visual.chunks) {
+      scene.remove(visual.chunks.mesh)
+      disposeDisruptionChunkVisual(visual.chunks)
+    }
     active.delete(id)
   }
 
@@ -375,11 +387,15 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     particles.userData.collisionVisualOutcome = transition.outcome
     particles.userData.collisionVisualPhase = 'IMPACT'
 
+    const chunks = transition.outcome === 'disrupted'
+      ? createDisruptionChunkVisual(source, transition, disruptionChunkGeometry)
+      : null
     const initialAnchor = transition.resultId
       ? findResultAnchor(transition.resultId, bodies)
       : findFragmentSystemAnchor(source.id, bodies)
 
     scene.add(particles)
+    if (chunks) scene.add(chunks.mesh)
     active.set(source.id, {
       sourceId: source.id,
       resultId: transition.resultId,
@@ -403,6 +419,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
       particlePositions,
       particleDirections,
       particleSpeeds,
+      chunks,
     })
   }
 
@@ -440,6 +457,17 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     visual.particleMaterial.uniforms.uPointSize.value = getDisruptionTransferPointSize(
       visual.lifecycle.elapsedMs,
     )
+
+    if (visual.chunks) {
+      updateDisruptionChunkVisual(
+        visual.chunks,
+        visual.lifecycle,
+        fractureProgress,
+        transferProgress,
+        anchorDelta,
+        visual.anchorOrigin,
+      )
+    }
   }
 
   const updateAbsorptionParticles = (
@@ -517,6 +545,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     },
     dispose() {
       Array.from(active.keys()).forEach(disposeVisual)
+      disruptionChunkGeometry.dispose()
       previousBodies = null
     },
   }

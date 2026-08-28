@@ -47,25 +47,75 @@ type CollisionProductVisual = {
   lifecycle: CollisionRemnantVisualLifecycle
 }
 
+export type CollisionRemnantPresentationState = {
+  scale: number
+  opacity: number
+  deformation: number
+  compression: number
+  heat: number
+}
+
 export const SURVIVOR_IMPACT_DURATION_MS = 1500
 export const MERGED_SURVIVOR_SETTLE_DURATION_MS = 1700
 export const SURVIVOR_IMPACT_MIN_DOT = 0.8
 export const SURVIVOR_IMPACT_MAX_SURFACE_FRACTION = (1 - SURVIVOR_IMPACT_MIN_DOT) / 2
-export const COLLISION_REMNANT_CORE_SCALE_MIN = 0.18
-export const COLLISION_REMNANT_CORE_SCALE_MAX = 0.24
-export const COLLISION_REMNANT_FORMATION_TARGET_SCALE = 0.88
+export const COLLISION_REMNANT_CORE_SCALE_MIN = 0.52
+export const COLLISION_REMNANT_CORE_SCALE_MAX = 0.60
+export const COLLISION_REMNANT_FORMATION_TARGET_SCALE = 0.96
+export const COLLISION_REMNANT_DEFORMATION_START = 0.30
+export const COLLISION_REMNANT_DEFORMATION_TRANSFER_END = 0.11
+export const COLLISION_REMNANT_COMPRESSION_START = 0.22
+export const COLLISION_REMNANT_COMPRESSION_TRANSFER_END = 0.07
+export const COLLISION_REMNANT_HEAT_START = 0.26
+export const COLLISION_REMNANT_HEAT_TRANSFER_END = 0.14
 const SOURCE_FRAGMENT_OUTPUT = 'gl_FragColor = vec4(color, uOpacity);'
 
 const collisionRevealVertexShader = `
+  uniform float uSeed;
   uniform float uCollisionRevealScale;
+  uniform float uCollisionFormationActive;
+  uniform vec3 uCollisionFormationAxis;
+  uniform float uCollisionFormationDeformation;
+  uniform float uCollisionFormationCompression;
 
   varying vec3 vObjectNormal;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
 
   void main() {
-    vObjectNormal = normalize(normal);
+    vec3 objectNormal = normalize(normal);
     vec3 revealPosition = position * uCollisionRevealScale;
+
+    if (uCollisionFormationActive > 0.5) {
+      vec3 formationAxis = normalize(
+        uCollisionFormationAxis + vec3(0.000001, 0.000002, 0.000003)
+      );
+      float axisProjection = dot(position, formationAxis);
+      float tangentScale = 1.0 + uCollisionFormationCompression * 0.16;
+      float axisScale = 1.0 - uCollisionFormationCompression;
+      vec3 anisotropicPosition =
+        position * tangentScale +
+        formationAxis * axisProjection * (axisScale - tangentScale);
+
+      float lowFrequencyA = sin(
+        dot(objectNormal, vec3(2.9, 4.1, 3.3)) * 2.15 + uSeed * 0.017
+      );
+      float lowFrequencyB = sin(
+        objectNormal.x * 4.7 -
+        objectNormal.y * 3.5 +
+        objectNormal.z * 5.3 +
+        uSeed * 0.031
+      );
+      float impactLobe = dot(objectNormal, formationAxis);
+      float radialDeformation = 1.0 + uCollisionFormationDeformation * (
+        lowFrequencyA * 0.34 +
+        lowFrequencyB * 0.19 +
+        impactLobe * 0.14
+      );
+      revealPosition = anisotropicPosition * radialDeformation * uCollisionRevealScale;
+    }
+
+    vObjectNormal = objectNormal;
     vec4 worldPosition = modelMatrix * vec4(revealPosition, 1.0);
     vWorldPosition = worldPosition.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
@@ -96,6 +146,39 @@ const survivorImpactFragmentCode = `
   float collisionCrack = collisionImpactCrack * collisionHeat;
   color = mix(color, vec3(1.0, 0.34, 0.12), collisionHeat * 0.34 + collisionCrack * 0.44);
   color += vec3(1.0, 0.76, 0.46) * collisionImpactMask * uCollisionImpactFlash * 0.7;
+`
+
+const remnantFormationFragmentCode = `
+  if (uCollisionFormationActive > 0.5) {
+    vec3 remnantFormationNormal = normalize(vObjectNormal);
+    vec3 remnantFormationAxis = normalize(
+      uCollisionFormationAxis + vec3(0.000001, 0.000002, 0.000003)
+    );
+    float remnantFormationFacing = 0.5 + 0.5 * dot(
+      remnantFormationNormal,
+      remnantFormationAxis
+    );
+    float remnantFormationNoise = valueNoise(
+      remnantFormationNormal * 4.6 +
+      vec3(uSeed * 0.019, -uSeed * 0.011, uSeed * 0.023)
+    );
+    float remnantFormationPatch = smoothstep(
+      0.54,
+      0.86,
+      remnantFormationFacing * 0.60 + remnantFormationNoise * 0.40
+    );
+    float remnantFormationUnrest = uCollisionFormationHeat * (
+      0.16 + remnantFormationPatch * 0.84
+    );
+    color = mix(
+      color,
+      vec3(1.0, 0.38, 0.15),
+      remnantFormationUnrest * 0.14
+    );
+    color += vec3(1.0, 0.60, 0.30) * remnantFormationUnrest * (
+      0.035 + remnantFormationPatch * 0.055
+    );
+  }
 `
 
 let installed = false
@@ -151,7 +234,10 @@ export function getMergedSurvivorRevealScale(
   return THREE.MathUtils.lerp(initialScale, 1, easeOut)
 }
 
-export function getCollisionRemnantRevealScale(elapsedMs: number, seed01 = 0.5) {
+export function getCollisionRemnantPresentationState(
+  elapsedMs: number,
+  seed01 = 0.5,
+): CollisionRemnantPresentationState {
   const lifecycle = getCollisionRemnantVisualLifecycle(elapsedMs)
   const seeded = clamp01(seed01)
   const coreScale = THREE.MathUtils.lerp(
@@ -159,27 +245,63 @@ export function getCollisionRemnantRevealScale(elapsedMs: number, seed01 = 0.5) 
     COLLISION_REMNANT_CORE_SCALE_MAX,
     seeded,
   )
+
   if (lifecycle.phase === 'FORMING') {
-    return THREE.MathUtils.lerp(
-      coreScale,
-      COLLISION_REMNANT_FORMATION_TARGET_SCALE,
-      lifecycle.formationProgress,
-    )
+    return {
+      scale: THREE.MathUtils.lerp(
+        coreScale,
+        COLLISION_REMNANT_FORMATION_TARGET_SCALE,
+        lifecycle.formationProgress,
+      ),
+      opacity: Math.pow(lifecycle.formationProgress, 1.08),
+      deformation: THREE.MathUtils.lerp(
+        COLLISION_REMNANT_DEFORMATION_START,
+        COLLISION_REMNANT_DEFORMATION_TRANSFER_END,
+        lifecycle.formationProgress,
+      ),
+      compression: THREE.MathUtils.lerp(
+        COLLISION_REMNANT_COMPRESSION_START,
+        COLLISION_REMNANT_COMPRESSION_TRANSFER_END,
+        lifecycle.formationProgress,
+      ),
+      heat: THREE.MathUtils.lerp(
+        COLLISION_REMNANT_HEAT_START,
+        COLLISION_REMNANT_HEAT_TRANSFER_END,
+        lifecycle.formationProgress,
+      ),
+    }
   }
+
   if (lifecycle.phase === 'SETTLING') {
-    return THREE.MathUtils.lerp(
-      COLLISION_REMNANT_FORMATION_TARGET_SCALE,
-      1,
-      lifecycle.settleProgress,
-    )
+    const settleEnvelope = 1 - lifecycle.settleProgress
+    return {
+      scale: THREE.MathUtils.lerp(
+        COLLISION_REMNANT_FORMATION_TARGET_SCALE,
+        1,
+        lifecycle.settleProgress,
+      ),
+      opacity: 1,
+      deformation: COLLISION_REMNANT_DEFORMATION_TRANSFER_END * settleEnvelope,
+      compression: COLLISION_REMNANT_COMPRESSION_TRANSFER_END * settleEnvelope,
+      heat: COLLISION_REMNANT_HEAT_TRANSFER_END * Math.pow(settleEnvelope, 1.18),
+    }
   }
-  return 1
+
+  return {
+    scale: 1,
+    opacity: 1,
+    deformation: 0,
+    compression: 0,
+    heat: 0,
+  }
+}
+
+export function getCollisionRemnantRevealScale(elapsedMs: number, seed01 = 0.5) {
+  return getCollisionRemnantPresentationState(elapsedMs, seed01).scale
 }
 
 export function getCollisionRemnantRevealOpacity(elapsedMs: number) {
-  const lifecycle = getCollisionRemnantVisualLifecycle(elapsedMs)
-  if (lifecycle.phase === 'FORMING') return Math.pow(lifecycle.formationProgress, 1.08)
-  return 1
+  return getCollisionRemnantPresentationState(elapsedMs).opacity
 }
 
 function getSimulationBodySeed(id: string) {
@@ -218,6 +340,17 @@ function getSurvivorTransition(bodyId: string) {
   return collisionVisualEventsByResultId.get(bodyId)?.transitions.find((transition) =>
     transition.outcome === 'merged-survivor' || transition.outcome === 'survivor',
   )
+}
+
+function getRemnantFormationTransition(bodyId: string) {
+  return collisionVisualEventsByResultId.get(bodyId)?.transitions
+    .filter((transition) => transition.outcome === 'disrupted')
+    .slice()
+    .sort((a, b) =>
+      b.source.mass - a.source.mass ||
+      b.source.radius - a.source.radius ||
+      a.source.id.localeCompare(b.source.id),
+    )[0]
 }
 
 function isRevealableCollisionProduct(body: BodyState) {
@@ -268,11 +401,30 @@ function updateCollisionEventLifecycle(event: CollisionVisualEvent, now: number)
   return event.lifecycle
 }
 
+function resetRemnantFormationUniforms(material: THREE.ShaderMaterial) {
+  if (material.uniforms.uCollisionFormationActive) {
+    material.uniforms.uCollisionFormationActive.value = 0
+  }
+  if (material.uniforms.uCollisionFormationDeformation) {
+    material.uniforms.uCollisionFormationDeformation.value = 0
+  }
+  if (material.uniforms.uCollisionFormationCompression) {
+    material.uniforms.uCollisionFormationCompression.value = 0
+  }
+  if (material.uniforms.uCollisionFormationHeat) {
+    material.uniforms.uCollisionFormationHeat.value = 0
+  }
+}
+
 function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Object3D, now: number) {
   const body = resolveMaterialBody(material)
   if (!body) return
   const transition = getSurvivorTransition(body.id)
   if (!transition) return
+
+  // Stage-3 formation is disruption-remnant-only. Keep survivor/absorption on
+  // the exact pre-existing shader path even if a material instance was reused.
+  resetRemnantFormationUniforms(material)
 
   const event = collisionVisualEventsByResultId.get(body.id)
   if (!event) return
@@ -311,8 +463,30 @@ function readBaseOpacity(material: THREE.ShaderMaterial) {
   return baseOpacity
 }
 
+function applyRemnantFormationAxis(
+  material: THREE.ShaderMaterial,
+  object: THREE.Object3D,
+  transition: CollisionVisualTransition | undefined,
+) {
+  const axis = material.uniforms.uCollisionFormationAxis?.value
+  if (!(axis instanceof THREE.Vector3)) return
+  if (!transition) {
+    axis.set(1, 0, 0)
+    return
+  }
+
+  const worldQuaternion = new THREE.Quaternion()
+  object.getWorldQuaternion(worldQuaternion)
+  axis.set(
+    transition.contactNormal.x,
+    transition.contactNormal.y,
+    transition.contactNormal.z,
+  ).applyQuaternion(worldQuaternion.invert()).normalize()
+}
+
 function applyCollisionProductLifecycle(
   material: THREE.ShaderMaterial,
+  object: THREE.Object3D,
   now: number,
 ) {
   const body = resolveMaterialBody(material)
@@ -330,9 +504,26 @@ function applyCollisionProductLifecycle(
 
   const scaleUniform = material.uniforms.uCollisionRevealScale
   if (!scaleUniform) return
+  let remnantState: CollisionRemnantPresentationState | null = null
   if (product.role === 'remnant') {
-    scaleUniform.value = getCollisionRemnantRevealScale(elapsedMs, seed01)
+    remnantState = getCollisionRemnantPresentationState(elapsedMs, seed01)
+    scaleUniform.value = remnantState.scale
+    applyRemnantFormationAxis(material, object, getRemnantFormationTransition(body.id))
+    if (material.uniforms.uCollisionFormationActive) {
+      material.uniforms.uCollisionFormationActive.value = 1
+    }
+    if (material.uniforms.uCollisionFormationDeformation) {
+      material.uniforms.uCollisionFormationDeformation.value = remnantState.deformation
+    }
+    if (material.uniforms.uCollisionFormationCompression) {
+      material.uniforms.uCollisionFormationCompression.value = remnantState.compression
+    }
+    if (material.uniforms.uCollisionFormationHeat) {
+      material.uniforms.uCollisionFormationHeat.value = remnantState.heat
+    }
+    material.userData.collisionRemnantPresentation = { ...remnantState }
   } else {
+    resetRemnantFormationUniforms(material)
     const initialScale = THREE.MathUtils.lerp(0.18, 0.32, seed01)
     const formationTarget = 0.92
     scaleUniform.value = product.lifecycle.phase === 'FORMING'
@@ -345,8 +536,8 @@ function applyCollisionProductLifecycle(
   const opacityUniform = material.uniforms.uOpacity
   if (opacityUniform) {
     const baseOpacity = readBaseOpacity(material)
-    const revealOpacity = product.role === 'remnant'
-      ? getCollisionRemnantRevealOpacity(elapsedMs)
+    const revealOpacity = remnantState
+      ? remnantState.opacity
       : product.lifecycle.phase === 'FORMING'
         ? Math.pow(product.lifecycle.formationProgress, 1.32)
         : 1
@@ -361,7 +552,16 @@ function applyCollisionProductLifecycle(
 
   if (product.lifecycle.isComplete || elapsedMs >= COLLISION_REMNANT_SETTLE_END_MS) {
     scaleUniform.value = 1
+    resetRemnantFormationUniforms(material)
     if (opacityUniform) opacityUniform.value = readBaseOpacity(material)
+    delete material.userData.collisionRemnantPresentation
+    if (product.role === 'remnant') {
+      if (material.transparent) {
+        material.transparent = false
+        material.needsUpdate = true
+      }
+      material.depthWrite = true
+    }
     collisionProductVisuals.delete(body.id)
   }
 }
@@ -458,6 +658,11 @@ export function installLiveCollisionVfxBridge() {
     material.uniforms.uCollisionImpactDirection ??= { value: new THREE.Vector3(1, 0, 0) }
     material.uniforms.uCollisionImpactFlash ??= { value: 0 }
     material.uniforms.uCollisionImpactHeat ??= { value: 0 }
+    material.uniforms.uCollisionFormationActive ??= { value: 0 }
+    material.uniforms.uCollisionFormationAxis ??= { value: new THREE.Vector3(1, 0, 0) }
+    material.uniforms.uCollisionFormationDeformation ??= { value: 0 }
+    material.uniforms.uCollisionFormationCompression ??= { value: 0 }
+    material.uniforms.uCollisionFormationHeat ??= { value: 0 }
 
     if (
       material.fragmentShader.includes(SOURCE_FRAGMENT_OUTPUT) &&
@@ -467,9 +672,12 @@ export function installLiveCollisionVfxBridge() {
         uniform vec3 uCollisionImpactDirection;
         uniform float uCollisionImpactFlash;
         uniform float uCollisionImpactHeat;
+        uniform float uCollisionFormationActive;
+        uniform vec3 uCollisionFormationAxis;
+        uniform float uCollisionFormationHeat;
       ${material.fragmentShader.replace(
         SOURCE_FRAGMENT_OUTPUT,
-        `${survivorImpactFragmentCode}\n  ${SOURCE_FRAGMENT_OUTPUT}`,
+        `${survivorImpactFragmentCode}\n  ${remnantFormationFragmentCode}\n  ${SOURCE_FRAGMENT_OUTPUT}`,
       )}`
     }
     material.needsUpdate = true
@@ -495,7 +703,7 @@ export function installLiveCollisionVfxBridge() {
       )
       const now = performance.now()
       applySurvivorImpact(material, object, now)
-      applyCollisionProductLifecycle(material, now)
+      applyCollisionProductLifecycle(material, object, now)
     }
 
     return result

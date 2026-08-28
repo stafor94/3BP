@@ -6,6 +6,35 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.14] - 2026-08-28
+
+### Changed
+- disruption 결과 remnant가 최종 형상의 작은 완성형 구체에서 uniform scale로 커지는 대신, 기존 physical remnant mesh 자체가 contact axis 기준 압축·비대칭과 deterministic low-frequency deformation을 가진 불규칙 core에서 형성되도록 변경했습니다.
+- FORMING 후반에는 기존 solid chunks/fine debris와 remnant가 함께 보이는 ownership overlap을 유지하고, REMNANT_SETTLE에서 shape irregularity·anisotropic compression·국소 thermal unrest가 점진적으로 0으로 수렴하도록 했습니다.
+
+### Added
+- remnant formation의 초기 불규칙성, phase boundary 연속성, late-TRANSFER chunk overlap, settle 감쇠, stable physical-body exact match를 검증하는 전용 회귀 체크를 추가했습니다.
+
+### Fixed
+- disruption remnant가 약 20% 크기의 작은 완성형 행성처럼 갑자기 나타난 뒤 풍선처럼 확대되어 보이던 전환을 제거하고, debris cluster가 응집·안정화되어 최종 천체가 형성되는 흐름으로 연결했습니다.
+- remnant formation shader를 disruption result에만 명시적으로 활성화해 absorption/merged-survivor의 기존 contact-local impact presentation에 영향을 주지 않도록 격리했습니다.
+
+### Unchanged
+- source full-body ghost 제거, contact-local solid chunk breakup/fine debris/moving anchor, absorption/merged-survivor/stellar 경로, collision physics, merge/disruption 판정, mass/radius/velocity, physical fragment/ejecta, tracking, camera, trail 및 일반 UI는 변경하지 않았습니다.
+
+## [0.19.13] - 2026-08-28
+
+### Changed
+- 실제 disruption source의 contact-facing cap에만 결정적으로 배치되는 중·대형 low-poly solid chunk 계층을 추가해 `solid contact cluster → detached chunks → fine debris` 순서가 보이도록 했습니다.
+- solid chunk는 기존 `IMPACT → FRACTURE → TRANSFER → REMNANT_SETTLE` lifecycle과 result/physical-fragment anchor delta를 그대로 사용하며, FRACTURE에서 순차 분리·저속 회전한 뒤 TRANSFER/SETTLE에서 synthetic ownership을 빠르게 넘기도록 했습니다.
+
+### Added
+- disrupted source 전용 chunk가 `InstancedMesh`로 존재하는지, contact cap과 같은 hemisphere에서 시작하는지, FRACTURE→TRANSFER에서 separation이 증가하는지, moving result anchor를 따라가는지, absorption에는 생성되지 않고 lifecycle 종료 시 정리되는지 검증하는 회귀 체크를 추가했습니다.
+- non-stellar destruction browser artifact를 IMPACT, early/mid FRACTURE, TRANSFER, REMNANT_SETTLE 시점으로 세분화해 solid breakup과 기존 source-sized ghost 방지 조건을 함께 검사하도록 했습니다.
+
+### Unchanged
+- collision physics, merge/disruption 판정, collision prediction, mass/ejecta 및 실제 physical fragment 결과, 50% initial-mass tracking rule, tracking lineage semantics, absorption/merged-survivor/remnant formation, stellar VFX, camera, trail 및 일반 UI는 변경하지 않았습니다.
+
 ## [0.19.12] - 2026-08-28
 
 ### Changed
@@ -52,7 +81,7 @@
 - 흡수 충돌에서 피흡수체가 접촉면 근처에서 빠르게 작아지며 사라지고 생존 remnant가 같은 순간 최종 크기로 튀어, 실제로 질량이 넘어가기보다 한 천체가 교체되는 것처럼 보이던 전환을 자연스럽게 연결했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial-mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
+- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
 
 ## [0.19.9] - 2026-08-27
 
@@ -64,7 +93,7 @@
 - 모든 collision effect kind가 일반 천체 renderer에서 제외되면서 실제 remnant와 물리 fragment는 그대로 유지되고 원본 simulation state를 변경하지 않는지 검증하는 render-routing 회귀 체크를 추가했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 조건, collision prediction, 50% initial-mass tracking rule, tracking lineage semantics, remnant presentation, trail 정책, camera/tracking/collision camera 로직은 변경하지 않았습니다.
+- collision physics, merge/disruption 조건, collision prediction, 50% initial mass tracking rule, tracking lineage semantics, remnant presentation, trail 정책, camera/tracking/collision camera 로직은 변경하지 않았습니다.
 
 ## [0.19.8] - 2026-08-27
 
@@ -1056,7 +1085,7 @@
 ## [0.1.9] - 2026-08-24
 
 ### Changed
-- 우주 배경의 별 개수와 크기를 늘려 배경이 더 분명하게 보이도록 했습니다.
+- 우주 배경의 별 개수와 크기를 늘려 배경이 더 분명하게 보이도록 조정했습니다.
 
 ## [0.1.8] - 2026-08-24
 

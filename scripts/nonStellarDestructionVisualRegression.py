@@ -21,10 +21,12 @@ URL = os.environ.get(
     'http://127.0.0.1:4173/3BP/?visual-regression=non-stellar-destruction',
 )
 CAPTURES = [
-    ('02-fracture', 0.45),
-    ('03-transfer', 1.15),
-    ('04-remnant-settle', 2.05),
-    ('05-final', 3.40),
+    ('02-impact', 0.12),
+    ('03-early-fracture', 0.36),
+    ('04-mid-fracture', 0.70),
+    ('05-transfer', 1.15),
+    ('06-remnant-settle', 2.05),
+    ('07-final', 3.40),
 ]
 
 
@@ -187,17 +189,29 @@ def main() -> None:
             for name, path in captures.items()
             if name != 'contact'
         }
-        late_motion = roi_motion(captures['04-remnant-settle'], captures['05-final'])
-        final_area = max(1, components['05-final'][0] if components['05-final'] else 1)
+        late_motion = roi_motion(captures['06-remnant-settle'], captures['07-final'])
+        final_area = max(1, components['07-final'][0] if components['07-final'] else 1)
         source_sized_counts = {
             name: sum(1 for area in areas if area >= final_area * 0.65)
+            for name, areas in components.items()
+        }
+        chunk_scale_counts = {
+            name: sum(1 for area in areas if final_area * 0.015 <= area <= final_area * 0.45)
             for name, areas in components.items()
         }
 
         payload = {
             'capture_targets_seconds': {name: target for name, target in CAPTURES},
+            'phase_frames': {
+                'IMPACT': '02-impact',
+                'EARLY_FRACTURE': '03-early-fracture',
+                'MID_FRACTURE': '04-mid-fracture',
+                'TRANSFER': '05-transfer',
+                'REMNANT_SETTLE': '06-remnant-settle',
+            },
             'non_dark_pixels': energies,
             'bright_component_areas': components,
+            'chunk_scale_component_counts_for_inspection': chunk_scale_counts,
             'source_sized_component_counts_relative_to_final': source_sized_counts,
             'whole_frame_difference_from_contact': differences,
             'post_settle_roi_motion': late_motion,
@@ -210,20 +224,21 @@ def main() -> None:
             require(energy >= 250, f'{name} capture is unexpectedly empty')
             require(energy <= energies['contact'] * 3.5, f'{name}: foreground expanded excessively')
 
-        # Phase-1 regression: the source handoff is no longer allowed to retain
-        # multiple source-sized full-body spheres while a separate remnant appears.
+        # Phase-1 regression remains strict: contact-local breakup may add small
+        # components, but may not reintroduce source-sized full-body spheres.
         require(
-            source_sized_counts['03-transfer'] <= 1,
+            source_sized_counts['05-transfer'] <= 1,
             'TRANSFER contains multiple source-sized full-body components',
         )
         require(
-            source_sized_counts['04-remnant-settle'] <= 1,
+            source_sized_counts['06-remnant-settle'] <= 1,
             'REMNANT_SETTLE contains duplicate source-sized full-body components',
         )
 
-        require(differences['02-fracture'] >= 0.06, 'FRACTURE must differ visibly from contact')
-        require(differences['03-transfer'] >= 0.08, 'TRANSFER must advance beyond contact')
-        require(differences['04-remnant-settle'] >= 0.08, 'REMNANT_SETTLE must remain visually distinct')
+        require(differences['03-early-fracture'] >= 0.04, 'early FRACTURE must begin evolving from contact')
+        require(differences['04-mid-fracture'] >= 0.06, 'mid FRACTURE must differ visibly from contact')
+        require(differences['05-transfer'] >= 0.08, 'TRANSFER must advance beyond contact')
+        require(differences['06-remnant-settle'] >= 0.08, 'REMNANT_SETTLE must remain visually distinct')
         require(float(late_motion['mean_difference']) >= 0.15, 'debris/remnant region must continue settling')
         require(float(late_motion['changed_fraction']) >= 0.015, 'too few pixels evolve after remnant settle begins')
         print('non-stellar destruction browser visual regression: ok')
