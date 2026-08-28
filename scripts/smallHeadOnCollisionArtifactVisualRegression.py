@@ -193,13 +193,16 @@ def spike_metrics(path: Path) -> dict[str, float | int]:
 
 def is_brown(pixel: tuple[int, int, int]) -> bool:
     r, g, b = pixel
+    # Synthetic solid chunks share the remnant's very dark brown palette. Include
+    # the shaded body surface so tiny bright handoff particles cannot be selected
+    # as the central "remnant" component by the regression classifier.
     return (
-        30 <= r <= 205
-        and 18 <= g <= 175
-        and 12 <= b <= 150
-        and r >= g * 1.07
-        and r >= b * 1.16
-        and g >= b * 1.02
+        14 <= r <= 205
+        and 10 <= g <= 175
+        and 8 <= b <= 150
+        and r >= g * 1.06
+        and r >= b * 1.12
+        and g >= b
     )
 
 
