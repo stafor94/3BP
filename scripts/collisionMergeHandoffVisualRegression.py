@@ -235,6 +235,9 @@ def main() -> None:
             lambda browser: bool(handoff_metrics(browser))
         )
         first = handoff_metrics(driver)
+        require(bool(first.get('overrideSampled')), 'solid handoff state was not sampled by the production render frame')
+        require(bool(first.get('overrideApplied')), 'sampled solid handoff was not applied to the production renderer meshes')
+        require(int(first.get('renderFrameSequence') or 0) > 0, 'solid handoff telemetry must identify the production render frame')
         first_path = capture_canvas(driver, '01-first-post-solver')
         first_visual = silhouette_metrics(first_path)
 
@@ -242,6 +245,8 @@ def main() -> None:
         captures = [('first', first_visual)]
         for label, progress in [('early', 0.25), ('mid', 0.55), ('late', 0.85)]:
             sample = wait_for_progress(driver, progress)
+            require(bool(sample.get('overrideSampled')), f'{label} solid handoff sample did not come from the renderer frame sampler')
+            require(bool(sample.get('overrideApplied')), f'{label} solid handoff sample was not applied to the renderer meshes')
             path = capture_canvas(driver, f'02-{label}-{progress:.2f}')
             samples.append(sample)
             captures.append((label, silhouette_metrics(path)))
