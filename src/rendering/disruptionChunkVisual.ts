@@ -1,9 +1,12 @@
 import * as THREE from 'three'
 import type { BodyState, Vec3 } from '../types'
+import { MIN_BODY_RENDER_RADIUS } from './bodyPresentationRadius'
 import type { CollisionVisualLifecycle, CollisionVisualTransition } from './collisionVisualOutcome'
 
 export const DISRUPTION_CHUNK_MIN_COUNT = 10
 export const DISRUPTION_CHUNK_MAX_COUNT = 14
+export const DISRUPTION_CHUNK_SMALL_SOURCE_MAX_RADIUS = MIN_BODY_RENDER_RADIUS
+export const DISRUPTION_CHUNK_HIGH_HEAD_ON_MIN = 0.86
 
 export type DisruptionChunkDescriptor = {
   initialCenter: THREE.Vector3
@@ -82,10 +85,30 @@ function makeChunkDirection(
     .normalize()
 }
 
+export function shouldSuppressDisruptionChunks(
+  source: BodyState,
+  transition: CollisionVisualTransition,
+) {
+  if (
+    source.bodyType === 'star' ||
+    source.bodyType === 'effect' ||
+    source.bodyType === 'fragment'
+  ) return false
+
+  return Math.abs(source.radius) <= DISRUPTION_CHUNK_SMALL_SOURCE_MAX_RADIUS &&
+    transition.presentationHeadOn >= DISRUPTION_CHUNK_HIGH_HEAD_ON_MIN
+}
+
 export function createDisruptionChunkDescriptors(
   source: BodyState,
   transition: CollisionVisualTransition,
 ): DisruptionChunkDescriptor[] {
+  // The large flat-shaded synthetic chunks are presentation-only. On small,
+  // sufficiently head-on impacts their tangent-heavy basis projects as a row of
+  // oversized brown beads above/below the remnant, so hand ownership back to the
+  // real physical fragments/ejecta instead of trying to retune the bead sizes.
+  if (shouldSuppressDisruptionChunks(source, transition)) return []
+
   const sourceRadius = Math.max(Math.abs(source.radius), 0.005)
   const countSeed = seededValue(getBodySeed(`${source.id}:solid-chunk-count`) * 71.13)
   const count = DISRUPTION_CHUNK_MIN_COUNT + Math.floor(
@@ -218,6 +241,8 @@ export function createDisruptionChunkVisual(
   mesh.userData.collisionVisualPhase = 'IMPACT'
   mesh.userData.collisionVisualContactPoint = { ...transition.contactPoint }
   mesh.userData.collisionVisualContactNormal = { ...transition.contactNormal }
+  mesh.userData.collisionVisualChunkCount = descriptors.length
+  mesh.userData.collisionVisualPresentationHeadOn = transition.presentationHeadOn
 
   return {
     mesh,

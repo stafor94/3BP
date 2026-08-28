@@ -49,6 +49,7 @@ export type CollisionVisualTransition = {
   resultId: string | null
   contactNormal: Vec3
   contactPoint: Vec3
+  presentationHeadOn: number
 }
 
 /**
@@ -195,6 +196,7 @@ function getContactGeometry(source: BodyState, partner: BodyState | undefined) {
         y: source.position.y + contactNormal.y * source.radius,
         z: source.position.z + contactNormal.z * source.radius,
       },
+      presentationHeadOn: 0,
     }
   }
 
@@ -209,6 +211,27 @@ function getContactGeometry(source: BodyState, partner: BodyState | undefined) {
     z: partner.velocity.z - source.velocity.z,
   }
   const contactNormal = normalize(delta, relativeVelocity)
+  const relativeSpeed = Math.hypot(
+    relativeVelocity.x,
+    relativeVelocity.y,
+    relativeVelocity.z,
+  )
+  const contactDistance = Math.max(Math.abs(source.radius) + Math.abs(partner.radius), 1e-9)
+  const cross = {
+    x: delta.y * relativeVelocity.z - delta.z * relativeVelocity.y,
+    y: delta.z * relativeVelocity.x - delta.x * relativeVelocity.z,
+    z: delta.x * relativeVelocity.y - delta.y * relativeVelocity.x,
+  }
+  // Reconstruct the same trajectory-stable impact-parameter geometry used by
+  // the solver, but only for presentation routing. This avoids classifying an
+  // already-overlapped frame as grazing and does not alter collision staging.
+  const impactParameter = relativeSpeed > 1e-9
+    ? clamp01(
+        Math.hypot(cross.x, cross.y, cross.z) /
+          Math.max(relativeSpeed * contactDistance, 1e-9),
+      )
+    : 0
+  const presentationHeadOn = Math.sqrt(Math.max(0, 1 - impactParameter * impactParameter))
   const sourceSurface = {
     x: source.position.x + contactNormal.x * source.radius,
     y: source.position.y + contactNormal.y * source.radius,
@@ -227,6 +250,7 @@ function getContactGeometry(source: BodyState, partner: BodyState | undefined) {
       y: (sourceSurface.y + partnerSurface.y) * 0.5,
       z: (sourceSurface.z + partnerSurface.z) * 0.5,
     },
+    presentationHeadOn,
   }
 }
 
@@ -262,7 +286,7 @@ function transitionFor(
   resultId: string | null,
   partner: BodyState | undefined,
 ): CollisionVisualTransition {
-  const { contactNormal, contactPoint } = getContactGeometry(source, partner)
+  const { contactNormal, contactPoint, presentationHeadOn } = getContactGeometry(source, partner)
   return {
     source: {
       ...source,
@@ -276,6 +300,7 @@ function transitionFor(
     resultId,
     contactNormal,
     contactPoint,
+    presentationHeadOn,
   }
 }
 

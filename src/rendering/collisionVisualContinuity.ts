@@ -190,7 +190,9 @@ export function getCollisionEffectSilhouetteMetrics(profile: CollisionEffectProf
   let footprintAspect = 1
   if (compactSolid) {
     footprintAspect = profile.kind === 'contactFlash'
-      ? (1 / 0.92) / (1 / 1.02)
+      ? profile.tailLength < -1.5
+        ? (1 / 0.98) / (1 / 1.02)
+        : (1 / 0.92) / (1 / 1.02)
       : (1 / 0.94) / (1 / 1.04)
   }
   return { scaleX, scaleY, transformAspectRatio, finalSilhouetteAspectRatio: transformAspectRatio * footprintAspect }
@@ -201,7 +203,7 @@ function patchCollisionEffectShader(material: THREE.ShaderMaterial) {
   if (!material.uniforms.uKind || !material.uniforms.uTail || !material.fragmentShader.includes(CONTACT_FLASH_COMPACT_MARKER) || !material.fragmentShader.includes(COMPRESSION_SHEAR_COMPACT_MARKER)) return
 
   material.fragmentShader = material.fragmentShader
-    .replace(CONTACT_FLASH_COMPACT_MARKER, `${CONTACT_FLASH_COMPACT_MARKER}\n\n      if (uTail < -0.5) {\n        float compactRadius = length(vec2(p.x * 0.92, warpedY * 1.02));\n        float compactMass = 1.0 - smoothstep(0.28, 0.92, compactRadius);\n        float directionalBand = exp(-abs(warpedY) * 5.4) * (1.0 - smoothstep(0.62, 1.0, abs(p.x)));\n        float directionalRidge = exp(-abs(warpedY) * 10.0) * (1.0 - smoothstep(0.30, 0.90, abs(p.x)));\n        alpha = max(compactMass * 0.78, directionalBand * 0.46) + directionalRidge * 0.16;\n        core = compactMass * 0.78 + directionalRidge * 0.28;\n        body = max(compactMass * 0.84, directionalBand * 0.42);\n        edge = compactMass * (1.0 - clamp(core * 0.8, 0.0, 1.0)) + directionalBand * 0.16;\n      }`)
+    .replace(CONTACT_FLASH_COMPACT_MARKER, `${CONTACT_FLASH_COMPACT_MARKER}\n\n      if (uTail < -1.5) {\n        // Small high-head-on solid impacts must read as a contact-local burst.\n        // Do not reintroduce the tangent-aligned band/ridge that becomes a\n        // bright screen-space pillar when the collision normal is horizontal.\n        float compactRadius = length(vec2(p.x * 0.98, warpedY * 1.02));\n        float compactMass = 1.0 - smoothstep(0.24, 0.90, compactRadius);\n        float compactCore = 1.0 - smoothstep(0.08, 0.52, compactRadius);\n        alpha = compactMass * 0.86;\n        core = compactCore * 0.82;\n        body = compactMass * 0.84;\n        edge = compactMass * (1.0 - compactCore * 0.88);\n      } else if (uTail < -0.5) {\n        float compactRadius = length(vec2(p.x * 0.92, warpedY * 1.02));\n        float compactMass = 1.0 - smoothstep(0.28, 0.92, compactRadius);\n        float directionalBand = exp(-abs(warpedY) * 5.4) * (1.0 - smoothstep(0.62, 1.0, abs(p.x)));\n        float directionalRidge = exp(-abs(warpedY) * 10.0) * (1.0 - smoothstep(0.30, 0.90, abs(p.x)));\n        alpha = max(compactMass * 0.78, directionalBand * 0.46) + directionalRidge * 0.16;\n        core = compactMass * 0.78 + directionalRidge * 0.28;\n        body = max(compactMass * 0.84, directionalBand * 0.42);\n        edge = compactMass * (1.0 - clamp(core * 0.8, 0.0, 1.0)) + directionalBand * 0.16;\n      }`)
     .replace(COMPRESSION_SHEAR_COMPACT_MARKER, `${COMPRESSION_SHEAR_COMPACT_MARKER}\n\n      if (uTail < -0.5) {\n        float compactShearRadius = length(vec2(p.x * 0.94, (p.y - wave) * 1.04));\n        float compactShearMass = 1.0 - smoothstep(0.32, 0.94, compactShearRadius);\n        float broadBand = exp(-distanceToBand * 5.2) * envelope;\n        float broadFilament = exp(-distanceToBand * 11.0) * envelope;\n        alpha = max(compactShearMass * 0.66, broadBand * 0.44) + broadFilament * 0.12;\n        core = compactShearMass * 0.58 + broadFilament * 0.24;\n        body = max(compactShearMass * 0.78, broadBand * 0.48);\n        edge = compactShearMass * 0.24 + broadBand * 0.18;\n      }`)
   material.userData.collisionContinuityEffectPatched = true
   material.needsUpdate = true
@@ -217,7 +219,11 @@ function patchCollisionEffectShader(material: THREE.ShaderMaterial) {
     const scaleX = Math.abs(object.scale.x)
     const scaleY = Math.abs(object.scale.y)
     const transformAspectRatio = Math.max(scaleX, scaleY) / Math.max(Math.min(scaleX, scaleY), 1e-9)
-    const footprintAspect = kind < 0.5 ? (1 / 0.92) / (1 / 1.02) : (1 / 0.94) / (1 / 1.04)
+    const footprintAspect = kind < 0.5
+      ? tail < -1.5
+        ? (1 / 0.98) / (1 / 1.02)
+        : (1 / 0.92) / (1 / 1.02)
+      : (1 / 0.94) / (1 / 1.04)
     if (typeof window !== 'undefined') {
       window.__collisionEffectContinuityMetrics ??= {}
       window.__collisionEffectContinuityMetrics[object.uuid] = {
