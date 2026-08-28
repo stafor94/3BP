@@ -30,6 +30,7 @@ CAPTURES = [
     ('08-2200ms', 2.20),
     ('09-2600ms', 2.60),
 ]
+EARLY_PARTICLE_HANDOFF_FRAMES = {'02-260ms', '03-520ms', '04-700ms'}
 
 
 def require(condition: bool, message: str) -> None:
@@ -75,7 +76,11 @@ def is_warm(pixel: tuple[int, int, int], threshold: int) -> bool:
     return r >= threshold and r >= g * 1.05 and r >= b * 1.12
 
 
-def warm_components(path: Path, threshold: int) -> list[list[tuple[int, int]]]:
+def warm_components(
+    path: Path,
+    threshold: int,
+    minimum_area: int = 24,
+) -> list[list[tuple[int, int]]]:
     image = Image.open(path).convert('RGB')
     width, height = image.size
     x0, x1 = int(width * 0.08), int(width * 0.94)
@@ -100,9 +105,22 @@ def warm_components(path: Path, threshold: int) -> list[list[tuple[int, int]]]:
                 remaining.remove(neighbor)
                 stack.append(neighbor)
                 component.append(neighbor)
-        if len(component) >= 24:
+        if len(component) >= minimum_area:
             components.append(component)
     return sorted(components, key=len, reverse=True)
+
+
+def warm_pixel_count(path: Path, threshold: int) -> int:
+    image = Image.open(path).convert('RGB')
+    width, height = image.size
+    x0, x1 = int(width * 0.08), int(width * 0.94)
+    y0, y1 = int(height * 0.12), int(height * 0.88)
+    return sum(
+        1
+        for y in range(y0, y1)
+        for x in range(x0, x1)
+        if is_warm(image.getpixel((x, y)), threshold)
+    )
 
 
 def centroid(component: list[tuple[int, int]]) -> tuple[float, float]:
@@ -202,7 +220,15 @@ def main() -> None:
             captures[name] = capture_canvas(driver, name)
 
         tracking_components = {
-            name: warm_components(path, 24)
+            name: warm_components(
+                path,
+                24,
+                12 if name in EARLY_PARTICLE_HANDOFF_FRAMES else 24,
+            )
+            for name, path in captures.items()
+        }
+        tracking_warm_pixels = {
+            name: warm_pixel_count(path, 24)
             for name, path in captures.items()
         }
         full_brightness_components = {
@@ -211,6 +237,11 @@ def main() -> None:
         }
         for name, components in tracking_components.items():
             require(bool(components), f'{name}: moving collision system disappeared')
+        for name in EARLY_PARTICLE_HANDOFF_FRAMES:
+            require(
+                tracking_warm_pixels[name] >= 28,
+                f'{name}: early disruption particle handoff lost too much visible material',
+            )
 
         motion_radii = {
             name: math.dist(impact_center, centroid(tracking_components[name][0])) / max(impact_radius, 1.0)
@@ -241,6 +272,7 @@ def main() -> None:
             'capture_targets_seconds': {'impact': 0.0, **{name: target for name, target in CAPTURES}},
             'impact_equivalent_radius_px': impact_radius,
             'motion_source_radii': motion_radii,
+            'tracking_warm_pixels': tracking_warm_pixels,
             'original_collision_site_occupancy': occupancy,
             'full_brightness_disc_equivalent_ratio_to_final': full_disc_ratio,
             'full_brightness_source_sized_component_count': full_disc_counts,
