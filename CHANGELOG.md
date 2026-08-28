@@ -6,6 +6,22 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.20] - 2026-08-28
+
+### Fixed
+- 작은 non-stellar collision의 실제 `fragment` debris가 일반 천체용 `MIN_BODY_RENDER_RADIUS = 0.025`를 적용받아 물리 반지름보다 큰 검은/갈색 구체 기둥처럼 보이던 문제를 수정했습니다.
+- 매우 높은 head-on geometry의 mass-bearing `Collision spark`가 실제 ±tangent ejecta 방향을 따라 두 개의 밝은 directional spike로 남던 문제를 presentation 계층에서 제거했습니다.
+
+### Changed
+- 일반 moon/planet의 `0.025` 최소 표시 반지름은 유지하고, `bodyType === 'fragment'`에만 `0.006` fragment 전용 visibility floor를 적용해 persistent fragment는 실제 physical radius에 비례하는 작은 크기로 렌더링하도록 분리했습니다.
+- high-headOn collision spark는 기존 `headOn` metadata로 directional presentation을 연속적으로 억제하고 매우 정면에서는 stretch/width를 isotropic으로 수렴시킨 뒤 tail과 visible alpha를 0으로 만들어 contactFlash가 impact 순간을 담당하도록 했습니다. grazing spark는 기존 directional envelope를 유지합니다.
+
+### Added
+- 실제 high-energy small moon-moon collision의 persistent fragment를 사용해 physical radius 불변/fragment presentation radius/normal moon·planet floor를 검증하고, head-on spark physical direction·velocity·lifetime 불변과 directional suppression, grazing/stellar control을 함께 검증하는 non-stellar collision VFX regression을 보강했습니다.
+
+### Unchanged
+- collision classification/threshold/contact distance, absorb/merge/disrupt/hitRun 판정, mass/ejecta fraction/momentum, physical fragment/remnant radius, ejecta velocity/direction/spawn/trajectory, `getEjectaDirection()`, fragment physical lifetime, PR #88 ownership/lineage, PR #89 rendered contact staging, tracking/camera, 일반 `MIN_BODY_RENDER_RADIUS`, stellar collision VFX는 변경하지 않았습니다.
+
 ## [0.19.19] - 2026-08-28
 
 ### Fixed
@@ -798,7 +814,7 @@
 - 항성-파편 충돌은 흡수되도록 처리하고, 항성-항성 고속 충돌은 무조건 합체하지 않도록 충돌 분류를 보완했습니다.
 
 ### Changed
-- 항성 충돌에서 고체 소행성형 파편 대신 플라즈마/가스 성격의 이펙트를 사용하도록 물리 처리 방향을 정리했습니다.
+- 항성 충돌에서 고체 소행성형 파편 대신 플라즈마/가스 성격의 효과를 사용하도록 물리 처리 방향을 정리했습니다.
 
 ## [0.15.15] - 2026-08-25
 

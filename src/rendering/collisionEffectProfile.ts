@@ -309,6 +309,11 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const hasGeometry = visual?.headOn !== undefined || visual?.grazing !== undefined
   const headOn = hasGeometry ? clamp(visual?.headOn ?? 0, 0, 1) : 0
   const compactSplash = hasGeometry ? smooth01((headOn - 0.62) / 0.3) : 0
+  // Once the impact is nearly head-on, the physical ±tangent ejecta still
+  // exists, but its directional spark silhouette hands visual ownership back to
+  // the contact flash. This prevents two real ejecta bodies from reading as a
+  // bright axial pillar while preserving oblique/grazing directional sparks.
+  const directionalSuppression = hasGeometry ? smooth01((headOn - 0.86) / 0.1) : 0
   const visualDuration = hasGeometry
     ? Math.max(0.42, duration * (1 - compactSplash * 0.71))
     : duration
@@ -318,24 +323,27 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const rawSparkWidth = clamp(visual?.widthScale ?? 0.68, 0.6, 0.82)
   const rawSparkTail = clamp(visual?.tailLength ?? 0.16, 0.08, 0.22)
   const rawSparkBrightness = clamp(visual?.brightness ?? 0.88, 0, 1.08)
+  const compactStretch = hasGeometry
+    ? clamp(rawSparkStretch * (1 - compactSplash * 0.26), 1.05, 1.55)
+    : rawSparkStretch
+  const compactWidth = hasGeometry
+    ? clamp(rawSparkWidth + compactSplash * 0.2, 0.6, 0.9)
+    : rawSparkWidth
+  const compactTail = hasGeometry
+    ? clamp(rawSparkTail * (1 - compactSplash * 0.78), 0.035, 0.22)
+    : rawSparkTail
 
   return {
     kind,
     progress: sparkProgress,
-    fadeAlpha: decay,
+    fadeAlpha: decay * (1 - directionalSuppression),
     baseOpacity: 0.54 * (1 - compactSplash * 0.12),
     innerGlow: 0.5 * (1 - compactSplash * 0.18),
     outerGlow: 0.08 * (1 - compactSplash * 0.35),
     visualRadius: clamp(body.radius * 0.62, 0.01, 0.025),
-    anisotropicStretch: hasGeometry
-      ? clamp(rawSparkStretch * (1 - compactSplash * 0.26), 1.05, 1.55)
-      : rawSparkStretch,
-    widthScale: hasGeometry
-      ? clamp(rawSparkWidth + compactSplash * 0.2, 0.6, 0.9)
-      : rawSparkWidth,
-    tailLength: hasGeometry
-      ? clamp(rawSparkTail * (1 - compactSplash * 0.78), 0.035, 0.22)
-      : rawSparkTail,
+    anisotropicStretch: THREE.MathUtils.lerp(compactStretch, 1, directionalSuppression),
+    widthScale: THREE.MathUtils.lerp(compactWidth, 1, directionalSuppression),
+    tailLength: compactTail * (1 - directionalSuppression),
     pulseStrength: clamp(visual?.pulseStrength ?? 0.035, 0, 0.045),
     brightness: rawSparkBrightness * (1 - compactSplash * 0.14),
     turbulence: visual?.turbulence ?? 0.3,
