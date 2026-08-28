@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { BodyState, EffectVisualKind } from '../types'
+import { getBodyPresentationRadius } from './bodyPresentationRadius'
 
 export type CollisionEffectProfile = {
   kind: EffectVisualKind
@@ -85,6 +86,13 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       : 1
     const rawStretch = visual?.stretch ?? (physicalStellar ? 2.75 : 2.55)
     const rawWidth = visual?.widthScale ?? (physicalStellar ? 0.48 : 0.42)
+    const legacySolidFlashRadius = clamp(body.radius * 0.32, 0.038, 0.082)
+    const sourcePresentationRadius = !stellar && visual?.sourceMaxRadius !== undefined
+      ? getBodyPresentationRadius(Math.max(visual.sourceMaxRadius, 0))
+      : undefined
+    const solidFlashRadius = sourcePresentationRadius === undefined
+      ? legacySolidFlashRadius
+      : Math.min(legacySolidFlashRadius, sourcePresentationRadius * 0.98)
 
     return {
       kind,
@@ -107,7 +115,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
               0.085,
               0.25,
             )
-          : clamp(body.radius * 0.32, 0.038, 0.082),
+          : solidFlashRadius,
       anisotropicStretch: stellar
         ? clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : 3.05)
         : clamp(rawStretch, 1.18, 1.45),
@@ -298,21 +306,39 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     }
   }
 
-  const decay = Math.pow(1 - progress, 2.15)
+  const hasGeometry = visual?.headOn !== undefined || visual?.grazing !== undefined
+  const headOn = hasGeometry ? clamp(visual?.headOn ?? 0, 0, 1) : 0
+  const compactSplash = hasGeometry ? smooth01((headOn - 0.62) / 0.3) : 0
+  const visualDuration = hasGeometry
+    ? Math.max(0.42, duration * (1 - compactSplash * 0.71))
+    : duration
+  const sparkProgress = clamp(age / visualDuration, 0, 1)
+  const decay = Math.pow(1 - sparkProgress, hasGeometry ? 2.6 : 2.15)
+  const rawSparkStretch = clamp(visual?.stretch ?? 1.45, 1.1, 1.55)
+  const rawSparkWidth = clamp(visual?.widthScale ?? 0.68, 0.6, 0.82)
+  const rawSparkTail = clamp(visual?.tailLength ?? 0.16, 0.08, 0.22)
+  const rawSparkBrightness = clamp(visual?.brightness ?? 0.88, 0, 1.08)
+
   return {
     kind,
-    progress,
+    progress: sparkProgress,
     fadeAlpha: decay,
-    baseOpacity: 0.54,
-    innerGlow: 0.5,
-    outerGlow: 0.08,
+    baseOpacity: 0.54 * (1 - compactSplash * 0.12),
+    innerGlow: 0.5 * (1 - compactSplash * 0.18),
+    outerGlow: 0.08 * (1 - compactSplash * 0.35),
     visualRadius: clamp(body.radius * 0.62, 0.01, 0.025),
-    anisotropicStretch: clamp(visual?.stretch ?? 1.45, 1.1, 1.55),
-    widthScale: clamp(visual?.widthScale ?? 0.68, 0.6, 0.82),
-    tailLength: clamp(visual?.tailLength ?? 0.16, 0.08, 0.22),
+    anisotropicStretch: hasGeometry
+      ? clamp(rawSparkStretch * (1 - compactSplash * 0.26), 1.05, 1.55)
+      : rawSparkStretch,
+    widthScale: hasGeometry
+      ? clamp(rawSparkWidth + compactSplash * 0.2, 0.6, 0.9)
+      : rawSparkWidth,
+    tailLength: hasGeometry
+      ? clamp(rawSparkTail * (1 - compactSplash * 0.78), 0.035, 0.22)
+      : rawSparkTail,
     pulseStrength: clamp(visual?.pulseStrength ?? 0.035, 0, 0.045),
-    brightness: clamp(visual?.brightness ?? 0.88, 0, 1.08),
+    brightness: rawSparkBrightness * (1 - compactSplash * 0.14),
     turbulence: visual?.turbulence ?? 0.3,
-    cooling: smooth01(progress),
+    cooling: smooth01(sparkProgress),
   }
 }
