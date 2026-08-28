@@ -47,6 +47,7 @@ def warm_edge_fraction(path: Path, margin_fraction: float = 0.03) -> float:
 
 def main() -> None:
     regression.OUTPUT_DIR = OUTPUT_DIR
+    regression.URL = f'{regression.URL}&camera-framing=tracked'
     regression.make_driver = make_mobile_driver
     regression.main()
 
@@ -117,6 +118,7 @@ def main() -> None:
 
     payload = {
         'viewport': {'width': width, 'height': height},
+        'camera_framing': 'tracked-result',
         'contact_flash_warm_ratio_to_impact': flash_ratio,
         'identifiable_fracture_chunk_components': len(identifiable_chunks),
         'fracture_non_dark_viewport_fraction': fracture_energy_fraction,
