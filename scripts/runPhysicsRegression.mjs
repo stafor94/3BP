@@ -13,6 +13,7 @@ const checks = [
   { source: 'collisionVfxRegression.ts', output: 'collisionVfxRegression.mjs' },
   { source: 'nonStellarCollisionVfxRegression.ts', output: 'nonStellarCollisionVfxRegression.mjs' },
   { source: 'collisionPresentationArtifactRegression.ts', output: 'collisionPresentationArtifactRegression.mjs' },
+  { source: 'collisionSolidHandoffRegression.ts', output: 'collisionSolidHandoffRegression.mjs' },
   { source: 'collisionEffectRoutingRegression.ts', output: 'collisionEffectRoutingRegression.mjs' },
   { source: 'collisionHandoffRegression.ts', output: 'collisionHandoffRegression.mjs' },
   { source: 'collisionVisualOwnershipRegression.ts', output: 'collisionVisualOwnershipRegression.mjs' },
