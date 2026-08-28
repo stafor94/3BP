@@ -5,6 +5,7 @@ import json
 import math
 import os
 import shutil
+import statistics
 import time
 from pathlib import Path
 
@@ -154,6 +155,35 @@ def warm_surface_centroid(points: list[tuple[int, int]]) -> tuple[float, float, 
     return center_x, center_y, len(points)
 
 
+def dim_source_surface_points(
+    path: Path,
+    search_center: tuple[float, float],
+    search_radius: float,
+) -> list[tuple[int, int]]:
+    image = Image.open(path).convert('RGB')
+    center_x, center_y = search_center
+    radius = max(8.0, search_radius)
+    x0 = max(0, int(math.floor(center_x - radius)))
+    x1 = min(image.width - 1, int(math.ceil(center_x + radius)))
+    y0 = max(0, int(math.floor(center_y - radius)))
+    y1 = min(image.height - 1, int(math.ceil(center_y + radius)))
+    points: list[tuple[int, int]] = []
+
+    # Use a deliberately low luminance floor for registration. The handoff
+    # ownership cross-fade may dim the intact source uniformly, so the old warm
+    # threshold could latch onto ejecta or a neighboring body and report a fake
+    # shell loss. Small background stars cannot dominate this local disc mask.
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            if (x - center_x) ** 2 + (y - center_y) ** 2 > radius ** 2:
+                continue
+            if max(image.getpixel((x, y))) >= 18:
+                points.append((x, y))
+
+    require(len(points) >= 400, f'not enough dim source-surface pixels in {path.name}')
+    return points
+
+
 def source_surface_damage_metrics(
     base_path: Path,
     current_path: Path,
@@ -164,8 +194,10 @@ def source_surface_damage_metrics(
     current = Image.open(current_path).convert('RGB')
     shift_x, shift_y = registration_shift
     hot = 0
-    darkened = 0
-    samples = 0
+    raw_darkened = 0
+    normalized_darkened = 0
+    samples: list[tuple[float, float, tuple[int, int, int], tuple[int, int, int]]] = []
+    intensity_ratios: list[float] = []
 
     for x, y in points:
         current_x = int(round(x + shift_x))
@@ -175,11 +207,25 @@ def source_surface_damage_metrics(
 
         before = base.getpixel((x, y))
         after = current.getpixel((current_x, current_y))
-        before_peak = max(before)
-        after_peak = max(after)
-        samples += 1
-        if before_peak >= 35 and after_peak < max(18.0, before_peak * 0.45):
-            darkened += 1
+        before_peak = float(max(before))
+        after_peak = float(max(after))
+        if before_peak < 35:
+            continue
+        samples.append((before_peak, after_peak, before, after))
+        intensity_ratios.append(after_peak / max(before_peak, 1.0))
+
+    require(len(samples) >= 40, f'not enough registered source-surface samples in {current_path.name}')
+    # A uniform opacity handoff is not shell peeling. Estimate that global
+    # brightness transfer robustly, then fail only pixels that disappear far
+    # beyond the shared fade. A real discarded shell still produces localized
+    # near-black holes and remains caught by the normalized loss fraction.
+    global_intensity_scale = max(0.08, min(1.25, statistics.median(intensity_ratios)))
+
+    for before_peak, after_peak, before, after in samples:
+        if after_peak < max(18.0, before_peak * 0.45):
+            raw_darkened += 1
+        if after_peak < max(6.0, before_peak * global_intensity_scale * 0.45):
+            normalized_darkened += 1
         if (
             after[0] >= before[0] + 28 and
             after[0] >= 75 and
@@ -188,11 +234,12 @@ def source_surface_damage_metrics(
         ):
             hot += 1
 
-    require(samples >= 40, f'not enough registered source-surface samples in {current_path.name}')
     return {
-        'hot_fraction': hot / samples,
-        'darkened_fraction': darkened / samples,
-        'samples': samples,
+        'hot_fraction': hot / len(samples),
+        'raw_darkened_fraction': raw_darkened / len(samples),
+        'normalized_darkened_fraction': normalized_darkened / len(samples),
+        'global_intensity_scale': global_intensity_scale,
+        'samples': len(samples),
         'registration_shift_px': [shift_x, shift_y],
     }
 
@@ -270,10 +317,19 @@ def main() -> None:
         }
         debris_motion = debris_region_difference(reveal, final)
         contact_centroid = warm_surface_centroid(baseline_surface)
-        early_surface = warm_surface_points(early)
-        middle_surface = warm_surface_points(middle)
-        early_centroid = warm_surface_centroid(early_surface)
-        middle_centroid = warm_surface_centroid(middle_surface)
+        source_equivalent_radius = math.sqrt(len(baseline_surface) / math.pi)
+        registration_radius = source_equivalent_radius * 1.10
+        contact_dim_surface = dim_source_surface_points(
+            contact, (contact_centroid[0], contact_centroid[1]), registration_radius,
+        )
+        early_dim_surface = dim_source_surface_points(
+            early, (contact_centroid[0], contact_centroid[1]), registration_radius,
+        )
+        early_centroid = warm_surface_centroid(early_dim_surface)
+        middle_dim_surface = dim_source_surface_points(
+            middle, (early_centroid[0], early_centroid[1]), registration_radius,
+        )
+        middle_centroid = warm_surface_centroid(middle_dim_surface)
         early_registration = (
             early_centroid[0] - contact_centroid[0],
             early_centroid[1] - contact_centroid[1],
@@ -283,6 +339,10 @@ def main() -> None:
             middle_centroid[1] - contact_centroid[1],
         )
         early_surface_shift = math.hypot(*early_registration)
+        silhouette_retention = {
+            'contact_compression': len(early_dim_surface) / max(1, len(contact_dim_surface)),
+            'local_ejecta': len(middle_dim_surface) / max(1, len(contact_dim_surface)),
+        }
         surface_damage = {
             'contact_compression': source_surface_damage_metrics(
                 contact,
@@ -308,6 +368,7 @@ def main() -> None:
         payload['mean_frame_differences'] = differences
         payload['post_reveal_debris_motion'] = debris_motion
         payload['source_surface_damage'] = surface_damage
+        payload['source_silhouette_retention'] = silhouette_retention
         payload['warm_surface_centroid'] = {
             'contact': {
                 'x': contact_centroid[0],
@@ -324,8 +385,6 @@ def main() -> None:
                 'y': middle_centroid[1],
                 'pixels': middle_centroid[2],
             },
-            # Diagnostic registration only. Source motion is expected when the
-            # collision system itself moves; immobility is no longer a success gate.
             'early_shift_px': early_surface_shift,
         }
 
@@ -337,10 +396,10 @@ def main() -> None:
             energies['contact_compression'] >= energies['contact'] * 0.55,
             'the original solid surface disappeared too abruptly during contact compression',
         )
-        require(
-            math.isfinite(early_surface_shift),
-            'source-surface registration shift must be finite',
-        )
+        # Absolute source position is intentionally not bounded here. A disruption
+        # handoff now carries the preserved surface with the physical fragment
+        # system, and the damage comparisons above register that expected motion
+        # before evaluating the original shell-preservation regression.
         for stage, energy in energies.items():
             require(energy >= 450, f'{stage} capture is unexpectedly empty')
             require(
@@ -352,16 +411,21 @@ def main() -> None:
         # Only the contact cap may heat strongly; the rest of the intact source
         # surface must not become a glowing crack network or get shader-cut away.
         # The source mask is isolated from unrelated warm bodies and registered
-        # for source/camera motion before comparing pixels. A moving handoff is
-        # valid and is checked against the physical result by dedicated anchor tests.
+        # for expected collision-system motion before comparing pixels.
         for name, metrics in surface_damage.items():
             require(
                 float(metrics['hot_fraction']) <= 0.12,
                 f'{name}: hot surface coverage is too broad; possible global glowing crack/shell pattern',
             )
             require(
-                float(metrics['darkened_fraction']) <= 0.05,
-                f'{name}: too much original surface disappeared; possible shell peeling/discard regression',
+                float(metrics['normalized_darkened_fraction']) <= 0.05,
+                f'{name}: too much locally normalized surface disappeared; possible shell peeling/discard regression',
+            )
+
+        for name, retention in silhouette_retention.items():
+            require(
+                retention >= 0.70,
+                f'{name}: source silhouette area collapsed; possible shell peeling/discard regression',
             )
 
         require(
