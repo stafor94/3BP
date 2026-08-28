@@ -146,6 +146,16 @@ export function getDisruptionContactPatchTravelScale(elapsedMs: number) {
   return 0.14 * (1 - fractureProgress)
 }
 
+export function getDisruptionTransferPointSize(elapsedMs: number) {
+  const lifecycle = getCollisionVisualLifecycle(elapsedMs)
+  const basePointSize = 1.7 + (1 - getCollisionHandoffParticleProgress(elapsedMs)) * 0.8
+  if (lifecycle.phase === 'IMPACT') return basePointSize + 1.4
+  if (lifecycle.phase === 'FRACTURE') {
+    return basePointSize + (1 - lifecycle.phaseProgress) * 1.4
+  }
+  return basePointSize
+}
+
 function getBodySeed(id: string) {
   let hash = 2166136261
   for (let index = 0; index < id.length; index += 1) {
@@ -400,7 +410,6 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     visual: SourceTransferVisual,
     anchorDelta: THREE.Vector3,
   ) => {
-    const particleProgress = getCollisionHandoffParticleProgress(visual.lifecycle.elapsedMs)
     const fractureProgress = getCollisionHandoffFractureProgress(visual.lifecycle.elapsedMs)
     const transferProgress = getCollisionHandoffTransferProgress(visual.lifecycle.elapsedMs)
     const contactPatchTravel = getDisruptionContactPatchTravelScale(visual.lifecycle.elapsedMs)
@@ -420,7 +429,9 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
       visual.particlePositions[offset + 1] = visual.contactPoint.y + direction.y * distance
       visual.particlePositions[offset + 2] = visual.contactPoint.z + direction.z * distance
     }
-    visual.particleMaterial.uniforms.uPointSize.value = 1.7 + (1 - particleProgress) * 0.8
+    visual.particleMaterial.uniforms.uPointSize.value = getDisruptionTransferPointSize(
+      visual.lifecycle.elapsedMs,
+    )
   }
 
   const updateAbsorptionParticles = (

@@ -6,6 +6,7 @@ import {
   getCollisionTransferParticleOpacity,
   getDisruptionContactPatchTravelScale,
   getDisruptionTransferParticleOpacity,
+  getDisruptionTransferPointSize,
 } from '../src/rendering/collisionHandoffLayer'
 import { getCollisionVisualLifecycle } from '../src/rendering/collisionVisualOutcome'
 
@@ -57,6 +58,18 @@ function testDisruptionContactPatchIsVisibleBeforeRemnantFormation() {
   assert(
     getDisruptionContactPatchTravelScale(COLLISION_FRACTURE_END_MS) === 0,
     'temporary contact-patch spread must hand ownership to fracture travel',
+  )
+  assert(
+    getDisruptionTransferPointSize(COLLISION_IMPACT_HOLD_END_MS) >= 3.8,
+    'disruption contact patch point sprites must remain connected at the IMPACT/FRACTURE boundary',
+  )
+  assert(
+    getDisruptionTransferPointSize(520) >= 3.4,
+    'early fracture particles must stay visually connected before remnant formation becomes readable',
+  )
+  assert(
+    getDisruptionTransferPointSize(COLLISION_FRACTURE_END_MS) < 2.5,
+    'contact-patch point-size boost must retire by fracture completion',
   )
   assert(
     getDisruptionTransferParticleOpacity(COLLISION_HANDOFF_DURATION_MS) === 0,
