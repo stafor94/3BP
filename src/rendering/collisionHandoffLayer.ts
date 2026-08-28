@@ -425,8 +425,12 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     for (let index = 0; index < visual.particleDirections.length; index += 1) {
       const offset = index * 3
       const direction = visual.particleDirections[index]
-      const radialFill = 0.12 +
-        seededValue(getBodySeed(`${visual.source.id}:contact-fill:${index}`) * 17.9) * 0.88
+      const fillSeed = seededValue(
+        getBodySeed(`${visual.source.id}:contact-fill:${index}`) * 17.9,
+      )
+      const radialFill = index % 3 === 0
+        ? 0.04 + fillSeed * 0.10
+        : 0.24 + fillSeed * 0.76
       const radialScale = 1 - contactPatchEnvelope * (1 - radialFill)
       const distance = travel * visual.particleSpeeds[index] * radialScale
       visual.particlePositions[offset] = visual.contactPoint.x + direction.x * distance
