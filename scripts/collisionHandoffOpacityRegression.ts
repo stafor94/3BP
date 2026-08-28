@@ -4,6 +4,8 @@ import {
   COLLISION_IMPACT_HOLD_END_MS,
   COLLISION_TRANSFER_END_MS,
   getCollisionTransferParticleOpacity,
+  getDisruptionContactPatchTravelScale,
+  getDisruptionTransferParticleOpacity,
 } from '../src/rendering/collisionHandoffLayer'
 import { getCollisionVisualLifecycle } from '../src/rendering/collisionVisualOutcome'
 
@@ -12,7 +14,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function testOpacityBelongsToTransferParticlesNotSourceSphere() {
-  assert(getCollisionTransferParticleOpacity(0) === 0, 'impact starts without a replacement sphere fade')
+  assert(getCollisionTransferParticleOpacity(0) === 0, 'generic transfer starts without a replacement sphere fade')
   assert(
     getCollisionTransferParticleOpacity(COLLISION_IMPACT_HOLD_END_MS) > 0,
     'impact boundary may begin contact-local transfer emission',
@@ -35,5 +37,33 @@ function testOpacityBelongsToTransferParticlesNotSourceSphere() {
   )
 }
 
+function testDisruptionContactPatchIsVisibleBeforeRemnantFormation() {
+  assert(
+    getDisruptionTransferParticleOpacity(0) >= 0.24,
+    'disruption must show contact-local transfer immediately after source removal',
+  )
+  assert(
+    getDisruptionTransferParticleOpacity(COLLISION_IMPACT_HOLD_END_MS) >= 0.30,
+    'disruption contact patch must remain readable at the IMPACT/FRACTURE boundary',
+  )
+  assert(
+    getDisruptionContactPatchTravelScale(0) >= 0.05,
+    'disruption particles must not collapse to one point at handoff start',
+  )
+  assert(
+    getDisruptionContactPatchTravelScale(COLLISION_IMPACT_HOLD_END_MS) >= 0.12,
+    'disruption particles must occupy a contact patch before fracture propagation',
+  )
+  assert(
+    getDisruptionContactPatchTravelScale(COLLISION_FRACTURE_END_MS) === 0,
+    'temporary contact-patch spread must hand ownership to fracture travel',
+  )
+  assert(
+    getDisruptionTransferParticleOpacity(COLLISION_HANDOFF_DURATION_MS) === 0,
+    'disruption contact particles must still retire with the handoff lifecycle',
+  )
+}
+
 testOpacityBelongsToTransferParticlesNotSourceSphere()
+testDisruptionContactPatchIsVisibleBeforeRemnantFormation()
 console.log('collision handoff transfer opacity regression passed')

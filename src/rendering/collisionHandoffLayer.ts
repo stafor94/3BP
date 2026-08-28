@@ -122,6 +122,30 @@ export function getCollisionTransferParticleOpacity(elapsedMs: number) {
   return 0
 }
 
+export function getDisruptionTransferParticleOpacity(elapsedMs: number) {
+  const lifecycle = getCollisionVisualLifecycle(elapsedMs)
+  if (lifecycle.isComplete) return 0
+  const baseOpacity = getCollisionTransferParticleOpacity(elapsedMs)
+  if (lifecycle.phase === 'IMPACT') {
+    return 0.24 + lifecycle.phaseProgress * 0.08
+  }
+  if (lifecycle.phase === 'FRACTURE') {
+    const contactPatchFloor = 0.32 - lifecycle.phaseProgress * 0.08
+    return Math.max(baseOpacity, contactPatchFloor)
+  }
+  return baseOpacity
+}
+
+export function getDisruptionContactPatchTravelScale(elapsedMs: number) {
+  const elapsed = Math.max(0, elapsedMs)
+  if (elapsed <= COLLISION_IMPACT_HOLD_END_MS) {
+    const impactProgress = smooth01(elapsed / Math.max(1, COLLISION_IMPACT_HOLD_END_MS))
+    return 0.06 + impactProgress * 0.08
+  }
+  const fractureProgress = getCollisionHandoffFractureProgress(elapsed)
+  return 0.14 * (1 - fractureProgress)
+}
+
 function getBodySeed(id: string) {
   let hash = 2166136261
   for (let index = 0; index < id.length; index += 1) {
@@ -379,7 +403,9 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     const particleProgress = getCollisionHandoffParticleProgress(visual.lifecycle.elapsedMs)
     const fractureProgress = getCollisionHandoffFractureProgress(visual.lifecycle.elapsedMs)
     const transferProgress = getCollisionHandoffTransferProgress(visual.lifecycle.elapsedMs)
+    const contactPatchTravel = getDisruptionContactPatchTravelScale(visual.lifecycle.elapsedMs)
     const travel = visual.surfaceRadius * (
+      contactPatchTravel +
       fractureProgress * 0.34 +
       transferProgress * 1.55 +
       (visual.lifecycle.phase === 'REMNANT_SETTLE' ? visual.lifecycle.phaseProgress * 0.38 : 0)
@@ -441,7 +467,9 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
 
     const position = visual.particleGeometry.getAttribute('position') as THREE.BufferAttribute
     position.needsUpdate = true
-    visual.particleMaterial.uniforms.uOpacity.value = getCollisionTransferParticleOpacity(elapsedMs)
+    visual.particleMaterial.uniforms.uOpacity.value = visual.outcome === 'disrupted'
+      ? getDisruptionTransferParticleOpacity(elapsedMs)
+      : getCollisionTransferParticleOpacity(elapsedMs)
     return visual.lifecycle.isComplete
   }
 
