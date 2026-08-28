@@ -1,6 +1,11 @@
 import { stepBodies as stepCoreBodies } from '../src/physics/engine'
 import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
-import { getBodyPresentationRadius } from '../src/rendering/bodyPresentationRadius'
+import {
+  getBodyPresentationRadius,
+  getSimulationBodyPresentationRadius,
+  MIN_BODY_RENDER_RADIUS,
+  MIN_FRAGMENT_RENDER_RADIUS,
+} from '../src/rendering/bodyPresentationRadius'
 import { getCollisionEffectProfile } from '../src/rendering/collisionEffectProfile'
 import type { BodyState, Vec3 } from '../src/types'
 
@@ -159,6 +164,76 @@ function renderedLargestAxis(body: BodyState) {
   }
 }
 
+function testFragmentPresentationRadiusUsesPhysicalScale() {
+  const pair = makeContactPair({
+    idPrefix: 'vfx-fragment-radius',
+    radiusA: 0.024,
+    radiusB: 0.023,
+    massA: 0.02,
+    massB: 0.02,
+    closingSpeed: 1.8,
+  })
+  const frame = resolveCore(pair)
+  const fragments = frame.filter((body) => body.bodyType === 'fragment')
+  assert(fragments.length >= 2,
+    'high-energy small moon-moon collision must produce persistent physical fragments')
+
+  const fragment = [...fragments].sort((a, b) => a.radius - b.radius)[0]
+  const physicalRadius = fragment.radius
+  assert(physicalRadius < MIN_BODY_RENDER_RADIUS,
+    'fixture fragment must be physically smaller than the normal-body render floor')
+  assert(physicalRadius >= MIN_FRAGMENT_RENDER_RADIUS,
+    'actual persistent fragment fixture should exercise physical-radius rendering above the fragment floor')
+  assertClose(getBodyPresentationRadius(physicalRadius), MIN_BODY_RENDER_RADIUS, 1e-12,
+    'the general body presentation helper must still inflate the same radius to the normal-body floor')
+
+  const fragmentPresentationRadius = getSimulationBodyPresentationRadius(fragment)
+  assertClose(fragmentPresentationRadius, physicalRadius, 1e-12,
+    'persistent fragment rendering must preserve its physical radius instead of applying the normal-body floor')
+  assert(fragmentPresentationRadius < MIN_BODY_RENDER_RADIUS,
+    'fragment presentation radius must stay below the 0.025 normal-body minimum')
+  assertClose(fragment.radius, physicalRadius, 1e-12,
+    'presentation radius lookup must not mutate the physical fragment radius')
+
+  const tinyFragment: BodyState = {
+    ...fragment,
+    id: 'regression:tiny-fragment-presentation-floor',
+    radius: MIN_FRAGMENT_RENDER_RADIUS * 0.25,
+  }
+  assertClose(
+    getSimulationBodyPresentationRadius(tinyFragment),
+    MIN_FRAGMENT_RENDER_RADIUS,
+    1e-12,
+    'sub-floor fragments may use only the dedicated small fragment visibility floor',
+  )
+
+  const smallMoon: BodyState = {
+    ...pair[0],
+    id: 'regression:small-moon-render-floor',
+    radius: 0.008,
+    bodyType: 'moon',
+  }
+  const smallPlanet: BodyState = {
+    ...pair[1],
+    id: 'regression:small-planet-render-floor',
+    radius: 0.009,
+    bodyType: 'planet',
+  }
+  assertClose(getSimulationBodyPresentationRadius(smallMoon), MIN_BODY_RENDER_RADIUS, 1e-12,
+    'small normal moons must retain the existing 0.025 render floor')
+  assertClose(getSimulationBodyPresentationRadius(smallPlanet), MIN_BODY_RENDER_RADIUS, 1e-12,
+    'small normal planets must retain the existing 0.025 render floor')
+
+  return {
+    fragmentCount: fragments.length,
+    physicalRadius,
+    oldGeneralPresentationRadius: getBodyPresentationRadius(physicalRadius),
+    fragmentPresentationRadius,
+    fragmentVisualFloor: MIN_FRAGMENT_RENDER_RADIUS,
+    normalBodyVisualFloor: MIN_BODY_RENDER_RADIUS,
+  }
+}
+
 function testBodyRelativeFlashScale() {
   const smallSmall = makeContactPair({
     idPrefix: 'vfx-small-small',
@@ -258,23 +333,23 @@ function testHeadOnSparkPresentationKeepsPhysicalMotion() {
     'head-on spark fixture must expose presentation geometry without changing physical direction')
 
   const profile = getCollisionEffectProfile(spark)
-  assert(profile.anisotropicStretch <= 1.15,
-    'head-on collision spark must shorten directional mesh stretch')
-  assert(profile.widthScale >= 0.79,
-    'head-on collision spark must broaden into a compact impact fleck')
-  assert(profile.tailLength <= 0.05,
-    'head-on collision spark must use a very short presentation tail')
+  assertClose(profile.fadeAlpha, 0, 1e-12,
+    'very head-on collision spark must hide the directional body presentation at impact')
+  assertClose(profile.anisotropicStretch, 1, 1e-12,
+    'very head-on collision spark presentation must be isotropic before it is suppressed')
+  assertClose(profile.widthScale, 1, 1e-12,
+    'very head-on collision spark presentation must remove narrow directional width')
+  assertClose(profile.tailLength, 0, 1e-12,
+    'very head-on collision spark presentation must remove the directional tail channel')
 
   const fadedProfile = getCollisionEffectProfile({ ...spark, age: 0.6 })
-  assert(fadedProfile.fadeAlpha <= 0.002,
-    'head-on spark must become visually hidden well before its mass-bearing BodyState expires')
+  assertClose(fadedProfile.fadeAlpha, 0, 1e-12,
+    'suppressed head-on spark must remain visually hidden while its mass-bearing BodyState persists')
   assertClose(spark.lifetime ?? -1, LEGACY_SPARK_BODY_LIFETIME, 1e-12,
-    'visual fade must not mutate the existing physical/effect BodyState lifetime')
+    'visual suppression must not mutate the existing physical/effect BodyState lifetime')
 
   const legacyVisualRadius = clamp(spark.radius * 0.62, 0.01, 0.025)
   const legacyVisibleUntil = LEGACY_SPARK_BODY_LIFETIME * (1 - Math.pow(0.002, 1 / 2.15))
-  const compactVisibleDuration = Math.max(0.42, LEGACY_SPARK_BODY_LIFETIME * (1 - 0.71))
-  const compactVisibleUntil = compactVisibleDuration * (1 - Math.pow(0.002, 1 / 2.6))
 
   const grazingSpark: BodyState = {
     ...spark,
@@ -293,6 +368,8 @@ function testHeadOnSparkPresentationKeepsPhysicalMotion() {
     'grazing spark must retain the existing directional width envelope')
   assertClose(grazingProfile.tailLength, LEGACY_SPARK_TAIL, 1e-12,
     'grazing spark must retain the existing directional tail envelope')
+  assertClose(grazingProfile.fadeAlpha, 1, 1e-12,
+    'grazing spark must retain its existing impact visibility')
 
   return {
     sparkMass: spark.mass,
@@ -309,7 +386,7 @@ function testHeadOnSparkPresentationKeepsPhysicalMotion() {
     legacyLargestAxis: legacyVisualRadius * 2 * LEGACY_SPARK_STRETCH,
     newLargestAxis: profile.visualRadius * 2 * Math.max(profile.anisotropicStretch, profile.widthScale),
     legacyVisibleUntil,
-    newVisibleUntil: compactVisibleUntil,
+    newVisibleUntil: 0,
   }
 }
 
@@ -348,9 +425,10 @@ function testStellarContactFlashProfileUnchanged() {
     'stellar merge contact flash brightness must remain unchanged')
 }
 
+const fragmentMetrics = testFragmentPresentationRadiusUsesPhysicalScale()
 const flashMetrics = testBodyRelativeFlashScale()
 const sparkMetrics = testHeadOnSparkPresentationKeepsPhysicalMotion()
 testStellarContactFlashProfileUnchanged()
 
-console.log('non-stellar collision VFX regression checks passed (3)')
-console.log(JSON.stringify({ flashMetrics, sparkMetrics }))
+console.log('non-stellar collision VFX regression checks passed (4)')
+console.log(JSON.stringify({ fragmentMetrics, flashMetrics, sparkMetrics }))
