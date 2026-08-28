@@ -143,11 +143,15 @@ const effectFragmentShader = `
       body = shell * (0.45 + noise * 0.35);
       edge = shell * (0.7 + noise * 0.3);
     } else {
-      // Small sparks remain directional so even tiny effects do not become dots.
+      // Small sparks stay aligned to their real travel direction, but the tail
+      // footprint follows presentation-only profile geometry so head-on ejecta
+      // reads as a compact fleck instead of a full-length +/-tangent spike.
       float headDistance = length(vec2((p.x - 0.2) * 1.15, p.y * 1.6));
       float head = 1.0 - smoothstep(0.18, 0.82, headDistance);
+      float tail01 = smoothstep(0.035, 0.22, uTail);
+      float tailReach = mix(0.28, 1.0, tail01);
       float tail = exp(-abs(p.y) * 8.0) *
-        smoothstep(-1.0, -0.62, p.x) *
+        smoothstep(-tailReach, -tailReach * 0.62, p.x) *
         (1.0 - smoothstep(0.02, 0.38, p.x));
       alpha = max(head, tail * 0.52);
       core = 1.0 - smoothstep(0.0, 0.34, headDistance);

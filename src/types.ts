@@ -70,6 +70,11 @@ export type EffectVisualState = {
   temperatureBias?: number
   stellarCollision?: boolean
   stellarOutcome?: StellarCollisionOutcome
+  /** Largest physical source radius captured at impact for presentation-only scaling. */
+  sourceMaxRadius?: number
+  /** Collision geometry telemetry used only to shape/fade presentation effects. */
+  headOn?: number
+  grazing?: number
 }
 
 export type BodyState = {

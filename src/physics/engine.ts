@@ -697,6 +697,7 @@ function makeCollisionFlash(
       temperatureBias: speedHeat,
       stellarCollision,
       stellarOutcome,
+      sourceMaxRadius: stellarCollision ? undefined : Math.max(a.radius, b.radius),
     },
   }
 }
@@ -1183,6 +1184,8 @@ function makeEjecta(
             phaseOffset: seededScalar(`${seed}:spark-phase:${index}`),
             secondaryColor: index % 2 === 0 ? b.color : a.color,
             temperatureBias: speedEnergy,
+            headOn: geometry.headOn,
+            grazing: geometry.grazing,
           }
         : undefined,
     }

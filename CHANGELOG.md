@@ -6,6 +6,22 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.19] - 2026-08-28
+
+### Fixed
+- 작은 non-stellar collision의 `contactFlash`가 effect BodyState의 `0.055` radius floor와 profile의 `0.038` visual-radius floor에 연속으로 지배되어, 최소 표시 반지름이 적용된 source silhouette보다 절대 크기가 과장되던 문제를 수정했습니다.
+- head-on non-stellar collision의 mass-bearing `Collision spark`가 실제 ±tangent ejecta 운동 위에 긴 directional tail·stretch·additive glow를 겹쳐 두 갈래 직선 spike/기둥처럼 보이던 문제를 완화했습니다.
+
+### Changed
+- physics는 non-stellar flash에 가장 큰 source physical radius와 spark에 head-on/grazing geometry를 presentation metadata로만 전달하고, renderer가 `getBodyPresentationRadius()`를 사용해 source-relative flash footprint와 head-on compact splash shape/visible decay를 계산하도록 분리했습니다.
+- head-on spark의 mesh stretch·tail reach·glow·visible opacity decay를 줄이고 width를 넓혔으며, grazing spark의 기존 directional envelope는 유지했습니다.
+
+### Added
+- 실제 `fragmentAwareEngine.stepBodies()`의 small moon-moon merge와 small+normal, normal+normal, stellar control을 사용해 body-relative flash footprint, mass-bearing spark의 physical direction/lifetime 불변, geometry-aware visual decay를 검증하는 non-stellar collision VFX regression을 추가했습니다.
+
+### Unchanged
+- collision classification/threshold/contact distance, absorb/merge/disrupt/hitRun 판정, mass/ejecta fraction/momentum, physical body/remnant radius, `getEjectaDirection()`과 ejecta spawn/velocity/trajectory, tracking/camera/trail/lifecycle/minRenderRadius, PR #88 ownership, PR #89 physical/display contact 분리 및 stellar collision VFX는 변경하지 않았습니다.
+
 ## [0.19.18] - 2026-08-28
 
 ### Fixed
@@ -86,7 +102,7 @@
 - non-stellar destruction browser artifact를 IMPACT, early/mid FRACTURE, TRANSFER, REMNANT_SETTLE 시점으로 세분화해 solid breakup과 기존 source-sized ghost 방지 조건을 함께 검사하도록 했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 판정, collision prediction, mass/ejecta 및 실제 physical fragment 결과, 50% initial-mass tracking rule, tracking lineage semantics, absorption/merged-survivor/remnant formation, stellar VFX, camera, trail 및 일반 UI는 변경하지 않았습니다.
+- collision physics, merge/disruption 판정, collision prediction, mass/ejecta 및 실제 physical fragment 결과, 50% initial-mass tracking rule, tracking lineage semantics, collision/tracking camera, trail 정책, stellar collision VFX, absorption/merge visual 의미 및 일반 UI는 변경하지 않았습니다.
 
 ## [0.19.12] - 2026-08-28
 
@@ -200,7 +216,7 @@
 
 ### Fixed
 - 작은 천체가 큰 천체와 충돌한 직후 한 프레임에서 갑자기 사라지는 현상을 수정했습니다.
-- 저에너지 흡수 직후 파편이 천체 위아래의 떨어진 위치에 완성된 상태로 갑자기 나타나는 현상을 수정했습니다.
+- 저에너지 흡수 직후 파편이 천체 위아래의 떨어진 위치에 완성된 상태로 갑자기 나타나는 현상을 제거했습니다.
 - 흡수 충돌에서 생성된 파편이 재충돌하며 뒤늦게 길쭉한 `Collision spark` 특수효과를 만들었다가 사라지는 현상을 제거하고, 해당 방출물을 0.55초 이내에 사라지는 접촉면 국소 효과로 제한했습니다.
 
 ## [0.19.3] - 2026-08-26
@@ -535,9 +551,9 @@
 - 항성-항성 합체가 실제 물리 결과로 전환되기 전에 충분히 깊게 겹치는지 검증하는 물리 회귀 체크를 추가했습니다.
 
 ### Changed
-- 항성-항성 `merge` 충돌의 접촉 연출 시간을 0.045에서 0.06 시뮬레이션초로 늘려 `0.03×` 충돌 관찰에서 약 2초 동안 흡수 과정을 보여주도록 했습니다.
+- 항성-항성 `merge` 충돌의 접촉 연출 시간을 0.045에서 0.06 시뮬레이션초로 늘려 `0.03×` 관찰에서 약 2초 동안 흡수 과정을 보여주도록 했습니다.
 - 항성-항성 합체의 최대 시각적 겹침을 작은 항성 반지름의 18%에서 80%로 확대하고, 일반 합체와 `hit-and-run` 충돌은 기존 겹침 규칙을 유지했습니다.
-- 일반 추적 카메라에서 가장 큰 순간 중력 영향을 주는 천체는 카메라 시점 방향을 정하는 데만 사용하고, 줌 배율은 추적 대상 자체의 반지름을 기준으로 고정하도록 변경했습니다.
+- 일반 추적 카메라에서 가장 큰 순간 중력 영향을 주는 천체는 카메라 시점 방향을 정하는 데만 사용하고, 줌 배율은 추적 대상 자체의 반지름을 기준으로 고정하도록 했습니다.
 - 충돌 관찰 카메라는 일반 추적 구도보다 최대 약 20%까지만 더 확대하고, 상대 천체를 함께 담아야 하는 경우에는 오히려 더 축소하도록 안전 범위를 적용했습니다.
 
 ### Fixed
@@ -950,7 +966,7 @@
 - 기존 배속 사이에 중간 시뮬레이션 속도를 추가했습니다.
 
 ### Fixed
-- 전체 질량/반지름 배율을 조정할 때 기준값 자체가 누적 변경되는 문제를 막아 원래 값을 보존하도록 했습니다.
+- 전체 질량/반지름 배율을 조정할 때 기준값 자체가 누적 변경되는 문제를 막아 원래 값을 보존했습니다.
 
 ## [0.12.0] - 2026-08-24
 
@@ -1002,6 +1018,8 @@
 ### Added
 - 2D/3D 공간 모드 타입과 전환 컨트롤을 추가했습니다.
 - 2D/3D 모드별 한국어/영어 문구와 컴팩트 세그먼트 UI를 추가했습니다.
+
+### Changed
 - 평면 모드에서는 프리셋의 궤도면을 평면에 맞게 적용하도록 프리셋 오버라이드를 추가했습니다.
 
 ## [0.7.0] - 2026-08-24

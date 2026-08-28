@@ -11,6 +11,7 @@ const checks = [
   { source: 'stellarCollisionRegression.ts', output: 'stellarCollisionRegression.mjs' },
   { source: 'stellarEjectaRegression.ts', output: 'stellarEjectaRegression.mjs' },
   { source: 'collisionVfxRegression.ts', output: 'collisionVfxRegression.mjs' },
+  { source: 'nonStellarCollisionVfxRegression.ts', output: 'nonStellarCollisionVfxRegression.mjs' },
   { source: 'collisionEffectRoutingRegression.ts', output: 'collisionEffectRoutingRegression.mjs' },
   { source: 'collisionHandoffRegression.ts', output: 'collisionHandoffRegression.mjs' },
   { source: 'collisionVisualOwnershipRegression.ts', output: 'collisionVisualOwnershipRegression.mjs' },
