@@ -140,10 +140,10 @@ export function getDisruptionContactPatchTravelScale(elapsedMs: number) {
   const elapsed = Math.max(0, elapsedMs)
   if (elapsed <= COLLISION_IMPACT_HOLD_END_MS) {
     const impactProgress = smooth01(elapsed / Math.max(1, COLLISION_IMPACT_HOLD_END_MS))
-    return 0.06 + impactProgress * 0.08
+    return 0.10 + impactProgress * 0.16
   }
   const fractureProgress = getCollisionHandoffFractureProgress(elapsed)
-  return 0.14 * (1 - fractureProgress)
+  return 0.26 * (1 - fractureProgress)
 }
 
 export function getDisruptionTransferPointSize(elapsedMs: number) {
@@ -413,6 +413,7 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     const fractureProgress = getCollisionHandoffFractureProgress(visual.lifecycle.elapsedMs)
     const transferProgress = getCollisionHandoffTransferProgress(visual.lifecycle.elapsedMs)
     const contactPatchTravel = getDisruptionContactPatchTravelScale(visual.lifecycle.elapsedMs)
+    const contactPatchEnvelope = 1 - fractureProgress
     const travel = visual.surfaceRadius * (
       contactPatchTravel +
       fractureProgress * 0.34 +
@@ -424,7 +425,10 @@ export function createCollisionHandoffLayer(scene: THREE.Scene) {
     for (let index = 0; index < visual.particleDirections.length; index += 1) {
       const offset = index * 3
       const direction = visual.particleDirections[index]
-      const distance = travel * visual.particleSpeeds[index]
+      const radialFill = 0.12 +
+        seededValue(getBodySeed(`${visual.source.id}:contact-fill:${index}`) * 17.9) * 0.88
+      const radialScale = 1 - contactPatchEnvelope * (1 - radialFill)
+      const distance = travel * visual.particleSpeeds[index] * radialScale
       visual.particlePositions[offset] = visual.contactPoint.x + direction.x * distance
       visual.particlePositions[offset + 1] = visual.contactPoint.y + direction.y * distance
       visual.particlePositions[offset + 2] = visual.contactPoint.z + direction.z * distance
