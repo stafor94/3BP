@@ -54,6 +54,66 @@ def warm_edge_fraction(path: Path, margin_fraction: float = 0.03) -> float:
     return edge_warm / max(1, warm)
 
 
+def bright_impact_pixel_count(path: Path) -> int:
+    """Count only bright impact-VFX-like pixels, not the warm solid-body surface."""
+    image = Image.open(path).convert('RGB')
+    width, height = image.size
+    x0, x1 = int(width * 0.08), int(width * 0.94)
+    y0, y1 = int(height * 0.12), int(height * 0.88)
+    return sum(
+        1
+        for y in range(y0, y1)
+        for x in range(x0, x1)
+        if (
+            (pixel := image.getpixel((x, y)))[0] >= 160
+            and pixel[1] >= 100
+            and pixel[2] >= 70
+        )
+    )
+
+
+def bright_local_components(
+    path: Path,
+    anchor_component: list[tuple[int, int]],
+    padding: int = 10,
+) -> list[list[tuple[int, int]]]:
+    """Find bright chunk highlights near the remnant even when they touch its warm surface."""
+    image = Image.open(path).convert('RGB')
+    width, height = image.size
+    xs = [x for x, _ in anchor_component]
+    ys = [y for _, y in anchor_component]
+    x0 = max(0, min(xs) - padding)
+    x1 = min(width - 1, max(xs) + padding)
+    y0 = max(0, min(ys) - padding)
+    y1 = min(height - 1, max(ys) + padding)
+    candidates = {
+        (x, y)
+        for y in range(y0, y1 + 1)
+        for x in range(x0, x1 + 1)
+        if (
+            (pixel := image.getpixel((x, y)))[0] >= 120
+            and pixel[1] >= 70
+            and pixel[2] >= 35
+        )
+    }
+    components: list[list[tuple[int, int]]] = []
+    remaining = set(candidates)
+    while remaining:
+        seed = remaining.pop()
+        stack = [seed]
+        component = [seed]
+        while stack:
+            x, y = stack.pop()
+            for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if neighbor not in remaining:
+                    continue
+                remaining.remove(neighbor)
+                stack.append(neighbor)
+                component.append(neighbor)
+        components.append(component)
+    return sorted(components, key=len, reverse=True)
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     regression.OUTPUT_DIR = OUTPUT_DIR
@@ -141,31 +201,43 @@ def main() -> None:
             'mobile disruption contains multiple source-sized full-brightness components',
         )
 
-        flash_ratio = warm_pixels['02-260ms'] / max(1, warm_pixels['impact'])
+        # The continuity fix intentionally keeps a source-sized result body visible
+        # at 260ms. Warm-pixel area therefore cannot be used as a proxy for flash
+        # coverage because it counts that preserved body as "flash". Measure only
+        # high-intensity impact-like pixels and keep the allowance relative to the
+        # visible solid-body area instead.
+        bright_pixels = {
+            name: bright_impact_pixel_count(captures[name])
+            for name in ('impact', '02-260ms')
+        }
+        bright_excess = max(0, bright_pixels['02-260ms'] - bright_pixels['impact'])
+        flash_bright_excess_ratio = bright_excess / max(1, warm_pixels['impact'])
+        flash_bright_fraction_of_260ms = bright_pixels['02-260ms'] / max(1, warm_pixels['02-260ms'])
         regression.require(
-            flash_ratio <= 0.35,
-            'mobile contact flash obscures too much of the colliding bodies',
+            flash_bright_excess_ratio <= 0.06,
+            'mobile contact flash adds too much bright area over the colliding-body baseline',
+        )
+        regression.require(
+            flash_bright_fraction_of_260ms <= 0.08,
+            'mobile contact flash obscures too much of the visible 260ms collision mass',
         )
 
-        fracture_components = regression.warm_components(
+        # Source-side chunks intentionally overlap the real remnant during handoff.
+        # A warm connected-component test would merge those chunks into the body and
+        # incorrectly report that they disappeared. Check the separate bright chunk
+        # highlights inside the local remnant region instead.
+        fracture_highlights = bright_local_components(
             captures['04-700ms'],
-            24,
-            minimum_area=4,
+            tracking_components['04-700ms'][0],
         )
-        final_components = regression.warm_components(
-            captures['09-2600ms'],
-            24,
-            minimum_area=12,
-        )
-        final_area = max(1, len(final_components[0]))
         identifiable_chunks = [
             component
-            for component in fracture_components
-            if 4 <= len(component) <= final_area * 0.20
+            for component in fracture_highlights
+            if 4 <= len(component) <= 100
         ]
         regression.require(
             len(identifiable_chunks) >= 3,
-            'mobile FRACTURE no longer exposes multiple identifiable solid chunk components',
+            'mobile FRACTURE no longer exposes multiple identifiable local chunk highlights',
         )
 
         energies = {name: regression.image_energy(path) for name, path in captures.items()}
@@ -224,8 +296,10 @@ def main() -> None:
         payload = {
             'viewport': {'width': width, 'height': height},
             'camera_framing': 'collision-camera',
-            'contact_flash_warm_ratio_to_impact': flash_ratio,
-            'identifiable_fracture_chunk_components': len(identifiable_chunks),
+            'contact_flash_bright_pixels': bright_pixels,
+            'contact_flash_bright_excess_ratio_to_impact_warm': flash_bright_excess_ratio,
+            'contact_flash_bright_fraction_of_260ms_warm': flash_bright_fraction_of_260ms,
+            'identifiable_fracture_chunk_highlights': len(identifiable_chunks),
             'fracture_non_dark_viewport_fraction': fracture_energy_fraction,
             'remnant_core_warm_ratio_to_final': remnant_core_ratio,
             'remnant_forming_warm_ratio_to_final': remnant_forming_ratio,

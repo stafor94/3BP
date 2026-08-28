@@ -6,6 +6,20 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.16] - 2026-08-28
+
+### Fixed
+- non-stellar collision의 실제 `contactFlash` shader footprint와 최종 plane transform을 함께 제한해, 충돌 방향이 세로일 때 밝은 막대/기둥 실루엣이 화면을 지배하던 문제를 수정했습니다. stellar collision의 기존 과장 경로는 유지합니다.
+- disruption result가 생성된 뒤 첫 520ms 동안 완전히 투명하던 ownership gap을 제거했습니다. 새 full-body ghost를 만들지 않고 기존 solid chunk handoff와 실제 result body를 짧게 겹쳐 source → remnant 질량감이 끊기지 않도록 했습니다.
+- remnant deformation의 contact-axis 압축을 equivalent-volume 보존 방식으로 보정하고, 의미 있게 보이기 전 초기 morph를 마치도록 해 작은 찌그러진 core → 큰 구형 remnant 재성장 인상을 제거했습니다.
+
+### Added
+- actual disruption fixture에 production non-stellar contact flash를 재현하는 vertical stress case와 8단계 연속 캡처를 추가했습니다.
+- source 마지막 반경 → remnant 첫 visible 반경, 16ms adjacent-frame 반경 변화, 최종 impact silhouette aspect ratio, visible 이후 stable까지 성장률을 실제 draw telemetry와 브라우저 캡처 기준으로 검증하는 regression을 추가했습니다.
+
+### Unchanged
+- collision lifecycle/physics, contact-local solid chunks, detached chunks/fine debris, source→result ownership 구조, deterministic/anisotropic deformation 개념, REMNANT_SETTLE→STABLE lifecycle, camera/trail handoff, stellar collision 전용 VFX는 변경하지 않았습니다.
+
 ## [0.19.15] - 2026-08-28
 
 ### Fixed
