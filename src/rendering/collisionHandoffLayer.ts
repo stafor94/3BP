@@ -149,9 +149,9 @@ export function getDisruptionContactPatchTravelScale(elapsedMs: number) {
 export function getDisruptionTransferPointSize(elapsedMs: number) {
   const lifecycle = getCollisionVisualLifecycle(elapsedMs)
   const basePointSize = 1.7 + (1 - getCollisionHandoffParticleProgress(elapsedMs)) * 0.8
-  if (lifecycle.phase === 'IMPACT') return basePointSize + 1.4
+  if (lifecycle.phase === 'IMPACT') return basePointSize + 3.5
   if (lifecycle.phase === 'FRACTURE') {
-    return basePointSize + (1 - lifecycle.phaseProgress) * 1.4
+    return basePointSize + (1 - lifecycle.phaseProgress) * 3.5
   }
   return basePointSize
 }
