@@ -4,30 +4,26 @@
   "version": "0.19.19",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "npm run check:version && npm run check:physics && tsc -b && vite build",
+    "dev": "vite",
     "check:version": "node scripts/versioningRegression.mjs",
     "check:physics": "node scripts/runPhysicsRegression.mjs",
-    "lint": "eslint .",
-    "preview": "vite preview --host 0.0.0.0"
+    "build": "npm run check:version && npm run check:physics && tsc -b && vite build",
+    "preview": "vite preview",
+    "bump:patch": "npm version patch --no-git-tag-version",
+    "bump:minor": "npm version minor --no-git-tag-version",
+    "bump:major": "npm version major --no-git-tag-version"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "~5.8.2",
-    "react": "latest",
-    "react-dom": "latest",
-    "three": "latest",
-    "three-custom-shader-material": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "@types/three": "latest",
-    "eslint": "latest",
-    "@eslint/js": "latest",
-    "typescript-eslint": "latest",
-    "eslint-plugin-react-hooks": "latest",
-    "eslint-plugin-react-refresh": "latest",
-    "globals": "latest"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.4",
+    "three": "^0.185.1"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@types/three": "^0.185.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
 }
