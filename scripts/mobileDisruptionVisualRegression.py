@@ -54,6 +54,24 @@ def warm_edge_fraction(path: Path, margin_fraction: float = 0.03) -> float:
     return edge_warm / max(1, warm)
 
 
+def bright_impact_pixel_count(path: Path) -> int:
+    """Count only bright impact-VFX-like pixels, not the warm solid-body surface."""
+    image = Image.open(path).convert('RGB')
+    width, height = image.size
+    x0, x1 = int(width * 0.08), int(width * 0.94)
+    y0, y1 = int(height * 0.12), int(height * 0.88)
+    return sum(
+        1
+        for y in range(y0, y1)
+        for x in range(x0, x1)
+        if (
+            (pixel := image.getpixel((x, y)))[0] >= 160
+            and pixel[1] >= 100
+            and pixel[2] >= 70
+        )
+    )
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     regression.OUTPUT_DIR = OUTPUT_DIR
@@ -141,10 +159,25 @@ def main() -> None:
             'mobile disruption contains multiple source-sized full-brightness components',
         )
 
-        flash_ratio = warm_pixels['02-260ms'] / max(1, warm_pixels['impact'])
+        # The continuity fix intentionally keeps a source-sized result body visible
+        # at 260ms. Warm-pixel area therefore cannot be used as a proxy for flash
+        # coverage because it counts that preserved body as "flash". Measure only
+        # high-intensity impact-like pixels and keep the allowance relative to the
+        # visible solid-body area instead.
+        bright_pixels = {
+            name: bright_impact_pixel_count(captures[name])
+            for name in ('impact', '02-260ms')
+        }
+        bright_excess = max(0, bright_pixels['02-260ms'] - bright_pixels['impact'])
+        flash_bright_excess_ratio = bright_excess / max(1, warm_pixels['impact'])
+        flash_bright_fraction_of_260ms = bright_pixels['02-260ms'] / max(1, warm_pixels['02-260ms'])
         regression.require(
-            flash_ratio <= 0.35,
-            'mobile contact flash obscures too much of the colliding bodies',
+            flash_bright_excess_ratio <= 0.06,
+            'mobile contact flash adds too much bright area over the colliding-body baseline',
+        )
+        regression.require(
+            flash_bright_fraction_of_260ms <= 0.08,
+            'mobile contact flash obscures too much of the visible 260ms collision mass',
         )
 
         fracture_components = regression.warm_components(
@@ -224,7 +257,9 @@ def main() -> None:
         payload = {
             'viewport': {'width': width, 'height': height},
             'camera_framing': 'collision-camera',
-            'contact_flash_warm_ratio_to_impact': flash_ratio,
+            'contact_flash_bright_pixels': bright_pixels,
+            'contact_flash_bright_excess_ratio_to_impact_warm': flash_bright_excess_ratio,
+            'contact_flash_bright_fraction_of_260ms_warm': flash_bright_fraction_of_260ms,
             'identifiable_fracture_chunk_components': len(identifiable_chunks),
             'fracture_non_dark_viewport_fraction': fracture_energy_fraction,
             'remnant_core_warm_ratio_to_final': remnant_core_ratio,
