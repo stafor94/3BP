@@ -47,6 +47,7 @@ fragments[1].velocity = { x: 0.38, y: -0.26, z: 0 }
 fragments.forEach((fragment) => { fragment.age = 0 })
 
 const CONTACT_BODIES = [source, impactor]
+const COLLISION_PAIR_KEY = `${source.id}~${impactor.id}`
 
 declare global {
   interface Window {
@@ -72,6 +73,9 @@ function advance(bodyState: BodyState, elapsedSeconds: number): BodyState {
 export function MovingDisruptionVisualHarness() {
   const [stage, setStage] = useState<VisualStage>('contact')
   const [destructionElapsedMs, setDestructionElapsedMs] = useState(0)
+  const cameraFraming = new URLSearchParams(window.location.search).get('camera-framing')
+  const useTrackedCamera = cameraFraming === 'tracked'
+  const useCollisionCamera = cameraFraming === 'collision'
 
   const bodies = useMemo(() => {
     if (stage === 'contact') return CONTACT_BODIES
@@ -116,6 +120,19 @@ export function MovingDisruptionVisualHarness() {
     document.body.dataset.visualStage = stage
   }, [stage])
 
+  const trackedBodyId = useTrackedCamera
+    ? stage === 'contact'
+      ? source.id
+      : result.id
+    : null
+  const collisionCameraFocus = useCollisionCamera
+    ? {
+        pairKey: COLLISION_PAIR_KEY,
+        bodyAId: source.id,
+        bodyBId: impactor.id,
+      }
+    : null
+
   return (
     <div
       data-visual-regression="actual-disruption"
@@ -129,8 +146,11 @@ export function MovingDisruptionVisualHarness() {
         trailEnabled={false}
         trailDuration={8}
         trailSampleBatch={{ sequence: 0, samples: [] }}
-        trackedBodyId={null}
-        collisionCameraFocus={null}
+        trackedBodyId={trackedBodyId}
+        collisionCameraFocus={collisionCameraFocus}
+        collisionWatchPhase={useCollisionCamera ? (stage === 'contact' ? 'impact' : 'postImpact') : null}
+        collisionWatchPairKey={useCollisionCamera ? COLLISION_PAIR_KEY : null}
+        collisionImpactObserved={useCollisionCamera && stage === 'destruction'}
       />
     </div>
   )
