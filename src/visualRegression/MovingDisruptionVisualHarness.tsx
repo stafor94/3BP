@@ -72,6 +72,8 @@ function advance(bodyState: BodyState, elapsedSeconds: number): BodyState {
 export function MovingDisruptionVisualHarness() {
   const [stage, setStage] = useState<VisualStage>('contact')
   const [destructionElapsedMs, setDestructionElapsedMs] = useState(0)
+  const cameraFraming = new URLSearchParams(window.location.search)
+    .get('camera-framing') === 'tracked'
 
   const bodies = useMemo(() => {
     if (stage === 'contact') return CONTACT_BODIES
@@ -116,6 +118,12 @@ export function MovingDisruptionVisualHarness() {
     document.body.dataset.visualStage = stage
   }, [stage])
 
+  const trackedBodyId = cameraFraming
+    ? stage === 'contact'
+      ? source.id
+      : result.id
+    : null
+
   return (
     <div
       data-visual-regression="actual-disruption"
@@ -129,7 +137,7 @@ export function MovingDisruptionVisualHarness() {
         trailEnabled={false}
         trailDuration={8}
         trailSampleBatch={{ sequence: 0, samples: [] }}
-        trackedBodyId={null}
+        trackedBodyId={trackedBodyId}
         collisionCameraFocus={null}
       />
     </div>
