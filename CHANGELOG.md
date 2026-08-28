@@ -6,6 +6,22 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.14] - 2026-08-28
+
+### Changed
+- disruption 결과 remnant가 최종 형상의 작은 완성형 구체에서 uniform scale로 커지는 대신, 기존 physical remnant mesh 자체가 contact axis 기준 압축·비대칭과 deterministic low-frequency deformation을 가진 불규칙 core에서 형성되도록 변경했습니다.
+- FORMING 후반에는 기존 solid chunks/fine debris와 remnant가 함께 보이는 ownership overlap을 유지하고, REMNANT_SETTLE에서 shape irregularity·anisotropic compression·국소 thermal unrest가 점진적으로 0으로 수렴하도록 했습니다.
+
+### Added
+- remnant formation의 초기 불규칙성, phase boundary 연속성, late-TRANSFER chunk overlap, settle 감쇠, stable physical-body exact match를 검증하는 전용 회귀 체크를 추가했습니다.
+
+### Fixed
+- disruption remnant가 약 20% 크기의 작은 완성형 행성처럼 갑자기 나타난 뒤 풍선처럼 확대되어 보이던 전환을 제거하고, debris cluster가 응집·안정화되어 최종 천체가 형성되는 흐름으로 연결했습니다.
+- remnant formation shader를 disruption result에만 명시적으로 활성화해 absorption/merged-survivor의 기존 contact-local impact presentation에 영향을 주지 않도록 격리했습니다.
+
+### Unchanged
+- source full-body ghost 제거, contact-local solid chunk breakup/fine debris/moving anchor, absorption/merged-survivor/stellar 경로, collision physics, merge/disruption 판정, mass/radius/velocity, physical fragment/ejecta, tracking, camera, trail 및 일반 UI는 변경하지 않았습니다.
+
 ## [0.19.13] - 2026-08-28
 
 ### Changed
@@ -1069,7 +1085,7 @@
 ## [0.1.9] - 2026-08-24
 
 ### Changed
-- 우주 배경의 별 개수와 크기를 늘려 배경이 더 분명하게 보이도록 했습니다.
+- 우주 배경의 별 개수와 크기를 늘려 배경이 더 분명하게 보이도록 조정했습니다.
 
 ## [0.1.8] - 2026-08-24
 
