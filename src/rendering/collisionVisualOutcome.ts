@@ -330,8 +330,9 @@ export function findCollisionVisualTransitions(
   }
 
   // A disruption can end in fragments without a retained non-fragment result.
-  // Lineage only associates those pieces with the source; the absence of any
-  // surviving result plus real fragment/ejecta output is the destruction proof.
+  // Check collision lineage for a surviving physical result first. Only when no
+  // such result exists do the existing id-based fragment/ejecta rules prove
+  // destruction and create the disruption handoff.
   for (const source of previous) {
     if (
       !isNonStellarSource(source) ||
@@ -339,21 +340,27 @@ export function findCollisionVisualTransitions(
       transitionedSourceIds.has(source.id)
     ) continue
 
-    const descendants = current.filter((candidate) =>
+    const hasSurvivingBody = current.some((candidate) =>
       candidate.id !== source.id &&
+      isNonStellarResult(candidate) &&
       bodyCarriesCollisionLineage(candidate, source.id),
     )
-    const fragmentDescendants = descendants.filter((candidate) =>
-      candidate.bodyType === 'fragment' ||
-      (candidate.bodyType === 'effect' && candidate.mass > 0),
+    if (hasSurvivingBody) continue
+
+    const fragmentDescendants = current.filter((candidate) =>
+      candidate.id !== source.id &&
+      isCollisionVisualDescendant(candidate.id, source.id) &&
+      (
+        candidate.bodyType === 'fragment' ||
+        (candidate.bodyType === 'effect' && candidate.mass > 0)
+      ),
     )
-    const hasSurvivingBody = descendants.some(isNonStellarResult)
-    if (hasSurvivingBody || fragmentDescendants.length === 0) continue
+    if (fragmentDescendants.length === 0) continue
 
     const partner = previous
       .filter((candidate) => candidate.id !== source.id && candidate.bodyType !== 'effect')
       .find((candidate) => fragmentDescendants.some((fragment) =>
-        bodyCarriesCollisionLineage(fragment, candidate.id),
+        isCollisionVisualDescendant(fragment.id, candidate.id),
       ))
     transitions.push(transitionFor(source, 'disrupted', null, partner))
   }
