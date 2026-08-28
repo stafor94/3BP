@@ -28,6 +28,10 @@ if (visualRegression === 'stellar-topology') {
   void import('./visualRegression/SmallHeadOnCollisionArtifactHarness').then(({ SmallHeadOnCollisionArtifactHarness }) => {
     root.render(<SmallHeadOnCollisionArtifactHarness />)
   })
+} else if (visualRegression === 'collision-merge-handoff') {
+  void import('./visualRegression/CollisionMergeHandoffVisualHarness').then(({ CollisionMergeHandoffVisualHarness }) => {
+    root.render(<CollisionMergeHandoffVisualHarness />)
+  })
 } else if (visualRegression === 'actual-disruption') {
   void import('./visualRegression/MovingDisruptionVisualHarness').then(({ MovingDisruptionVisualHarness }) => {
     root.render(<MovingDisruptionVisualHarness />)
