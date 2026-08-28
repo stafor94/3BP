@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { BodyState, EffectVisualKind } from '../types'
-import { getBodyPresentationRadius } from './bodyPresentationRadius'
+import { getBodyPresentationRadius, MIN_BODY_RENDER_RADIUS } from './bodyPresentationRadius'
 
 export type CollisionEffectProfile = {
   kind: EffectVisualKind
@@ -18,6 +18,10 @@ export type CollisionEffectProfile = {
   turbulence: number
   cooling: number
 }
+
+export const SMALL_HEAD_ON_CONTACT_FLASH_SOURCE_RADIUS_MAX = MIN_BODY_RENDER_RADIUS
+export const SMALL_HEAD_ON_CONTACT_FLASH_WIDTH_MAX = 0.33
+export const SMALL_HEAD_ON_CONTACT_FLASH_TAIL_SENTINEL = -2
 
 function smooth01(value: number) {
   const t = THREE.MathUtils.clamp(value, 0, 1)
@@ -93,6 +97,14 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     const solidFlashRadius = sourcePresentationRadius === undefined
       ? legacySolidFlashRadius
       : Math.min(legacySolidFlashRadius, sourcePresentationRadius * 0.98)
+    // The physics contact-flash width is still useful presentation metadata:
+    // <= 0.33 corresponds to the same sufficiently head-on range that suppresses
+    // directional sparks. Keep this renderer-only so collision staging/physics do
+    // not gain another C-track branch.
+    const smallHeadOnSolidFlash = !stellar &&
+      visual?.sourceMaxRadius !== undefined &&
+      Math.abs(visual.sourceMaxRadius) <= SMALL_HEAD_ON_CONTACT_FLASH_SOURCE_RADIUS_MAX &&
+      rawWidth <= SMALL_HEAD_ON_CONTACT_FLASH_WIDTH_MAX
 
     return {
       kind,
@@ -122,9 +134,14 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       widthScale: stellar
         ? clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66)
         : clamp(rawWidth, 0.86, 1.00),
-      // Negative tail is a renderer-local sentinel for the compact solid-body
-      // impact mask. Stellar contact flashes keep the original zero-tail path.
-      tailLength: stellar ? 0 : -1,
+      // Negative tail is a renderer-local sentinel for compact solid-body masks.
+      // -2 selects the radial small/high-head-on burst with no directional ridge;
+      // -1 preserves the existing compact directional mask for other collisions.
+      tailLength: stellar
+        ? 0
+        : smallHeadOnSolidFlash
+          ? SMALL_HEAD_ON_CONTACT_FLASH_TAIL_SENTINEL
+          : -1,
       pulseStrength: stellar
         ? clamp(visual?.pulseStrength ?? (physicalStellar ? 0.055 : 0.16), 0, physicalStellar ? 0.075 : 0.2)
         : clamp(visual?.pulseStrength ?? 0.07, 0, 0.08),
