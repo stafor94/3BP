@@ -1,7 +1,7 @@
 {
   "name": "3bp",
   "private": true,
-  "version": "0.19.11",
+  "version": "0.19.12",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,16 +14,18 @@
     "bump:major": "npm version major --no-git-tag-version"
   },
   "dependencies": {
-    "react": "^19.2.8",
-    "react-dom": "^19.2.4",
-    "three": "^0.185.1"
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "lucide-react": "^0.468.0",
+    "three": "latest"
   },
   "devDependencies": {
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "@types/three": "^0.185.4",
-    "@vitejs/plugin-react": "^6.1.0",
-    "typescript": "^7.0.2",
-    "vite": "^8.2.2"
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@types/three": "latest",
+    "typescript": "~5.8.2"
   }
 }

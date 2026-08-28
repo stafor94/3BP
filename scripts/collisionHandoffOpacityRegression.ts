@@ -1,41 +1,39 @@
 import {
-  COLLISION_BREAKUP_END_MS,
   COLLISION_FRACTURE_END_MS,
   COLLISION_HANDOFF_DURATION_MS,
-  getCollisionHandoffSourceOpacity,
+  COLLISION_IMPACT_HOLD_END_MS,
+  COLLISION_TRANSFER_END_MS,
+  getCollisionTransferParticleOpacity,
 } from '../src/rendering/collisionHandoffLayer'
+import { getCollisionVisualLifecycle } from '../src/rendering/collisionVisualOutcome'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
 
-function testBreakupTransfersVisualOwnershipWithoutShorteningHandoff() {
+function testOpacityBelongsToTransferParticlesNotSourceSphere() {
+  assert(getCollisionTransferParticleOpacity(0) === 0, 'impact starts without a replacement sphere fade')
   assert(
-    getCollisionHandoffSourceOpacity(COLLISION_FRACTURE_END_MS) >= 0.98,
-    'source surface must remain effectively opaque through the fracture phase',
-  )
-
-  const midBreakupOpacity = getCollisionHandoffSourceOpacity(1500)
-  assert(
-    midBreakupOpacity >= 0.45 && midBreakupOpacity <= 0.62,
-    'mid-breakup source ownership must cross-fade instead of staying fully opaque',
-  )
-
-  const breakupEndOpacity = getCollisionHandoffSourceOpacity(COLLISION_BREAKUP_END_MS)
-  assert(
-    breakupEndOpacity >= 0.08 && breakupEndOpacity <= 0.16,
-    'physical result must visually dominate by breakup completion',
-  )
-
-  assert(
-    getCollisionHandoffSourceOpacity(2200) < breakupEndOpacity,
-    'late source fade must continue after breakup ownership transfer',
+    getCollisionTransferParticleOpacity(COLLISION_IMPACT_HOLD_END_MS) > 0,
+    'impact boundary may begin contact-local transfer emission',
   )
   assert(
-    getCollisionHandoffSourceOpacity(COLLISION_HANDOFF_DURATION_MS) === 0,
-    'source snapshot must still use the full 2.6 second lifecycle',
+    getCollisionTransferParticleOpacity(COLLISION_FRACTURE_END_MS) > 0.45,
+    'fracture completion must keep transfer data readable',
+  )
+  assert(
+    getCollisionVisualLifecycle(COLLISION_FRACTURE_END_MS).phase === 'TRANSFER',
+    'opacity handoff must be driven by explicit TRANSFER state',
+  )
+  assert(
+    getCollisionTransferParticleOpacity(COLLISION_TRANSFER_END_MS) > 0,
+    'transfer particles may persist into REMNANT_SETTLE without preserving a sphere',
+  )
+  assert(
+    getCollisionTransferParticleOpacity(COLLISION_HANDOFF_DURATION_MS) === 0,
+    'transfer particle opacity must end with the lifecycle',
   )
 }
 
-testBreakupTransfersVisualOwnershipWithoutShorteningHandoff()
-console.log('collision handoff opacity regression passed')
+testOpacityBelongsToTransferParticlesNotSourceSphere()
+console.log('collision handoff transfer opacity regression passed')

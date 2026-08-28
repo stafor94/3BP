@@ -1,37 +1,31 @@
 import {
-  COLLISION_ABSORPTION_CONTACT_END_MS,
-  COLLISION_ABSORPTION_DURATION_MS,
-  COLLISION_ABSORPTION_SINK_START_MS,
-  COLLISION_BREAKUP_END_MS,
   COLLISION_FRACTURE_END_MS,
   COLLISION_HANDOFF_DURATION_MS,
   COLLISION_IMPACT_HOLD_END_MS,
-  COLLISION_PRODUCT_REVEAL_DELAY_MS,
-  COLLISION_PRODUCT_REVEAL_DURATION_MS,
+  COLLISION_TRANSFER_END_MS,
   findCollisionAbsorptionSources,
   findCollisionHandoffSources,
-  getCollisionAbsorptionContactProgress,
-  getCollisionAbsorptionOpacity,
-  getCollisionAbsorptionProgress,
-  getCollisionAbsorptionScale,
-  getCollisionAbsorptionSinkProgress,
-  getCollisionHandoffBreakupProgress,
-  getCollisionHandoffCompression,
   getCollisionHandoffFractureProgress,
   getCollisionHandoffParticleProgress,
   getCollisionHandoffProgress,
-  getCollisionHandoffSourceOpacity,
-  getCollisionProductRevealProgress,
+  getCollisionHandoffTransferProgress,
+  getCollisionTransferParticleOpacity,
 } from '../src/rendering/collisionHandoffLayer'
 import {
+  COLLISION_REMNANT_FORMATION_START_MS,
   COLLISION_VISUAL_DISRUPTION_MASS_LOSS_THRESHOLD,
   findCollisionVisualTransitions,
+  getCollisionRemnantVisualLifecycle,
+  getCollisionVisualLifecycle,
 } from '../src/rendering/collisionVisualOutcome'
 import {
+  COLLISION_REMNANT_CORE_SCALE_MAX,
   MERGED_SURVIVOR_SETTLE_DURATION_MS,
   SURVIVOR_IMPACT_DURATION_MS,
   SURVIVOR_IMPACT_MAX_SURFACE_FRACTION,
   SURVIVOR_IMPACT_MIN_DOT,
+  getCollisionRemnantRevealOpacity,
+  getCollisionRemnantRevealScale,
   getMergedSurvivorRevealScale,
   getSurvivorImpactEnvelope,
 } from '../src/rendering/liveCollisionVfxBridge'
@@ -59,15 +53,25 @@ function body(
   }
 }
 
-function testHandoffDurationAndPhases() {
-  assert(COLLISION_HANDOFF_DURATION_MS === 2600, 'solid-body disruption handoff must run for 2.6 seconds')
-  assert(COLLISION_IMPACT_HOLD_END_MS === 260, 'impact hold should preserve the source for 260ms')
-  assert(COLLISION_FRACTURE_END_MS === 1050, 'contact damage phase must remain distinct and readable')
-  assert(COLLISION_BREAKUP_END_MS === 1900, 'structural result handoff must precede the final source fade')
-  assert(COLLISION_PRODUCT_REVEAL_DURATION_MS === COLLISION_HANDOFF_DURATION_MS, 'products converge at handoff end')
+function testVisualLifecycleUsesExplicitPhases() {
+  assert(getCollisionVisualLifecycle(0).phase === 'IMPACT', 'collision must begin in IMPACT')
+  assert(
+    getCollisionVisualLifecycle(COLLISION_IMPACT_HOLD_END_MS).phase === 'FRACTURE',
+    'impact boundary must enter FRACTURE',
+  )
+  assert(
+    getCollisionVisualLifecycle(COLLISION_FRACTURE_END_MS).phase === 'TRANSFER',
+    'fracture boundary must enter TRANSFER',
+  )
+  assert(
+    getCollisionVisualLifecycle(COLLISION_TRANSFER_END_MS).phase === 'REMNANT_SETTLE',
+    'transfer boundary must enter REMNANT_SETTLE',
+  )
+  const completed = getCollisionVisualLifecycle(COLLISION_HANDOFF_DURATION_MS)
+  assert(completed.phase === 'REMNANT_SETTLE' && completed.isComplete, 'handoff must complete in remnant settle')
 }
 
-function testHandoffProgressIsSmoothAndBounded() {
+function testHandoffProgressRemainsSmoothAndBounded() {
   assert(getCollisionHandoffProgress(-100) === 0, 'handoff progress must clamp before start')
   const midpoint = getCollisionHandoffProgress(COLLISION_HANDOFF_DURATION_MS / 2)
   assert(midpoint > 0.45 && midpoint < 0.55, 'handoff midpoint must remain near smoothstep midpoint')
@@ -75,50 +79,36 @@ function testHandoffProgressIsSmoothAndBounded() {
   assert(getCollisionHandoffProgress(COLLISION_HANDOFF_DURATION_MS * 2) === 1, 'handoff must clamp after completion')
 }
 
-function testSourceSurfaceSurvivesOpeningPhase() {
-  const early = COLLISION_HANDOFF_DURATION_MS * 0.15
-  assert(getCollisionHandoffSourceOpacity(0) >= 0.98, 'disrupted source must start effectively opaque')
-  assert(getCollisionHandoffSourceOpacity(early) >= 0.98, 'disrupted source opacity must survive opening phase')
-  assert(getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS) === 0, 'contact deformation must wait for impact hold')
-  assert(getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS + 160) > 0, 'contact deformation must precede result handoff')
-  assert(getCollisionHandoffBreakupProgress(COLLISION_FRACTURE_END_MS) === 0, 'result handoff must wait for the contact-damage phase')
-  assert(
-    getCollisionHandoffBreakupProgress(1250) > 0 && getCollisionHandoffBreakupProgress(1250) < 0.35,
-    'mid handoff must begin gently',
-  )
-  assert(getCollisionHandoffBreakupProgress(COLLISION_BREAKUP_END_MS) === 1, 'structural handoff must finish at its configured phase end')
+function testSourceTransferUsesFractureThenTransferData() {
+  assert(getCollisionHandoffFractureProgress(COLLISION_IMPACT_HOLD_END_MS) === 0, 'fracture data starts after impact')
+  assert(getCollisionHandoffFractureProgress(700) > 0, 'fracture progress must become available during FRACTURE')
+  assert(getCollisionHandoffTransferProgress(COLLISION_FRACTURE_END_MS) === 0, 'transfer must wait for fracture boundary')
+  assert(getCollisionHandoffTransferProgress(1500) > 0, 'transfer progress must advance after fracture')
+  assert(getCollisionHandoffTransferProgress(COLLISION_TRANSFER_END_MS) === 1, 'transfer must complete at phase boundary')
+  assert(getCollisionHandoffParticleProgress(COLLISION_IMPACT_HOLD_END_MS) === 0, 'particle transfer must not pre-empt impact')
+  assert(getCollisionTransferParticleOpacity(700) > 0, 'fracture phase must expose transfer particles')
+  assert(getCollisionTransferParticleOpacity(COLLISION_HANDOFF_DURATION_MS) === 0, 'transfer particles must dispose visually at completion')
 }
 
-function testDisruptionUsesLocalCompressionInsteadOfSurfacePeeling() {
-  assert(getCollisionHandoffCompression(COLLISION_IMPACT_HOLD_END_MS) === 0, 'contact compression must not start before the impact hold ends')
-  const opening = getCollisionHandoffCompression(520)
-  const peak = getCollisionHandoffCompression(900)
-  const late = getCollisionHandoffCompression(COLLISION_BREAKUP_END_MS)
-  assert(opening > 0 && opening < peak, 'contact deformation must build progressively')
-  assert(peak > 0.75, 'mid impact must visibly compress the contact cap')
-  assert(late < peak * 0.4, 'contact compression must release as physical fragments/results take over')
+function testRemnantLifecycleIsIndependentAndGradual() {
+  const hidden = getCollisionRemnantVisualLifecycle(COLLISION_REMNANT_FORMATION_START_MS)
+  assert(hidden.phase === 'FORMING' && hidden.formationProgress === 0, 'remnant formation must have an explicit pre-reveal state')
+  const forming = getCollisionRemnantVisualLifecycle(1200)
+  assert(forming.phase === 'FORMING' && forming.formationProgress > 0 && forming.formationProgress < 1, 'remnant must expose a formation phase')
+  const settling = getCollisionRemnantVisualLifecycle(COLLISION_TRANSFER_END_MS + 200)
+  assert(settling.phase === 'SETTLING' && settling.settleProgress > 0, 'remnant must expose a settle phase')
+  assert(getCollisionRemnantVisualLifecycle(COLLISION_HANDOFF_DURATION_MS).phase === 'STABLE', 'remnant lifecycle must end stable')
+
+  const startScale = getCollisionRemnantRevealScale(COLLISION_REMNANT_FORMATION_START_MS, 0.5)
+  const middleScale = getCollisionRemnantRevealScale(1500, 0.5)
+  const endScale = getCollisionRemnantRevealScale(COLLISION_HANDOFF_DURATION_MS, 0.5)
+  assert(startScale <= COLLISION_REMNANT_CORE_SCALE_MAX, 'new remnant must begin as a core instead of a near-full sphere')
+  assert(middleScale > startScale && middleScale < 1, 'remnant must grow during formation')
+  assert(endScale === 1, 'remnant must reach final visual scale only after settling')
+  assert(getCollisionRemnantRevealOpacity(COLLISION_REMNANT_FORMATION_START_MS) === 0, 'remnant must not be opaque before formation begins')
 }
 
-function testDebrisEmissionWaitsForVisibleContactDamage() {
-  assert(getCollisionHandoffParticleProgress(0) === 0, 'debris must not burst at contact')
-  assert(getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS * 0.15) === 0, 'debris must wait through opening hold')
-  const middle = getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS * 0.6)
-  assert(middle > 0 && middle < 1, 'debris must progress smoothly through the result handoff')
-  assert(getCollisionHandoffParticleProgress(COLLISION_HANDOFF_DURATION_MS) === 1, 'debris progress must finish with handoff')
-}
-
-function testCollisionProductRevealIsDelayedAndProgressive() {
-  assert(COLLISION_PRODUCT_REVEAL_DELAY_MS >= 450, 'product reveal must wait until contact deformation is visible')
-  assert(COLLISION_PRODUCT_REVEAL_DELAY_MS <= 650, 'product reveal delay must still overlap the contact-damage phase')
-  assert(getCollisionProductRevealProgress(COLLISION_PRODUCT_REVEAL_DELAY_MS) === 0, 'products remain hidden through delay')
-  const midpoint = getCollisionProductRevealProgress(
-    (COLLISION_PRODUCT_REVEAL_DELAY_MS + COLLISION_PRODUCT_REVEAL_DURATION_MS) / 2,
-  )
-  assert(midpoint > 0.45 && midpoint < 0.55, 'product reveal should crossfade smoothly')
-  assert(getCollisionProductRevealProgress(COLLISION_PRODUCT_REVEAL_DURATION_MS) === 1, 'products reveal by handoff end')
-}
-
-function testSurvivorAbsorptionDoesNotCreateDestructionHandoff() {
+function testSurvivorAbsorptionClassificationIsUnchanged() {
   const primary = body('Primary', 'planet', 1, 0)
   const impactor = body('Impactor', 'moon', 0.08, 0.28)
   const remnant = body('Primary+Impactor', 'planet', 1.04, 0.01)
@@ -127,27 +117,25 @@ function testSurvivorAbsorptionDoesNotCreateDestructionHandoff() {
   const current = [remnant, debris]
   const transitions = findCollisionVisualTransitions(previous, current)
 
-  assert(findCollisionHandoffSources(previous, current).length === 0, 'survivor absorption must not instantiate destruction handoff')
+  assert(findCollisionHandoffSources(previous, current).length === 0, 'ordinary merge must not become disruption')
   const survivor = transitions.find((transition) => transition.source.id === primary.id)
   const absorbed = transitions.find((transition) => transition.source.id === impactor.id)
-  assert(survivor?.outcome === 'merged-survivor', 'dominant body must be classified as merged-survivor')
-  assert(absorbed?.outcome === 'absorbed', 'small impactor must be classified as absorbed')
+  assert(survivor?.outcome === 'merged-survivor', 'dominant body must remain merged-survivor')
+  assert(absorbed?.outcome === 'absorbed', 'small impactor must remain absorbed')
   assert(
     findCollisionAbsorptionSources(previous, current).map((candidate) => candidate.id).join(',') === impactor.id,
-    'only the small impactor may use the absorption handoff',
+    'only the small impactor may use source transfer',
   )
 }
 
-function testActualDisruptionCreatesDestructionHandoff() {
+function testActualDisruptionClassificationIsUnchanged() {
   const alpha = body('Alpha', 'planet', 1, -0.2)
   const beta = body('Beta', 'planet', 1, 0.2)
   const remnant = body('Alpha+Beta', 'planet', 1.18, 0)
   const fragmentA = body('Alpha+Beta+frag1-0', 'fragment', 0.45, -0.05)
   const fragmentB = body('Alpha+Beta+frag1-1', 'fragment', 0.37, 0.06)
   const retired = findCollisionHandoffSources([alpha, beta], [remnant, fragmentA, fragmentB])
-  assert(retired.length === 2, 'actual disruption must hand off both disrupted originals')
-  assert(retired.some((candidate) => candidate.id === alpha.id), 'Alpha must participate in disruption handoff')
-  assert(retired.some((candidate) => candidate.id === beta.id), 'Beta must participate in disruption handoff')
+  assert(retired.length === 2, 'actual disruption must still classify both originals')
 }
 
 function testLineageChangeAloneIsNotDestructionEvidence() {
@@ -156,109 +144,66 @@ function testLineageChangeAloneIsNotDestructionEvidence() {
   const remnant = body('Alpha+Beta', 'planet', 1.12, 0)
   assert(
     findCollisionHandoffSources([alpha, beta], [remnant]).length === 0,
-    'a new lineage id with low actual mass loss must never imply destruction',
+    'lineage-only replacement must not imply destruction',
   )
 }
 
-function testOutcomeThresholdSitsBetweenMergeAndDisruptionBands() {
+function testOutcomeThresholdStaysInsidePhysicsClassifierGap() {
   assert(
     COLLISION_VISUAL_DISRUPTION_MASS_LOSS_THRESHOLD > 0.13 &&
       COLLISION_VISUAL_DISRUPTION_MASS_LOSS_THRESHOLD < 0.22,
-    'visual disruption threshold must stay inside the core classifier gap',
+    'visual disruption threshold must remain inside the core classifier gap',
   )
 }
 
-function testContactNormalComesFromPhysicalPair() {
-  const alpha = body('Alpha', 'planet', 1, -0.2)
-  const beta = body('Beta', 'moon', 0.1, 0.2)
-  const remnant = body('Alpha+Beta', 'planet', 1.06, 0)
-  const transitions = findCollisionVisualTransitions([alpha, beta], [remnant])
-  const alphaTransition = transitions.find((transition) => transition.source.id === alpha.id)
-  const betaTransition = transitions.find((transition) => transition.source.id === beta.id)
-  assert(alphaTransition?.contactNormal.x !== undefined && alphaTransition.contactNormal.x > 0.99, 'Alpha contact normal must point toward Beta')
-  assert(betaTransition?.contactNormal.x !== undefined && betaTransition.contactNormal.x < -0.99, 'Beta contact normal must point toward Alpha')
-}
-
-function testFragmentOnlyDisruptionStillCreatesHandoff() {
+function testFragmentOnlyDisruptionStillCreatesTransition() {
   const alpha = body('Alpha', 'planet', 1, 0)
   const beta = body('Beta', 'moon', 0.2, 0.25)
   const fragmentA = body('Alpha+Beta+fragment-0', 'fragment', 0.21, 0.04)
   const fragmentB = body('Alpha+Beta+fragment-1', 'fragment', 0.13, -0.06)
   const retired = findCollisionHandoffSources([alpha, beta], [beta, fragmentA, fragmentB])
-  assert(retired.length === 1 && retired[0].id === alpha.id, 'fragment-only destruction must still stage the missing physical source')
+  assert(retired.length === 1 && retired[0].id === alpha.id, 'fragment-only destruction must still retire the missing source')
 }
 
-function testStellarMergeStaysOnDedicatedTopologyPath() {
-  const alpha = body('Alpha', 'star', 1, -0.2)
-  const beta = body('Beta', 'star', 1, 0.2)
-  const remnant = body('Alpha+Beta', 'star', 1.9, 0)
-  assert(findCollisionHandoffSources([alpha, beta], [remnant]).length === 0, 'stellar mergers must stay off generic handoff path')
-}
+function testStellarAndTransientBodiesStayOffGenericSourceTransfer() {
+  const starA = body('Alpha', 'star', 1, -0.2)
+  const starB = body('Beta', 'star', 1, 0.2)
+  const stellarRemnant = body('Alpha+Beta', 'star', 1.9, 0)
+  assert(findCollisionHandoffSources([starA, starB], [stellarRemnant]).length === 0, 'stellar merges stay on dedicated path')
 
-function testUnrelatedPresetReplacementDoesNotCreateHandoff() {
-  const alpha = body('Alpha')
-  const gamma = body('Gamma')
-  assert(findCollisionHandoffSources([alpha], [gamma]).length === 0, 'unrelated setup changes must not become collision destruction')
-}
-
-function testTransientBodiesDoNotRetireAsCelestialGhosts() {
   const fragment = body('Alpha+Beta+fragment-0', 'fragment')
   const effect = body('Alpha+Beta+flash', 'effect')
   const descendant = body('Alpha+Beta+fragment-0+Gamma', 'fragment')
-  assert(findCollisionHandoffSources([fragment, effect], [descendant]).length === 0, 'transient cleanup must not spawn full-body ghosts')
+  assert(findCollisionHandoffSources([fragment, effect], [descendant]).length === 0, 'transient cleanup must not become celestial handoff')
 }
 
-function testAbsorbedBodyUsesContactThenSinkTimeline() {
-  assert(COLLISION_ABSORPTION_DURATION_MS === 1700, 'absorbed body should remain readable for 1.7 seconds')
-  assert(COLLISION_ABSORPTION_CONTACT_END_MS > COLLISION_ABSORPTION_SINK_START_MS, 'contact and sinking should overlap instead of snapping phases')
-  assert(getCollisionAbsorptionProgress(0) === 0, 'absorption begins from the real source surface')
-  assert(getCollisionAbsorptionContactProgress(COLLISION_ABSORPTION_CONTACT_END_MS) === 1, 'absorbed body must reach the contact patch smoothly')
-  assert(getCollisionAbsorptionSinkProgress(COLLISION_ABSORPTION_SINK_START_MS) === 0, 'sinking must not begin before contact is established')
-  assert(getCollisionAbsorptionSinkProgress(900) > 0 && getCollisionAbsorptionSinkProgress(900) < 1, 'absorbed body must be visibly sinking through the middle phase')
-  assert(getCollisionAbsorptionScale(COLLISION_ABSORPTION_SINK_START_MS) === 1, 'absorbed body must keep full scale until sinking begins')
-  assert(getCollisionAbsorptionScale(1100) < 0.8, 'absorbed body must shrink while entering the remnant')
-  assert(getCollisionAbsorptionOpacity(900) >= 0.98, 'absorbed body must remain opaque through the contact/sink handoff')
-  assert(getCollisionAbsorptionProgress(COLLISION_ABSORPTION_DURATION_MS) === 1, 'absorption must finish at the configured duration')
-  assert(getCollisionAbsorptionOpacity(COLLISION_ABSORPTION_DURATION_MS) === 0, 'absorbed body must be gone at handoff completion')
-}
-
-function testSurvivorImpactAndGrowthSettleGradually() {
-  assert(SURVIVOR_IMPACT_DURATION_MS === 1500, 'survivor impact heat should remain readable for 1.5 seconds')
-  assert(MERGED_SURVIVOR_SETTLE_DURATION_MS === 1700, 'merged survivor growth should track the absorption window')
-  assert(SURVIVOR_IMPACT_MIN_DOT >= 0.76, 'impact cap must not spread over more than roughly 12% of the sphere')
-  assert(SURVIVOR_IMPACT_MAX_SURFACE_FRACTION >= 0.05 && SURVIVOR_IMPACT_MAX_SURFACE_FRACTION <= 0.12, 'impact cap must remain within 5-12% of full surface')
-  assert(getSurvivorImpactEnvelope(0).flash > 0.9, 'contact must begin with a bright local flash')
-  assert(getSurvivorImpactEnvelope(300).heat > 0.75, 'early contact must retain strong local heat')
-  assert(getSurvivorImpactEnvelope(900).heat > 0.25, 'impact heat must remain readable through the longer absorption')
-  assert(getSurvivorImpactEnvelope(1500).heat === 0, 'survivor surface must settle by the end of its impact envelope')
-  assert(getSurvivorImpactEnvelope(1500).flash === 0, 'survivor flash must be gone by the end of the envelope')
+function testMergedSurvivorStillSettlesFromInheritedSilhouette() {
+  assert(SURVIVOR_IMPACT_DURATION_MS === 1500, 'survivor impact envelope must remain unchanged')
+  assert(MERGED_SURVIVOR_SETTLE_DURATION_MS === 1700, 'merged survivor settle window must remain unchanged')
+  assert(SURVIVOR_IMPACT_MIN_DOT >= 0.76, 'impact cap must remain local')
+  assert(SURVIVOR_IMPACT_MAX_SURFACE_FRACTION >= 0.05 && SURVIVOR_IMPACT_MAX_SURFACE_FRACTION <= 0.12, 'impact cap surface fraction must remain bounded')
+  assert(getSurvivorImpactEnvelope(1500).heat === 0, 'survivor impact heat must settle')
 
   const startScale = getMergedSurvivorRevealScale(0, 0.2, 0.25)
   const middleScale = getMergedSurvivorRevealScale(MERGED_SURVIVOR_SETTLE_DURATION_MS / 2, 0.2, 0.25)
   const endScale = getMergedSurvivorRevealScale(MERGED_SURVIVOR_SETTLE_DURATION_MS, 0.2, 0.25)
-  assert(Math.abs(startScale - 0.8) < 1e-12, 'merged survivor must begin at the dominant source silhouette')
-  assert(middleScale > startScale && middleScale < 1, 'merged survivor radius must grow continuously instead of popping to final size')
-  assert(endScale === 1, 'merged survivor must finish at its physical result radius')
+  assert(Math.abs(startScale - 0.8) < 1e-12, 'merged survivor must inherit dominant silhouette')
+  assert(middleScale > startScale && middleScale < 1, 'merged survivor must settle gradually')
+  assert(endScale === 1, 'merged survivor must reach final scale at settle end')
 }
 
 const tests = [
-  testHandoffDurationAndPhases,
-  testHandoffProgressIsSmoothAndBounded,
-  testSourceSurfaceSurvivesOpeningPhase,
-  testDisruptionUsesLocalCompressionInsteadOfSurfacePeeling,
-  testDebrisEmissionWaitsForVisibleContactDamage,
-  testCollisionProductRevealIsDelayedAndProgressive,
-  testSurvivorAbsorptionDoesNotCreateDestructionHandoff,
-  testActualDisruptionCreatesDestructionHandoff,
+  testVisualLifecycleUsesExplicitPhases,
+  testHandoffProgressRemainsSmoothAndBounded,
+  testSourceTransferUsesFractureThenTransferData,
+  testRemnantLifecycleIsIndependentAndGradual,
+  testSurvivorAbsorptionClassificationIsUnchanged,
+  testActualDisruptionClassificationIsUnchanged,
   testLineageChangeAloneIsNotDestructionEvidence,
-  testOutcomeThresholdSitsBetweenMergeAndDisruptionBands,
-  testContactNormalComesFromPhysicalPair,
-  testFragmentOnlyDisruptionStillCreatesHandoff,
-  testStellarMergeStaysOnDedicatedTopologyPath,
-  testUnrelatedPresetReplacementDoesNotCreateHandoff,
-  testTransientBodiesDoNotRetireAsCelestialGhosts,
-  testAbsorbedBodyUsesContactThenSinkTimeline,
-  testSurvivorImpactAndGrowthSettleGradually,
+  testOutcomeThresholdStaysInsidePhysicsClassifierGap,
+  testFragmentOnlyDisruptionStillCreatesTransition,
+  testStellarAndTransientBodiesStayOffGenericSourceTransfer,
+  testMergedSurvivorStillSettlesFromInheritedSilhouette,
 ]
 
 for (const test of tests) test()

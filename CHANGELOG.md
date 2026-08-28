@@ -6,6 +6,23 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.12] - 2026-08-28
+
+### Changed
+- 비항성 collision visual handoff를 `IMPACT → FRACTURE → TRANSFER → REMNANT_SETTLE` 명시적 lifecycle로 분리하고 source 전환과 remnant 형성 lifecycle을 독립적으로 관리하도록 구조를 정리했습니다.
+- disruption/absorption source handoff는 제거된 천체의 full-body mesh/material clone을 scene에 유지하지 않고 contact/anchor 기반 particle transfer 데이터만 유지하도록 변경했습니다.
+- 새 disruption remnant는 즉시 완성형 구체로 표시하지 않고 `FORMING → SETTLING → STABLE` 상태에서 작은 core scale과 0 opacity부터 최종 scale로 수렴하도록 최소 formation baseline을 적용했습니다.
+
+### Fixed
+- source full-body snapshot이 opacity fade로 남은 상태에서 별도 remnant가 드러나 원본 천체와 결과 천체가 동시에 존재하는 것처럼 보이던 구조적 순간 합체 원인을 제거했습니다.
+- absorption 경로에도 남아 있던 독립 full-body source clone을 제거해 같은 ghost-sphere handoff 패턴이 재발하지 않도록 했습니다.
+
+### Added
+- handoff layer가 full-body `THREE.Mesh`를 생성하지 않는지, retained result/fragment centroid anchor를 particle transfer가 따라가는지, explicit phase와 remnant formation/settle lifecycle을 검증하는 회귀 체크를 갱신했습니다.
+
+### Unchanged
+- collision physics, merge/disruption 판정 threshold, remnant 질량/반지름/위치 계산, prediction, lineage/tracking semantics, trail, camera 및 일반 UI는 변경하지 않았습니다.
+
 ## [0.19.11] - 2026-08-28
 
 ### Fixed
@@ -423,7 +440,7 @@
 - 항성-항성 `merge` 충돌의 최대 시각적 겹침을 작은 항성 반지름의 80%에서 120%로 확대했습니다.
 - 120% 겹침 증가에 맞춰 항성 합체 연출 시간을 0.06에서 0.09 시뮬레이션초로 늘려 `0.03×` 충돌 관찰에서 약 3초 동안 흡수 과정을 보여주도록 했습니다.
 - 일반 추적과 충돌 관찰의 자동 카메라 배율을 동일한 규칙으로 통일해, 선택된 주 천체의 렌더링 반지름이 화면 너비의 약 1/20이 되도록 조정했습니다.
-- 일반 추적에서 주변의 큰 천체나 `질량 / 거리²` 기준 궤도 참조 천체를 더 이상 찾지 않으며, 줌은 선택한 천체 자체의 반지름만 사용하도록 변경했습니다.
+- 일반 추적에서 주변의 큰 천체나 `질량 / 거리²` 기준 궤도 참조 천체를 더 이상 찾지 않으며, 줌은 추적 대상 자체의 반지름만 사용하도록 변경했습니다.
 - 충돌 관찰에서는 상대 충돌체를 시점 방향을 잡는 데만 사용하고 카메라 확대 배율 계산에서는 완전히 제외했습니다.
 
 ### Fixed
@@ -1039,7 +1056,7 @@
 ## [0.1.9] - 2026-08-24
 
 ### Changed
-- 우주 배경의 별 개수와 크기를 늘려 배경이 더 분명하게 보이도록 했습니다.
+- 우주 배경의 별 개수와 크기를 늘려 배경이 더 분명하게 보이도록 조정했습니다.
 
 ## [0.1.8] - 2026-08-24
 

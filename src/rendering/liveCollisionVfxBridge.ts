@@ -1,13 +1,14 @@
 import * as THREE from 'three'
 import type { BodyState } from '../types'
 import { createCollisionEffectsLayer } from './collisionEffectRenderer'
+import { createCollisionHandoffLayer } from './collisionHandoffLayer'
 import {
-  COLLISION_PRODUCT_REVEAL_DURATION_MS,
-  createCollisionHandoffLayer,
-  getCollisionProductRevealProgress,
-} from './collisionHandoffLayer'
-import {
+  COLLISION_REMNANT_SETTLE_END_MS,
   findCollisionVisualTransitions,
+  getCollisionRemnantVisualLifecycle,
+  getCollisionVisualLifecycle,
+  type CollisionRemnantVisualLifecycle,
+  type CollisionVisualLifecycle,
   type CollisionVisualTransition,
 } from './collisionVisualOutcome'
 import { createStellarImpactBurstLayer } from './stellarImpactBurstLayer'
@@ -37,12 +38,22 @@ type MaterialRenderCallback = (
 type CollisionVisualEvent = {
   startedAt: number
   transitions: CollisionVisualTransition[]
+  lifecycle: CollisionVisualLifecycle
+}
+
+type CollisionProductVisual = {
+  startedAt: number
+  role: 'remnant' | 'fragment'
+  lifecycle: CollisionRemnantVisualLifecycle
 }
 
 export const SURVIVOR_IMPACT_DURATION_MS = 1500
 export const MERGED_SURVIVOR_SETTLE_DURATION_MS = 1700
 export const SURVIVOR_IMPACT_MIN_DOT = 0.8
 export const SURVIVOR_IMPACT_MAX_SURFACE_FRACTION = (1 - SURVIVOR_IMPACT_MIN_DOT) / 2
+export const COLLISION_REMNANT_CORE_SCALE_MIN = 0.18
+export const COLLISION_REMNANT_CORE_SCALE_MAX = 0.24
+export const COLLISION_REMNANT_FORMATION_TARGET_SCALE = 0.88
 const SOURCE_FRAGMENT_OUTPUT = 'gl_FragColor = vec4(color, uOpacity);'
 
 const collisionRevealVertexShader = `
@@ -93,7 +104,7 @@ let currentBodiesBySeed = new Map<number, BodyState>()
 let currentBodiesById = new Map<string, BodyState>()
 let previousBodies: BodyState[] | null = null
 let previousBodyIds = new Set<string>()
-const collisionProductIntroducedAt = new Map<string, number>()
+const collisionProductVisuals = new Map<string, CollisionProductVisual>()
 const collisionVisualEventsByResultId = new Map<string, CollisionVisualEvent>()
 const surfaceIdentitySeedByBodyId = new Map<string, number>()
 const liveLayersByScene = new WeakMap<THREE.Scene, LiveLayers>()
@@ -138,6 +149,37 @@ export function getMergedSurvivorRevealScale(
   const progress = smooth01(Math.max(0, elapsedMs) / MERGED_SURVIVOR_SETTLE_DURATION_MS)
   const easeOut = 1 - Math.pow(1 - progress, 3)
   return THREE.MathUtils.lerp(initialScale, 1, easeOut)
+}
+
+export function getCollisionRemnantRevealScale(elapsedMs: number, seed01 = 0.5) {
+  const lifecycle = getCollisionRemnantVisualLifecycle(elapsedMs)
+  const seeded = clamp01(seed01)
+  const coreScale = THREE.MathUtils.lerp(
+    COLLISION_REMNANT_CORE_SCALE_MIN,
+    COLLISION_REMNANT_CORE_SCALE_MAX,
+    seeded,
+  )
+  if (lifecycle.phase === 'FORMING') {
+    return THREE.MathUtils.lerp(
+      coreScale,
+      COLLISION_REMNANT_FORMATION_TARGET_SCALE,
+      lifecycle.formationProgress,
+    )
+  }
+  if (lifecycle.phase === 'SETTLING') {
+    return THREE.MathUtils.lerp(
+      COLLISION_REMNANT_FORMATION_TARGET_SCALE,
+      1,
+      lifecycle.settleProgress,
+    )
+  }
+  return 1
+}
+
+export function getCollisionRemnantRevealOpacity(elapsedMs: number) {
+  const lifecycle = getCollisionRemnantVisualLifecycle(elapsedMs)
+  if (lifecycle.phase === 'FORMING') return Math.pow(lifecycle.formationProgress, 1.08)
+  return 1
 }
 
 function getSimulationBodySeed(id: string) {
@@ -221,6 +263,11 @@ function updateLiveLayers(scene: THREE.Scene, camera: THREE.Camera) {
   layers.burst.update(currentBodies, camera, now)
 }
 
+function updateCollisionEventLifecycle(event: CollisionVisualEvent, now: number) {
+  event.lifecycle = getCollisionVisualLifecycle(Math.max(0, now - event.startedAt))
+  return event.lifecycle
+}
+
 function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Object3D, now: number) {
   const body = resolveMaterialBody(material)
   if (!body) return
@@ -229,7 +276,8 @@ function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Objec
 
   const event = collisionVisualEventsByResultId.get(body.id)
   if (!event) return
-  const elapsedMs = Math.max(0, now - event.startedAt)
+  const lifecycle = updateCollisionEventLifecycle(event, now)
+  const elapsedMs = lifecycle.elapsedMs
   const identitySeed = surfaceIdentitySeedByBodyId.get(body.id) ?? getSimulationBodySeed(transition.source.id)
   surfaceIdentitySeedByBodyId.set(body.id, identitySeed)
   if (material.uniforms.uSurfaceSeed) material.uniforms.uSurfaceSeed.value = identitySeed
@@ -254,44 +302,55 @@ function applySurvivorImpact(material: THREE.ShaderMaterial, object: THREE.Objec
   if (material.uniforms.uCollisionImpactHeat) material.uniforms.uCollisionImpactHeat.value = heat
 }
 
-function applyCollisionProductReveal(
+function readBaseOpacity(material: THREE.ShaderMaterial) {
+  const cached = material.userData.collisionVisualBaseOpacity
+  if (typeof cached === 'number' && Number.isFinite(cached)) return cached
+  const value = Number(material.uniforms.uOpacity?.value)
+  const baseOpacity = Number.isFinite(value) ? value : 1
+  material.userData.collisionVisualBaseOpacity = baseOpacity
+  return baseOpacity
+}
+
+function applyCollisionProductLifecycle(
   material: THREE.ShaderMaterial,
   now: number,
 ) {
   const body = resolveMaterialBody(material)
   if (!body || getSurvivorTransition(body.id)) return
 
-  const introducedAt = collisionProductIntroducedAt.get(body.id)
-  if (introducedAt === undefined) return
+  const product = collisionProductVisuals.get(body.id)
+  if (!product) return
 
   const seed01 = getSeed01(body.id)
-  const staggerMs = body.bodyType === 'fragment'
+  const staggerMs = product.role === 'fragment'
     ? 20 + seed01 * 100
     : seed01 * 30
-  const elapsedMs = Math.max(0, now - introducedAt - staggerMs)
-  const progress = getCollisionProductRevealProgress(elapsedMs)
+  const elapsedMs = Math.max(0, now - product.startedAt - staggerMs)
+  product.lifecycle = getCollisionRemnantVisualLifecycle(elapsedMs)
+
   const scaleUniform = material.uniforms.uCollisionRevealScale
   if (!scaleUniform) return
-
-  if (elapsedMs >= COLLISION_PRODUCT_REVEAL_DURATION_MS) {
-    scaleUniform.value = 1
-    collisionProductIntroducedAt.delete(body.id)
-    return
+  if (product.role === 'remnant') {
+    scaleUniform.value = getCollisionRemnantRevealScale(elapsedMs, seed01)
+  } else {
+    const initialScale = THREE.MathUtils.lerp(0.18, 0.32, seed01)
+    const formationTarget = 0.92
+    scaleUniform.value = product.lifecycle.phase === 'FORMING'
+      ? THREE.MathUtils.lerp(initialScale, formationTarget, product.lifecycle.formationProgress)
+      : product.lifecycle.phase === 'SETTLING'
+        ? THREE.MathUtils.lerp(formationTarget, 1, product.lifecycle.settleProgress)
+        : 1
   }
-
-  const easeOut = 1 - Math.pow(1 - progress, 3)
-  const initialScale = body.bodyType === 'fragment'
-    ? THREE.MathUtils.lerp(0.18, 0.32, seed01)
-    : THREE.MathUtils.lerp(0.80, 0.88, seed01)
-  scaleUniform.value = THREE.MathUtils.lerp(initialScale, 1, easeOut)
 
   const opacityUniform = material.uniforms.uOpacity
   if (opacityUniform) {
-    const baseOpacity = Number(opacityUniform.value)
-    const revealOpacity = body.bodyType === 'fragment'
-      ? Math.pow(progress, 1.32)
-      : Math.pow(progress, 1.08)
-    opacityUniform.value = (Number.isFinite(baseOpacity) ? baseOpacity : 1) * revealOpacity
+    const baseOpacity = readBaseOpacity(material)
+    const revealOpacity = product.role === 'remnant'
+      ? getCollisionRemnantRevealOpacity(elapsedMs)
+      : product.lifecycle.phase === 'FORMING'
+        ? Math.pow(product.lifecycle.formationProgress, 1.32)
+        : 1
+    opacityUniform.value = baseOpacity * revealOpacity
   }
 
   if (!material.transparent) {
@@ -299,6 +358,12 @@ function applyCollisionProductReveal(
     material.needsUpdate = true
   }
   material.depthWrite = false
+
+  if (product.lifecycle.isComplete || elapsedMs >= COLLISION_REMNANT_SETTLE_END_MS) {
+    scaleUniform.value = 1
+    if (opacityUniform) opacityUniform.value = readBaseOpacity(material)
+    collisionProductVisuals.delete(body.id)
+  }
 }
 
 export function syncLiveCollisionVfxState(bodies: BodyState[]) {
@@ -316,7 +381,11 @@ export function syncLiveCollisionVfxState(bodies: BodyState[]) {
   for (const resultId of resultIds) {
     const resultTransitions = transitions.filter((transition) => transition.resultId === resultId)
     if (!collisionVisualEventsByResultId.has(resultId)) {
-      collisionVisualEventsByResultId.set(resultId, { startedAt: now, transitions: resultTransitions })
+      collisionVisualEventsByResultId.set(resultId, {
+        startedAt: now,
+        transitions: resultTransitions,
+        lifecycle: getCollisionVisualLifecycle(0),
+      })
     }
     const survivor = resultTransitions.find((transition) =>
       transition.outcome === 'merged-survivor' || transition.outcome === 'survivor',
@@ -332,20 +401,28 @@ export function syncLiveCollisionVfxState(bodies: BodyState[]) {
     if (
       isRevealableCollisionProduct(body) &&
       !previousBodyIds.has(body.id) &&
-      !collisionProductIntroducedAt.has(body.id)
+      !collisionProductVisuals.has(body.id)
     ) {
-      collisionProductIntroducedAt.set(body.id, now)
+      const event = collisionVisualEventsByResultId.get(body.id)
+      collisionProductVisuals.set(body.id, {
+        startedAt: event?.startedAt ?? now,
+        role: body.bodyType === 'fragment' ? 'fragment' : 'remnant',
+        lifecycle: getCollisionRemnantVisualLifecycle(0),
+      })
     }
     if (!surfaceIdentitySeedByBodyId.has(body.id)) {
       surfaceIdentitySeedByBodyId.set(body.id, getSimulationBodySeed(body.id))
     }
   })
 
-  collisionProductIntroducedAt.forEach((_startedAt, bodyId) => {
-    if (!nextIds.has(bodyId)) collisionProductIntroducedAt.delete(bodyId)
+  collisionProductVisuals.forEach((_visual, bodyId) => {
+    if (!nextIds.has(bodyId)) collisionProductVisuals.delete(bodyId)
   })
   collisionVisualEventsByResultId.forEach((_event, bodyId) => {
     if (!nextIds.has(bodyId)) collisionVisualEventsByResultId.delete(bodyId)
+  })
+  surfaceIdentitySeedByBodyId.forEach((_seed, bodyId) => {
+    if (!nextIds.has(bodyId) && !previousBodyIds.has(bodyId)) surfaceIdentitySeedByBodyId.delete(bodyId)
   })
 
   currentBodies = bodies
@@ -418,7 +495,7 @@ export function installLiveCollisionVfxBridge() {
       )
       const now = performance.now()
       applySurvivorImpact(material, object, now)
-      applyCollisionProductReveal(material, now)
+      applyCollisionProductLifecycle(material, now)
     }
 
     return result

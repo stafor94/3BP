@@ -6,6 +6,42 @@ export type CollisionVisualOutcome =
   | 'disrupted'
   | 'merged-survivor'
 
+export type CollisionVisualPhase =
+  | 'IMPACT'
+  | 'FRACTURE'
+  | 'TRANSFER'
+  | 'REMNANT_SETTLE'
+
+export type CollisionVisualLifecycle = {
+  phase: CollisionVisualPhase
+  phaseProgress: number
+  elapsedMs: number
+  progress: number
+  isComplete: boolean
+}
+
+export type CollisionRemnantVisualPhase = 'FORMING' | 'SETTLING' | 'STABLE'
+
+export type CollisionRemnantVisualLifecycle = {
+  phase: CollisionRemnantVisualPhase
+  phaseProgress: number
+  elapsedMs: number
+  formationProgress: number
+  settleProgress: number
+  isComplete: boolean
+}
+
+export const COLLISION_VISUAL_TIMING_MS = {
+  impactEnd: 260,
+  fractureEnd: 1050,
+  transferEnd: 1900,
+  remnantSettleEnd: 2600,
+} as const
+
+export const COLLISION_REMNANT_FORMATION_START_MS = 520
+export const COLLISION_REMNANT_SETTLE_START_MS = COLLISION_VISUAL_TIMING_MS.transferEnd
+export const COLLISION_REMNANT_SETTLE_END_MS = COLLISION_VISUAL_TIMING_MS.remnantSettleEnd
+
 export type CollisionVisualTransition = {
   source: BodyState
   outcome: CollisionVisualOutcome
@@ -21,6 +57,97 @@ export type CollisionVisualTransition = {
  * gap instead of treating an id/lineage change as proof of destruction.
  */
 export const COLLISION_VISUAL_DISRUPTION_MASS_LOSS_THRESHOLD = 0.17
+
+function clamp01(value: number) {
+  return Math.min(1, Math.max(0, value))
+}
+
+function smooth01(value: number) {
+  const t = clamp01(value)
+  return t * t * (3 - 2 * t)
+}
+
+function phaseProgress(elapsedMs: number, startMs: number, endMs: number) {
+  return smooth01((elapsedMs - startMs) / Math.max(1, endMs - startMs))
+}
+
+export function getCollisionVisualLifecycle(elapsedMs: number): CollisionVisualLifecycle {
+  const elapsed = Math.max(0, elapsedMs)
+  const timing = COLLISION_VISUAL_TIMING_MS
+  let phase: CollisionVisualPhase
+  let currentPhaseProgress: number
+
+  if (elapsed < timing.impactEnd) {
+    phase = 'IMPACT'
+    currentPhaseProgress = phaseProgress(elapsed, 0, timing.impactEnd)
+  } else if (elapsed < timing.fractureEnd) {
+    phase = 'FRACTURE'
+    currentPhaseProgress = phaseProgress(elapsed, timing.impactEnd, timing.fractureEnd)
+  } else if (elapsed < timing.transferEnd) {
+    phase = 'TRANSFER'
+    currentPhaseProgress = phaseProgress(elapsed, timing.fractureEnd, timing.transferEnd)
+  } else {
+    phase = 'REMNANT_SETTLE'
+    currentPhaseProgress = phaseProgress(elapsed, timing.transferEnd, timing.remnantSettleEnd)
+  }
+
+  return {
+    phase,
+    phaseProgress: currentPhaseProgress,
+    elapsedMs: elapsed,
+    progress: smooth01(elapsed / timing.remnantSettleEnd),
+    isComplete: elapsed >= timing.remnantSettleEnd,
+  }
+}
+
+export function getCollisionRemnantVisualLifecycle(
+  elapsedMs: number,
+): CollisionRemnantVisualLifecycle {
+  const elapsed = Math.max(0, elapsedMs)
+  const formationProgress = elapsed <= COLLISION_REMNANT_FORMATION_START_MS
+    ? 0
+    : phaseProgress(
+      elapsed,
+      COLLISION_REMNANT_FORMATION_START_MS,
+      COLLISION_REMNANT_SETTLE_START_MS,
+    )
+  const settleProgress = elapsed <= COLLISION_REMNANT_SETTLE_START_MS
+    ? 0
+    : phaseProgress(
+      elapsed,
+      COLLISION_REMNANT_SETTLE_START_MS,
+      COLLISION_REMNANT_SETTLE_END_MS,
+    )
+
+  if (elapsed < COLLISION_REMNANT_SETTLE_START_MS) {
+    return {
+      phase: 'FORMING',
+      phaseProgress: formationProgress,
+      elapsedMs: elapsed,
+      formationProgress,
+      settleProgress: 0,
+      isComplete: false,
+    }
+  }
+  if (elapsed < COLLISION_REMNANT_SETTLE_END_MS) {
+    return {
+      phase: 'SETTLING',
+      phaseProgress: settleProgress,
+      elapsedMs: elapsed,
+      formationProgress: 1,
+      settleProgress,
+      isComplete: false,
+    }
+  }
+  return {
+    phase: 'STABLE',
+    phaseProgress: 1,
+    elapsedMs: elapsed,
+    formationProgress: 1,
+    settleProgress: 1,
+    isComplete: true,
+  }
+}
 
 function lineageParts(bodyId: string) {
   return bodyId.split('+').map((part) => part.trim()).filter(Boolean)
