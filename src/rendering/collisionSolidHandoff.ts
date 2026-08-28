@@ -32,13 +32,17 @@ type HandoffSample = {
     position: Vec3
     radius: number
     startRadius: number
+    opacity: number
   }>
 }
 
-type SolidPresentationOverride = {
+export type CollisionSolidHandoffPresentationOverride = {
+  resultId: string
+  role: 'survivor' | 'absorbed'
   position: Vec3
   radius: number
   color: string | null
+  opacity: number
 }
 
 export type CollisionSolidHandoffTelemetry = {
@@ -47,6 +51,10 @@ export type CollisionSolidHandoffTelemetry = {
   elapsedMs: number
   phase: ReturnType<typeof getCollisionVisualLifecycle>['phase']
   progress: number
+  overrideSampled: boolean
+  overrideApplied: boolean
+  renderFrameSequence: number
+  appliedBodyIds: string[]
   resultActualPosition: Vec3
   survivor: {
     position: Vec3
@@ -64,9 +72,13 @@ export type CollisionSolidHandoffTelemetry = {
   }>
 }
 
+export type CollisionSolidHandoffRenderFrame = {
+  overrides: Map<string, CollisionSolidHandoffPresentationOverride>
+  telemetry: Record<string, CollisionSolidHandoffTelemetry>
+}
+
 const activeHandoffs = new Map<string, ActiveSolidHandoff>()
 let previousBodies: BodyState[] | null = null
-let rendererHookInstalled = false
 
 function clamp01(value: number) {
   return Math.min(1, Math.max(0, value))
@@ -108,21 +120,13 @@ function lerpVec3(a: Vec3, b: Vec3, t: number): Vec3 {
   }
 }
 
-function bodySeed(id: string) {
-  let hash = 2166136261
-  for (let index = 0; index < id.length; index += 1) {
-    hash ^= id.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  return ((hash >>> 0) / 4294967295) * 1000
-}
-
-function seedKey(seed: number) {
-  return seed.toFixed(8)
-}
-
 function blendColor(source: string, target: string, progress: number) {
   return `#${new THREE.Color(source).lerp(new THREE.Color(target), progress).getHexString()}`
+}
+
+function getAbsorbedOpacity(progress: number) {
+  const fadeProgress = smooth01((progress - 0.45) / 0.55)
+  return 1 - fadeProgress
 }
 
 function groupMergeTransitions(transitions: CollisionVisualTransition[]) {
@@ -187,6 +191,7 @@ function sampleHandoff(handoff: ActiveSolidHandoff, now: number): HandoffSample 
   const survivorPosition = lerpVec3(survivorStart, resultPosition, progress)
   const survivorStartRadius = getBodyPresentationRadius(handoff.survivor.radius)
   const resultRadius = getBodyPresentationRadius(handoff.result.radius)
+  const absorbedOpacity = getAbsorbedOpacity(progress)
 
   return {
     elapsedMs,
@@ -204,28 +209,42 @@ function sampleHandoff(handoff: ActiveSolidHandoff, now: number): HandoffSample 
         position: lerpVec3(sourceStart, resultPosition, progress),
         radius: startRadius * (1 - progress),
         startRadius,
+        opacity: absorbedOpacity,
       }
     }),
   }
 }
 
-function makeOverrides(now: number) {
-  const overrides = new Map<string, SolidPresentationOverride>()
+export function sampleCollisionSolidHandoffRenderFrame(
+  now = performance.now(),
+): CollisionSolidHandoffRenderFrame {
+  const overrides = new Map<string, CollisionSolidHandoffPresentationOverride>()
   const telemetry: Record<string, CollisionSolidHandoffTelemetry> = {}
 
-  activeHandoffs.forEach((handoff) => {
+  activeHandoffs.forEach((handoff, resultId) => {
+    if (now - handoff.startedAt >= COLLISION_SOLID_HANDOFF_DURATION_MS) {
+      activeHandoffs.delete(resultId)
+      return
+    }
+
     const sample = sampleHandoff(handoff, now)
-    overrides.set(seedKey(bodySeed(handoff.resultId)), {
+    overrides.set(handoff.resultId, {
+      resultId: handoff.resultId,
+      role: 'survivor',
       position: sample.survivorPosition,
       radius: sample.survivorRadius,
       color: sample.survivorColor,
+      opacity: 1,
     })
 
-    sample.absorbed.forEach(({ source, position, radius }) => {
-      overrides.set(seedKey(bodySeed(source.id)), {
+    sample.absorbed.forEach(({ source, position, radius, opacity }) => {
+      overrides.set(source.id, {
+        resultId: handoff.resultId,
+        role: 'absorbed',
         position,
         radius,
         color: null,
+        opacity,
       })
     })
 
@@ -235,6 +254,10 @@ function makeOverrides(now: number) {
       elapsedMs: sample.elapsedMs,
       phase: getCollisionVisualLifecycle(sample.elapsedMs).phase,
       progress: sample.progress,
+      overrideSampled: true,
+      overrideApplied: false,
+      renderFrameSequence: 0,
+      appliedBodyIds: [],
       resultActualPosition: { ...sample.resultPosition },
       survivor: {
         position: sample.survivorPosition,
@@ -242,74 +265,42 @@ function makeOverrides(now: number) {
         targetRadius: sample.resultRadius,
         distanceToResult: distance(sample.survivorPosition, sample.resultPosition),
       },
-      absorbed: sample.absorbed.map(({ source, position, radius, startRadius }) => ({
+      absorbed: sample.absorbed.map(({ source, position, radius, startRadius, opacity }) => ({
         sourceId: source.id,
         position,
         radius,
         startRadius,
-        opacity: sample.progress >= 1 ? 0 : 1,
+        opacity,
         distanceToResult: distance(position, sample.resultPosition),
       })),
     }
   })
 
-  if (typeof window !== 'undefined') window.__collisionSolidHandoffMetrics = telemetry
-  return overrides
+  return { overrides, telemetry }
 }
 
-function applyOverrideToScene(scene: THREE.Scene, override: SolidPresentationOverride, mesh: THREE.Mesh) {
-  const baseRadius = Math.max(Math.abs(mesh.scale.x), 1e-9)
-  const scaleRatio = override.radius / baseRadius
-  mesh.position.set(override.position.x, override.position.y, override.position.z)
-  mesh.scale.setScalar(override.radius)
+export function publishCollisionSolidHandoffRenderTelemetry(
+  frame: CollisionSolidHandoffRenderFrame,
+  appliedBodyIds: ReadonlySet<string>,
+  renderFrameSequence: number,
+) {
+  if (typeof window === 'undefined') return
 
-  const material = mesh.material instanceof THREE.ShaderMaterial ? mesh.material : null
-  if (material && override.color && material.uniforms.uIdentityColor?.value instanceof THREE.Color) {
-    material.uniforms.uIdentityColor.value.set(override.color)
-  }
-
-  const objectIndex = scene.children.indexOf(mesh)
-  const inner = objectIndex >= 1 ? scene.children[objectIndex - 1] : undefined
-  const outer = objectIndex >= 2 ? scene.children[objectIndex - 2] : undefined
-  ;[inner, outer].forEach((candidate) => {
-    if (!(candidate instanceof THREE.Sprite)) return
-    candidate.position.copy(mesh.position)
-    candidate.scale.multiplyScalar(scaleRatio)
-    if (override.color && candidate.material instanceof THREE.SpriteMaterial) {
-      candidate.material.color.set(override.color)
+  const published: Record<string, CollisionSolidHandoffTelemetry> = {}
+  Object.values(frame.telemetry).forEach((entry) => {
+    const expectedBodyIds = [entry.resultId, ...entry.absorbed.map((absorbed) => absorbed.sourceId)]
+    const appliedIds = expectedBodyIds.filter((id) => appliedBodyIds.has(id))
+    published[entry.resultId] = {
+      ...entry,
+      overrideApplied: appliedIds.length === expectedBodyIds.length,
+      renderFrameSequence,
+      appliedBodyIds: appliedIds,
     }
   })
-}
-
-function installRendererHook() {
-  if (rendererHookInstalled) return
-  rendererHookInstalled = true
-  const prototype = THREE.WebGLRenderer.prototype as any
-  const previousRender = prototype.render
-  prototype.render = function renderWithCollisionSolidHandoff(
-    scene: THREE.Object3D,
-    camera: THREE.Camera,
-  ) {
-    if (scene instanceof THREE.Scene && activeHandoffs.size > 0) {
-      const overrides = makeOverrides(performance.now())
-      scene.children.forEach((object) => {
-        if (!(object instanceof THREE.Mesh)) return
-        const material = object.material
-        if (!(material instanceof THREE.ShaderMaterial)) return
-        const seed = Number(material.uniforms.uSeed?.value)
-        if (!Number.isFinite(seed)) return
-        const override = overrides.get(seedKey(seed))
-        if (override) applyOverrideToScene(scene, override, object)
-      })
-    } else if (typeof window !== 'undefined') {
-      window.__collisionSolidHandoffMetrics = {}
-    }
-    return previousRender.call(this, scene, camera)
-  }
+  window.__collisionSolidHandoffMetrics = published
 }
 
 export function getCollisionSolidHandoffRenderBodies(bodies: BodyState[]) {
-  installRendererHook()
   const now = performance.now()
   syncHandoffs(bodies, now)
 
