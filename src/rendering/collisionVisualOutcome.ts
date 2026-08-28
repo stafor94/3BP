@@ -1,3 +1,4 @@
+import { bodyCarriesCollisionLineage } from '../collisionIdentity'
 import type { BodyState, Vec3 } from '../types'
 
 export type CollisionVisualOutcome =
@@ -232,13 +233,13 @@ function getContactGeometry(source: BodyState, partner: BodyState | undefined) {
 function nearestLineagePartner(
   source: BodyState,
   previous: BodyState[],
-  candidateId: string,
+  result: BodyState,
 ) {
   return previous
     .filter((body) =>
       body.id !== source.id &&
       body.bodyType !== 'effect' &&
-      isCollisionVisualDescendant(candidateId, body.id),
+      bodyCarriesCollisionLineage(result, body.id),
     )
     .sort((a, b) => {
       const distanceA = Math.hypot(
@@ -278,40 +279,44 @@ function transitionFor(
   }
 }
 
+function findCollisionResultSources(
+  result: BodyState,
+  previous: BodyState[],
+  currentIds: Set<string>,
+) {
+  return previous.filter((source) =>
+    isNonStellarSource(source) &&
+    bodyCarriesCollisionLineage(result, source.id) &&
+    (source.id === result.id || !currentIds.has(source.id)),
+  )
+}
+
 export function findCollisionVisualTransitions(
   previous: BodyState[],
   current: BodyState[],
 ): CollisionVisualTransition[] {
-  const previousIds = new Set(previous.map((body) => body.id))
   const currentIds = new Set(current.map((body) => body.id))
   const transitions: CollisionVisualTransition[] = []
   const transitionedSourceIds = new Set<string>()
 
-  const newResults = current.filter((body) =>
-    isNonStellarResult(body) &&
-    !previousIds.has(body.id) &&
-    body.id.includes('+'),
-  )
+  const resultCandidates = current.filter(isNonStellarResult)
 
-  for (const result of newResults) {
-    const sources = previous.filter((source) =>
-      isNonStellarSource(source) &&
-      !currentIds.has(source.id) &&
-      isCollisionVisualDescendant(result.id, source.id),
-    )
-    if (sources.length === 0) continue
+  for (const result of resultCandidates) {
+    const sources = findCollisionResultSources(result, previous, currentIds)
+    if (sources.length < 2) continue
 
     const incomingMass = sources.reduce((sum, source) => sum + Math.max(0, source.mass), 0)
     const massLossFraction = incomingMass > 1e-12
       ? Math.max(0, incomingMass - Math.max(0, result.mass)) / incomingMass
       : 0
     const disrupted = massLossFraction >= COLLISION_VISUAL_DISRUPTION_MASS_LOSS_THRESHOLD
-    const dominant = sources
+    const preservedIdentitySource = sources.find((source) => source.id === result.id)
+    const dominant = preservedIdentitySource ?? sources
       .slice()
       .sort((a, b) => b.mass - a.mass || b.radius - a.radius || a.id.localeCompare(b.id))[0]
 
     for (const source of sources) {
-      const partner = nearestLineagePartner(source, previous, result.id)
+      const partner = nearestLineagePartner(source, previous, result)
       const outcome: CollisionVisualOutcome = disrupted
         ? 'disrupted'
         : source.id === dominant.id
@@ -334,7 +339,7 @@ export function findCollisionVisualTransitions(
 
     const descendants = current.filter((candidate) =>
       candidate.id !== source.id &&
-      isCollisionVisualDescendant(candidate.id, source.id),
+      bodyCarriesCollisionLineage(candidate, source.id),
     )
     const fragmentDescendants = descendants.filter((candidate) =>
       candidate.bodyType === 'fragment' ||
@@ -346,7 +351,7 @@ export function findCollisionVisualTransitions(
     const partner = previous
       .filter((candidate) => candidate.id !== source.id && candidate.bodyType !== 'effect')
       .find((candidate) => fragmentDescendants.some((fragment) =>
-        isCollisionVisualDescendant(fragment.id, candidate.id),
+        bodyCarriesCollisionLineage(fragment, candidate.id),
       ))
     transitions.push(transitionFor(source, 'disrupted', null, partner))
   }
