@@ -12,6 +12,7 @@ const LEGACY_SOLID_FLASH_VISUAL_RADIUS = 0.038
 const LEGACY_SPARK_STRETCH = 1.55
 const LEGACY_SPARK_WIDTH = 0.6
 const LEGACY_SPARK_TAIL = 0.22
+const LEGACY_SPARK_BODY_LIFETIME = 0.9
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -251,8 +252,8 @@ function testHeadOnSparkPresentationKeepsPhysicalMotion() {
     'presentation compaction must not rotate spark physical velocity away from ejecta direction')
   assert(dot(direction, spawnDirection) > 0.999999,
     'presentation compaction must not move the mass-bearing spark spawn off its ejecta direction')
-  assertClose(spark.lifetime ?? -1, 2, 1e-12,
-    'mass-bearing collision spark BodyState lifetime must remain unchanged')
+  assertClose(spark.lifetime ?? -1, LEGACY_SPARK_BODY_LIFETIME, 1e-12,
+    'mass-bearing collision spark production lifetime must remain on the pre-existing fragment-aware cap')
   assert((spark.effectVisual?.headOn ?? 0) > 0.99 && (spark.effectVisual?.grazing ?? 1) < 0.01,
     'head-on spark fixture must expose presentation geometry without changing physical direction')
 
@@ -267,12 +268,12 @@ function testHeadOnSparkPresentationKeepsPhysicalMotion() {
   const fadedProfile = getCollisionEffectProfile({ ...spark, age: 0.6 })
   assert(fadedProfile.fadeAlpha <= 0.002,
     'head-on spark must become visually hidden well before its mass-bearing BodyState expires')
-  assertClose(spark.lifetime ?? -1, 2, 1e-12,
-    'visual fade must not mutate the physical/effect BodyState lifetime')
+  assertClose(spark.lifetime ?? -1, LEGACY_SPARK_BODY_LIFETIME, 1e-12,
+    'visual fade must not mutate the existing physical/effect BodyState lifetime')
 
   const legacyVisualRadius = clamp(spark.radius * 0.62, 0.01, 0.025)
-  const legacyVisibleUntil = 2 * (1 - Math.pow(0.002, 1 / 2.15))
-  const compactVisibleDuration = 2 * (1 - 0.71)
+  const legacyVisibleUntil = LEGACY_SPARK_BODY_LIFETIME * (1 - Math.pow(0.002, 1 / 2.15))
+  const compactVisibleDuration = Math.max(0.42, LEGACY_SPARK_BODY_LIFETIME * (1 - 0.71))
   const compactVisibleUntil = compactVisibleDuration * (1 - Math.pow(0.002, 1 / 2.6))
 
   const grazingSpark: BodyState = {
