@@ -10,8 +10,8 @@ const SOURCE_A_ID = 'merge-handoff-a'
 const SOURCE_B_ID = 'merge-handoff-b'
 
 function makeInitialBodies(): BodyState[] {
-  const radiusA = 0.018
-  const radiusB = 0.017
+  const radiusA = 0.024
+  const radiusB = 0.022
   const separation = radiusA + radiusB - 1e-6
   return [
     {
@@ -64,11 +64,21 @@ export function CollisionMergeHandoffVisualHarness() {
 
   const diagnostics = useMemo(() => {
     const remnant = findRemnant(bodies)
+    const sourceA = bodies.find((body) => body.id === SOURCE_A_ID)
+    const sourceB = bodies.find((body) => body.id === SOURCE_B_ID)
     const physical = bodies.filter((body) => body.bodyType !== 'effect')
+    const sourceSeparation = sourceA && sourceB
+      ? Math.hypot(
+          sourceB.position.x - sourceA.position.x,
+          sourceB.position.y - sourceA.position.y,
+          sourceB.position.z - sourceA.position.z,
+        )
+      : 0
     return {
       remnantId: remnant?.id ?? '',
-      sourceAPresent: bodies.some((body) => body.id === SOURCE_A_ID),
-      sourceBPresent: bodies.some((body) => body.id === SOURCE_B_ID),
+      sourceAPresent: Boolean(sourceA),
+      sourceBPresent: Boolean(sourceB),
+      sourceSeparation,
       physicalBodyCount: physical.length,
       remnantMass: remnant?.mass ?? 0,
       remnantRadius: remnant?.radius ?? 0,
@@ -126,6 +136,7 @@ export function CollisionMergeHandoffVisualHarness() {
       data-remnant-id={diagnostics.remnantId}
       data-source-a-present={diagnostics.sourceAPresent ? '1' : '0'}
       data-source-b-present={diagnostics.sourceBPresent ? '1' : '0'}
+      data-source-separation={diagnostics.sourceSeparation}
       data-physical-body-count={diagnostics.physicalBodyCount}
       data-remnant-mass={diagnostics.remnantMass}
       data-remnant-radius={diagnostics.remnantRadius}
