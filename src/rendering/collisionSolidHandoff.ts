@@ -19,8 +19,23 @@ type ActiveSolidHandoff = {
   startedAt: number
 }
 
+type HandoffSample = {
+  elapsedMs: number
+  progress: number
+  resultPosition: Vec3
+  survivorPosition: Vec3
+  survivorRadius: number
+  resultRadius: number
+  survivorColor: string
+  absorbed: Array<{
+    source: BodyState
+    position: Vec3
+    radius: number
+    startRadius: number
+  }>
+}
+
 type SolidPresentationOverride = {
-  bodyId: string
   position: Vec3
   radius: number
   color: string | null
@@ -163,11 +178,34 @@ function syncHandoffs(bodies: BodyState[], now: number) {
   previousBodies = bodies.map(cloneBody)
 }
 
-function getHandoffProgress(handoff: ActiveSolidHandoff, now: number) {
+function sampleHandoff(handoff: ActiveSolidHandoff, now: number): HandoffSample {
   const elapsedMs = Math.max(0, now - handoff.startedAt)
+  const progress = smooth01(elapsedMs / Math.max(1, COLLISION_SOLID_HANDOFF_DURATION_MS))
+  const resultPosition = handoff.result.position
+  const resultDrift = subtract(resultPosition, handoff.initialResultPosition)
+  const survivorStart = add(handoff.survivor.position, resultDrift)
+  const survivorPosition = lerpVec3(survivorStart, resultPosition, progress)
+  const survivorStartRadius = getBodyPresentationRadius(handoff.survivor.radius)
+  const resultRadius = getBodyPresentationRadius(handoff.result.radius)
+
   return {
     elapsedMs,
-    progress: smooth01(elapsedMs / Math.max(1, COLLISION_SOLID_HANDOFF_DURATION_MS)),
+    progress,
+    resultPosition,
+    survivorPosition,
+    survivorRadius: THREE.MathUtils.lerp(survivorStartRadius, resultRadius, progress),
+    resultRadius,
+    survivorColor: blendColor(handoff.survivor.color, handoff.result.color, progress),
+    absorbed: handoff.absorbed.map((source) => {
+      const sourceStart = add(source.position, resultDrift)
+      const startRadius = getBodyPresentationRadius(source.radius)
+      return {
+        source,
+        position: lerpVec3(sourceStart, resultPosition, progress),
+        radius: startRadius * (1 - progress),
+        startRadius,
+      }
+    }),
   }
 }
 
@@ -176,57 +214,42 @@ function makeOverrides(now: number) {
   const telemetry: Record<string, CollisionSolidHandoffTelemetry> = {}
 
   activeHandoffs.forEach((handoff) => {
-    const { elapsedMs, progress } = getHandoffProgress(handoff, now)
-    const resultPosition = handoff.result.position
-    const resultDrift = subtract(resultPosition, handoff.initialResultPosition)
-    const survivorStart = add(handoff.survivor.position, resultDrift)
-    const survivorPosition = lerpVec3(survivorStart, resultPosition, progress)
-    const survivorStartRadius = getBodyPresentationRadius(handoff.survivor.radius)
-    const resultRadius = getBodyPresentationRadius(handoff.result.radius)
-    const survivorRadius = THREE.MathUtils.lerp(survivorStartRadius, resultRadius, progress)
-
+    const sample = sampleHandoff(handoff, now)
     overrides.set(seedKey(bodySeed(handoff.resultId)), {
-      bodyId: handoff.resultId,
-      position: survivorPosition,
-      radius: survivorRadius,
-      color: blendColor(handoff.survivor.color, handoff.result.color, progress),
+      position: sample.survivorPosition,
+      radius: sample.survivorRadius,
+      color: sample.survivorColor,
     })
 
-    const absorbedTelemetry = handoff.absorbed.map((source) => {
-      const sourceStart = add(source.position, resultDrift)
-      const position = lerpVec3(sourceStart, resultPosition, progress)
-      const startRadius = getBodyPresentationRadius(source.radius)
-      const radius = startRadius * (1 - progress)
+    sample.absorbed.forEach(({ source, position, radius }) => {
       overrides.set(seedKey(bodySeed(source.id)), {
-        bodyId: source.id,
         position,
         radius,
         color: null,
       })
-      return {
-        sourceId: source.id,
-        position,
-        radius,
-        startRadius,
-        opacity: progress >= 1 ? 0 : 1,
-        distanceToResult: distance(position, resultPosition),
-      }
     })
 
     telemetry[handoff.resultId] = {
       resultId: handoff.resultId,
       survivorSourceId: handoff.survivor.id,
-      elapsedMs,
-      phase: getCollisionVisualLifecycle(elapsedMs).phase,
-      progress,
-      resultActualPosition: { ...resultPosition },
+      elapsedMs: sample.elapsedMs,
+      phase: getCollisionVisualLifecycle(sample.elapsedMs).phase,
+      progress: sample.progress,
+      resultActualPosition: { ...sample.resultPosition },
       survivor: {
-        position: survivorPosition,
-        radius: survivorRadius,
-        targetRadius: resultRadius,
-        distanceToResult: distance(survivorPosition, resultPosition),
+        position: sample.survivorPosition,
+        radius: sample.survivorRadius,
+        targetRadius: sample.resultRadius,
+        distanceToResult: distance(sample.survivorPosition, sample.resultPosition),
       },
-      absorbed: absorbedTelemetry,
+      absorbed: sample.absorbed.map(({ source, position, radius, startRadius }) => ({
+        sourceId: source.id,
+        position,
+        radius,
+        startRadius,
+        opacity: sample.progress >= 1 ? 0 : 1,
+        distanceToResult: distance(position, sample.resultPosition),
+      })),
     }
   })
 
@@ -290,13 +313,31 @@ export function getCollisionSolidHandoffRenderBodies(bodies: BodyState[]) {
   const now = performance.now()
   syncHandoffs(bodies, now)
 
-  const rendered = [...bodies]
+  const rendered = bodies.map((body) => {
+    const handoff = activeHandoffs.get(body.id)
+    if (!handoff || now - handoff.startedAt > COLLISION_SOLID_HANDOFF_DURATION_MS) return body
+    const sample = sampleHandoff(handoff, now)
+    return {
+      ...body,
+      position: { ...sample.survivorPosition },
+      color: sample.survivorColor,
+    }
+  })
   const renderedIds = new Set(rendered.map((body) => body.id))
+
   activeHandoffs.forEach((handoff) => {
     if (now - handoff.startedAt > COLLISION_SOLID_HANDOFF_DURATION_MS) return
-    handoff.absorbed.forEach((source) => {
+    const sample = sampleHandoff(handoff, now)
+    sample.absorbed.forEach(({ source, position }) => {
       if (renderedIds.has(source.id)) return
-      rendered.push(cloneBody(source))
+      // This clone exists only inside the generic renderer state. Marking it as
+      // an effect keeps collision-watch/tracking descendant resolution from
+      // treating the temporary silhouette as a surviving physical body.
+      rendered.push({
+        ...cloneBody(source),
+        bodyType: 'effect',
+        position: { ...position },
+      })
       renderedIds.add(source.id)
     })
   })
