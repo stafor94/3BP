@@ -1,6 +1,7 @@
 import { getEffectiveBodyType } from '../bodyTypes'
 import { bodyCarriesCollisionLineage } from '../collisionIdentity'
 import { FRAGMENT_LIFETIME } from '../fragmentLifecycle'
+import { getBodyPresentationRadius } from '../rendering/bodyPresentationRadius'
 import type { BodyState, Vec3 } from '../types'
 import { getCollisionContactDistance } from './collisionContact'
 import { stepBodies as stepPhysicsBodies } from './engine'
@@ -595,6 +596,18 @@ function isStellarMerge(a: BodyState, b: BodyState, mode: CollisionPresentationM
   return mode === 'merge' && isStellarPair(a, b)
 }
 
+function isNonStellarPair(a: BodyState, b: BodyState) {
+  return getEffectiveBodyType(a) !== 'star' && getEffectiveBodyType(b) !== 'star'
+}
+
+function getCollisionPresentationContactDistance(a: BodyState, b: BodyState) {
+  // Stellar collision staging intentionally keeps its dedicated geometry. For
+  // ordinary bodies, mirror the renderer's visibility floor only in the display
+  // bridge; physical contact remains getCollisionContactDistance(a, b).
+  if (!isNonStellarPair(a, b)) return getCollisionContactDistance(a, b)
+  return getBodyPresentationRadius(a.radius) + getBodyPresentationRadius(b.radius)
+}
+
 function getImpactDuration(a: BodyState, b: BodyState, mode: CollisionPresentationMode) {
   if (!isStellarPair(a, b)) return COLLISION_IMPACT_SIM_DURATION
   if (mode === 'merge') return STELLAR_MERGE_IMPACT_SIM_DURATION
@@ -606,6 +619,7 @@ function getCollisionContactPositions(
   a: BodyState,
   b: BodyState,
   overlap = 0,
+  baseContactDistance = getCollisionContactDistance(a, b),
 ): CollisionContactPositions {
   const delta = {
     x: b.position.x - a.position.x,
@@ -638,7 +652,7 @@ function getCollisionContactPositions(
     y: (a.position.y * a.mass + b.position.y * b.mass) / totalMass,
     z: (a.position.z * a.mass + b.position.z * b.mass) / totalMass,
   }
-  const contactDistance = Math.max(0, getCollisionContactDistance(a, b) - overlap)
+  const contactDistance = Math.max(0, baseContactDistance - overlap)
 
   return {
     bodyA: {
@@ -668,8 +682,9 @@ function getDriftedCollisionContactPositions(
   b: BodyState,
   elapsed: number,
   overlap = 0,
+  baseContactDistance = getCollisionContactDistance(a, b),
 ): CollisionContactPositions {
-  const contact = getCollisionContactPositions(a, b, overlap)
+  const contact = getCollisionContactPositions(a, b, overlap, baseContactDistance)
   const centerVelocity = getCenterVelocity(a, b)
   const drift = {
     x: centerVelocity.x * elapsed,
@@ -722,7 +737,10 @@ function getImpactOverlap(
         ? STELLAR_PARTIAL_MAX_OVERLAP_RATIO
         : STELLAR_HIT_RUN_MAX_OVERLAP_RATIO
     : IMPACT_MAX_OVERLAP_RATIO
-  const maxOverlap = Math.min(a.radius, b.radius) * overlapRatio
+  const minPresentationRadius = isNonStellarPair(a, b)
+    ? Math.min(getBodyPresentationRadius(a.radius), getBodyPresentationRadius(b.radius))
+    : Math.min(a.radius, b.radius)
+  const maxOverlap = minPresentationRadius * overlapRatio
   if (mode !== 'merge') return maxOverlap * Math.sin(Math.PI * progress)
 
   // Merge compression reaches its visual maximum early, then plateaus while the
@@ -804,6 +822,7 @@ function buildCollisionImpactFrame(transition: CollisionTransition) {
     pair.bodyB,
     transition.elapsed,
     overlap,
+    getCollisionPresentationContactDistance(pair.bodyA, pair.bodyB),
   )
 
   const nonStellarAbsorption =
