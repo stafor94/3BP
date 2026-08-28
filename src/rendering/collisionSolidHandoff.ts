@@ -78,6 +78,7 @@ export type CollisionSolidHandoffRenderFrame = {
 }
 
 const activeHandoffs = new Map<string, ActiveSolidHandoff>()
+const retiredPresentationSeeds = new Set<string>()
 let previousBodies: BodyState[] | null = null
 
 function clamp01(value: number) {
@@ -120,6 +121,19 @@ function lerpVec3(a: Vec3, b: Vec3, t: number): Vec3 {
   }
 }
 
+function bodySeed(id: string) {
+  let hash = 2166136261
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return ((hash >>> 0) / 4294967295) * 1000
+}
+
+function seedKey(seed: number) {
+  return seed.toFixed(8)
+}
+
 function blendColor(source: string, target: string, progress: number) {
   return `#${new THREE.Color(source).lerp(new THREE.Color(target), progress).getHexString()}`
 }
@@ -153,6 +167,9 @@ function beginHandoffs(previous: BodyState[], current: BodyState[], now: number)
     if (!survivorTransition || absorbedTransitions.length === 0 || !result) return
     if (result.bodyType === 'star') return
 
+    absorbedTransitions.forEach((transition) => {
+      retiredPresentationSeeds.delete(seedKey(bodySeed(transition.source.id)))
+    })
     activeHandoffs.set(resultId, {
       resultId,
       survivor: cloneBody(survivorTransition.source),
@@ -164,6 +181,12 @@ function beginHandoffs(previous: BodyState[], current: BodyState[], now: number)
   })
 }
 
+function retireAbsorbedPresentation(handoff: ActiveSolidHandoff) {
+  handoff.absorbed.forEach((source) => {
+    retiredPresentationSeeds.add(seedKey(bodySeed(source.id)))
+  })
+}
+
 function syncHandoffs(bodies: BodyState[], now: number) {
   if (previousBodies) beginHandoffs(previousBodies, bodies, now)
 
@@ -171,11 +194,13 @@ function syncHandoffs(bodies: BodyState[], now: number) {
   activeHandoffs.forEach((handoff, resultId) => {
     const result = currentById.get(resultId)
     if (!result) {
+      retireAbsorbedPresentation(handoff)
       activeHandoffs.delete(resultId)
       return
     }
     handoff.result = cloneBody(result)
     if (now - handoff.startedAt > COLLISION_SOLID_HANDOFF_DURATION_MS + 100) {
+      retireAbsorbedPresentation(handoff)
       activeHandoffs.delete(resultId)
     }
   })
@@ -223,6 +248,7 @@ export function sampleCollisionSolidHandoffRenderFrame(
 
   activeHandoffs.forEach((handoff, resultId) => {
     if (now - handoff.startedAt >= COLLISION_SOLID_HANDOFF_DURATION_MS) {
+      retireAbsorbedPresentation(handoff)
       activeHandoffs.delete(resultId)
       return
     }
@@ -300,6 +326,84 @@ export function publishCollisionSolidHandoffRenderTelemetry(
   window.__collisionSolidHandoffMetrics = published
 }
 
+function setPresentationVisibility(scene: THREE.Scene, mesh: THREE.Mesh, visible: boolean) {
+  mesh.visible = visible
+  const objectIndex = scene.children.indexOf(mesh)
+  const inner = objectIndex >= 1 ? scene.children[objectIndex - 1] : undefined
+  const outer = objectIndex >= 2 ? scene.children[objectIndex - 2] : undefined
+  ;[inner, outer].forEach((candidate) => {
+    if (!(candidate instanceof THREE.Sprite)) return
+    candidate.visible = false
+    if (candidate.material instanceof THREE.SpriteMaterial) candidate.material.opacity = 0
+  })
+}
+
+function applyOverrideToScene(
+  scene: THREE.Scene,
+  override: CollisionSolidHandoffPresentationOverride,
+  mesh: THREE.Mesh,
+) {
+  const radius = Math.max(0, override.radius)
+  const opacity = clamp01(override.opacity)
+  mesh.position.set(override.position.x, override.position.y, override.position.z)
+  mesh.scale.setScalar(radius)
+
+  const material = mesh.material instanceof THREE.ShaderMaterial ? mesh.material : null
+  if (material) {
+    const shouldBlend = opacity < 0.999
+    if (material.transparent !== shouldBlend) {
+      material.transparent = shouldBlend
+      material.needsUpdate = true
+    }
+    material.depthWrite = !shouldBlend
+    if (material.uniforms.uOpacity) material.uniforms.uOpacity.value = opacity
+    if (override.color && material.uniforms.uIdentityColor?.value instanceof THREE.Color) {
+      material.uniforms.uIdentityColor.value.set(override.color)
+    }
+  }
+
+  // Non-stellar solids intentionally have their ordinary body glows suppressed
+  // by bodyLighting. The absorbed presentation-only source is not in that
+  // physical lookup, so suppress its generic glow here as well instead of
+  // introducing a new halo during the handoff.
+  setPresentationVisibility(scene, mesh, radius > 1e-6 && opacity > 1e-3)
+}
+
+export function renderCollisionSolidHandoffFrame(
+  scene: THREE.Scene,
+  renderFrameSequence: number,
+  now = performance.now(),
+) {
+  const frame = sampleCollisionSolidHandoffRenderFrame(now)
+  const overridesBySeed = new Map<string, {
+    bodyId: string
+    override: CollisionSolidHandoffPresentationOverride
+  }>()
+  frame.overrides.forEach((override, bodyId) => {
+    overridesBySeed.set(seedKey(bodySeed(bodyId)), { bodyId, override })
+  })
+
+  const appliedBodyIds = new Set<string>()
+  scene.children.forEach((object) => {
+    if (!(object instanceof THREE.Mesh)) return
+    const material = object.material
+    if (!(material instanceof THREE.ShaderMaterial)) return
+    const seed = Number(material.uniforms.uSeed?.value)
+    if (!Number.isFinite(seed)) return
+    const key = seedKey(seed)
+    const entry = overridesBySeed.get(key)
+    if (entry) {
+      applyOverrideToScene(scene, entry.override, object)
+      appliedBodyIds.add(entry.bodyId)
+      return
+    }
+    if (retiredPresentationSeeds.has(key)) setPresentationVisibility(scene, object, false)
+  })
+
+  publishCollisionSolidHandoffRenderTelemetry(frame, appliedBodyIds, renderFrameSequence)
+  return frame
+}
+
 export function getCollisionSolidHandoffRenderBodies(bodies: BodyState[]) {
   const now = performance.now()
   syncHandoffs(bodies, now)
@@ -337,6 +441,7 @@ export function getCollisionSolidHandoffRenderBodies(bodies: BodyState[]) {
 
 export function resetCollisionSolidHandoffState() {
   activeHandoffs.clear()
+  retiredPresentationSeeds.clear()
   previousBodies = null
   if (typeof window !== 'undefined') window.__collisionSolidHandoffMetrics = {}
 }
