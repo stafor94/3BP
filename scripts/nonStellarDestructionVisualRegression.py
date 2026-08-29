@@ -172,10 +172,19 @@ def main() -> None:
         WebDriverWait(driver, 15, poll_frequency=0.05).until(
             lambda browser: len(browser.find_elements(By.CSS_SELECTOR, '.simulation-view canvas')) == 1
         )
+        harness = driver.find_element(By.CSS_SELECTOR, '[data-visual-regression="non-stellar-destruction"]')
+        physics_source = harness.get_attribute('data-physics-source')
+        require(
+            physics_source == 'fragmentAwareEngine.stepBodies',
+            'non-stellar destruction browser fixture must render real fragmentAwareEngine solver state',
+        )
         time.sleep(0.65)
 
         contact = capture_canvas(driver, '01-contact')
         trigger(driver)
+        harness = driver.find_element(By.CSS_SELECTOR, '[data-visual-regression="non-stellar-destruction"]')
+        debris_count = int(harness.get_attribute('data-physical-debris-count') or '0')
+        require(debris_count > 0, 'destruction stage must contain actual mass-bearing solver debris')
         started_at = time.monotonic()
         captures: dict[str, Path] = {'contact': contact}
         for name, target in CAPTURES:
@@ -201,6 +210,8 @@ def main() -> None:
         }
 
         payload = {
+            'physics_source': physics_source,
+            'physical_debris_count_at_resolve': debris_count,
             'capture_targets_seconds': {name: target for name, target in CAPTURES},
             'phase_frames': {
                 'IMPACT': '02-impact',
@@ -224,8 +235,8 @@ def main() -> None:
             require(energy >= 250, f'{name} capture is unexpectedly empty')
             require(energy <= energies['contact'] * 3.5, f'{name}: foreground expanded excessively')
 
-        # Phase-1 regression remains strict: contact-local breakup may add small
-        # components, but may not reintroduce source-sized full-body spheres.
+        # Contact-local breakup may add small components, but may not reintroduce
+        # multiple source-sized full-body spheres after the solver handoff.
         require(
             source_sized_counts['05-transfer'] <= 1,
             'TRANSFER contains multiple source-sized full-body components',
