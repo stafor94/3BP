@@ -9,11 +9,19 @@
 ## [0.20.0] - 2026-08-29
 
 ### Added
-- 충돌 관찰 패널에 엔진이 실제로 확정한 충돌 결과를 텍스트로 표시합니다. 항성-항성 충돌은 병합/충돌 후 이탈/부분 파쇄를 구분하고, 비항성 충돌은 파쇄/충돌 후 이탈과 결과 상태에서 구분할 수 없는 병합·흡수를 정직하게 묶어 표시합니다.
-- 충돌 접근 상태를 결과로 오인하지 않고 항성 및 비항성 결과 topology를 UI 표시값으로 올바르게 매핑하는 회귀 검증을 추가했습니다.
+- 충돌 관찰 패널에 엔진이 실제로 확정한 충돌 결과를 표시합니다. 항성 충돌은 병합/충돌 후 이탈/부분 파쇄를 구분하고, 비항성 충돌은 파쇄/충돌 후 이탈 및 엔진 사후 상태에서 구분할 수 없는 병합·흡수를 하나의 `병합 / 흡수` 결과로 표시합니다. 결과 확정 전에는 판정 중 상태를 유지합니다.
+- 충돌 전후 represented total mass와 x/y/z 선형 운동량 보존을 검증하는 conservation regression/diagnostic을 추가하고, mass-carrying fragment/effect ejecta와 production fragment-aware absorption 경로까지 검증합니다.
 
-### Unchanged
-- collision contact/penetration 판정, absorb/merge/disrupt/hitRun 분류 기준, 질량·반지름·속도·모멘텀, fragment/ejecta 운동 및 VFX는 변경하지 않았습니다.
+### Changed
+- transient collision fragment는 실제 position/velocity/mass/momentum을 변경하지 않고 renderer-only clone에 collision normal 기반 양방향 outward burst, 결정론적 angular/size/distance variation을 적용해 충돌점에 붙어 보이는 현상을 완화했습니다. 기존 fragment lifetime/fade는 유지합니다.
+
+### Fixed
+- core physics에 swept solid-contact first-contact detection을 적용해 high-speed tunneling과 timestep 말단의 과도한 body penetration을 줄이고, 이미 접촉/overlap 상태인 pair도 안정적으로 resolve합니다.
+- collision staging/transition이 timestep 중간에 끝날 때 남은 timestep을 보존해 충돌 전환 때문에 simulation time이 소실되지 않도록 수정했습니다.
+
+### Verification
+- swept first-contact physics가 적용된 상태에서 similar-mass, extreme mass ratio, stationary/opposing, low/high-speed collision의 represented mass 및 x/y/z momentum conservation을 검증합니다.
+- collision result UI, presentation-only debris motion, swept contact/tangent/near-miss, large-step overshoot 및 기존 collision classification regression을 함께 실행합니다.
 
 ## [0.19.23] - 2026-08-29
 
