@@ -94,6 +94,15 @@ function hasCollisionFlashForPair(
   )
 }
 
+function hasCollisionFlashForCompositeRemnant(bodies: BodyState[], remnantId: string) {
+  const prefix = `${remnantId}+flash`
+  return bodies.some((body) =>
+    body.bodyType === 'effect' &&
+    body.name === 'Collision flash' &&
+    body.id.startsWith(prefix),
+  )
+}
+
 export function hasTargetPairCollisionResult(
   bodies: BodyState[],
   sourceAId: string,
@@ -129,9 +138,12 @@ export function resolveCollisionWatchOutcome(
   }
 
   if (descendantA.id === descendantB.id) {
-    const disruptionIdAB = `${sourceAId}+${sourceBId}`
-    const disruptionIdBA = `${sourceBId}+${sourceAId}`
-    return descendantA.id === disruptionIdAB || descendantA.id === disruptionIdBA
+    // Non-stellar `disrupt` creates a composite remnant with the same immediate
+    // pair id used by its collision flash. `merge` / `absorb` preserve one input
+    // identity instead, so the flash has an extra peer id before `+flash`.
+    // This keeps the UI projection correct even if either source already carries
+    // lineage from an earlier third-party collision.
+    return hasCollisionFlashForCompositeRemnant(bodies, descendantA.id)
       ? 'disrupt'
       : 'mergeOrAbsorb'
   }
