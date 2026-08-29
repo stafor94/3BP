@@ -68,8 +68,18 @@
   - survivor absorption + absorption continuity
   - actual disruption + frame continuity + mobile actual disruption
 - [x] `b91efed` artifact 직접 눈검사 및 최신-main A/B 확인
-- [ ] package version `0.20.1` + CHANGELOG 업데이트
-- [ ] versioned HEAD 전체 CI 및 artifact 최종 확인
-- [ ] 임시 tracker 삭제
-- [ ] tracker 삭제 HEAD CI green 확인
-- [ ] PR #105 본문 최종 정리 후 Draft 해제
+- [x] package version `0.20.1` + CHANGELOG `0.20.1` 반영. 기존 CHANGELOG history는 release commit diff 기준 삭제/변경 없이 보존됨.
+- [x] versioned HEAD `75043b41ca8560e34bc4a68bb74d4fcdcbb82103` 전체 CI run #285 (`33281789455`) PASS.
+- [x] versioned HEAD browser artifact 최종 직접 눈검사 완료.
+  - small head-on: impact/transfer 전 구간에서 flash/spark가 접촉점에 compact하게 유지되고 큰 세로 debris column이 보이지 않는다.
+  - solver-backed non-stellar destruction: production solver가 생성한 physical debris 8개가 survivor 표면에서 실제로 분리·이동하고, source-sized ghost나 표면에 붙은 큰 debris clump/column이 보이지 않는다. minimum spawn clearance도 regression 기준을 충족한다.
+  - merge solid handoff: 첫 실제 renderer frame telemetry가 `progress = 0`, `elapsed = 0`으로 시작하고 source → remnant 전환이 첫 프레임부터 연결되며 settled frame에 ghost가 남지 않는다.
+  - stellar: peak 이후 single remnant로 정상 정리되며 strict stellar gate와 시각적 기존 동작이 유지된다.
+  - actual disruption: source → remnant 전환 중 실루엣 공백/큰 ghost 없이 안정화된다. 이 harness는 continuity/VFX control로만 취급하며 physical solver evidence로 과장하지 않는다.
+- [x] latest-main non-stellar baseline이 synthetic fixture이고 branch가 solver-backed fixture임을 유지해 non-stellar raw screenshot을 동일 physics fixture A/B라고 주장하지 않는다.
+
+## Closeout status
+
+- 기술 acceptance와 versioned release HEAD 검증은 모두 완료됐다.
+- 이 tracker는 최종 검증 결과 기록까지 끝났으며 삭제할 수 있는 상태다.
+- tracker 삭제 commit의 HEAD CI를 별도로 green 확인한 뒤 PR #105 본문을 최종 정리하고 Draft 해제 여부를 결정한다.
