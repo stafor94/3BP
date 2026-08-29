@@ -99,8 +99,8 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       : Math.min(legacySolidFlashRadius, sourcePresentationRadius * 0.98)
     // The physics contact-flash width is still useful presentation metadata:
     // <= 0.33 corresponds to the same sufficiently head-on range that suppresses
-    // directional sparks. Keep this renderer-only so collision staging/physics do
-    // not gain another C-track branch.
+    // directional spark shape. Keep this renderer-only so collision staging/physics
+    // do not gain another C-track branch.
     const smallHeadOnSolidFlash = !stellar &&
       visual?.sourceMaxRadius !== undefined &&
       Math.abs(visual.sourceMaxRadius) <= SMALL_HEAD_ON_CONTACT_FLASH_SOURCE_RADIUS_MAX &&
@@ -326,10 +326,9 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const hasGeometry = visual?.headOn !== undefined || visual?.grazing !== undefined
   const headOn = hasGeometry ? clamp(visual?.headOn ?? 0, 0, 1) : 0
   const compactSplash = hasGeometry ? smooth01((headOn - 0.62) / 0.3) : 0
-  // Once the impact is nearly head-on, the physical ±tangent ejecta still
-  // exists, but its directional spark silhouette hands visual ownership back to
-  // the contact flash. This prevents two real ejecta bodies from reading as a
-  // bright axial pillar while preserving oblique/grazing directional sparks.
+  // Nearly head-on small-body ejecta now leaves the solver along ±collision normal.
+  // Keep those mass-bearing sparks compact/isotropic so they do not become fake
+  // directional streaks, but do not hide the actual physical ejecta motion.
   const smallNonStellarSpark = hasGeometry &&
     visual?.sourceMaxRadius !== undefined &&
     visual.sourceMaxRadius <= MIN_BODY_RENDER_RADIUS
@@ -338,6 +337,9 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     : hasGeometry
       ? smooth01((headOn - 0.86) / 0.1)
       : 0
+  const visibilityScale = smallNonStellarSpark
+    ? THREE.MathUtils.lerp(1, 0.62, directionalSuppression)
+    : 1 - directionalSuppression
   const visualDuration = hasGeometry
     ? Math.max(0.42, duration * (1 - compactSplash * 0.71))
     : duration
@@ -360,7 +362,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   return {
     kind,
     progress: sparkProgress,
-    fadeAlpha: decay * (1 - directionalSuppression),
+    fadeAlpha: decay * visibilityScale,
     baseOpacity: 0.54 * (1 - compactSplash * 0.12),
     innerGlow: 0.5 * (1 - compactSplash * 0.18),
     outerGlow: 0.08 * (1 - compactSplash * 0.35),
