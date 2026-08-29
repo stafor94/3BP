@@ -78,22 +78,31 @@ def root_diagnostics(driver: webdriver.Chrome) -> dict[str, float | int | str]:
     }
 
 
-def advance_step(driver: webdriver.Chrome, expected_step: int) -> None:
+def advance_step(driver: webdriver.Chrome, expected_step: int, settle_frames: int = 2) -> None:
     driver.execute_async_script(
         """
         const expected = String(arguments[0]);
+        const settleFrames = Number(arguments[1]);
         const done = arguments[arguments.length - 1];
         window.__advanceCollisionMergeHandoffStep();
+        const finishAfterFrames = (remaining) => {
+          if (remaining <= 0) {
+            done();
+            return;
+          }
+          requestAnimationFrame(() => finishAfterFrames(remaining - 1));
+        };
         const waitForCommit = () => {
           if (document.body.dataset.visualStep !== expected) {
             requestAnimationFrame(waitForCommit);
             return;
           }
-          requestAnimationFrame(() => requestAnimationFrame(done));
+          finishAfterFrames(settleFrames);
         };
         requestAnimationFrame(waitForCommit);
         """,
         expected_step,
+        settle_frames,
     )
 
 
@@ -136,13 +145,6 @@ def collected_handoff_frames(driver: webdriver.Chrome) -> list[dict[str, object]
     return driver.execute_script(
         'return window.__collisionSolidHandoffFrameHistory || [];'
     ) or []
-
-
-def wait_for_collected_frames(driver: webdriver.Chrome) -> list[dict[str, object]]:
-    WebDriverWait(driver, 3, poll_frequency=0.01).until(
-        lambda browser: bool(collected_handoff_frames(browser))
-    )
-    return collected_handoff_frames(driver)
 
 
 def wait_for_collected_progress(driver: webdriver.Chrome, minimum: float) -> list[dict[str, object]]:
@@ -303,15 +305,15 @@ def main() -> None:
         pre_visual = silhouette_metrics(pre_path)
 
         install_handoff_frame_collector(driver)
-        advance_step(driver, 16)
+        advance_step(driver, 16, settle_frames=1)
+        first_path = capture_canvas(driver, '01-first-post-solver')
+        first_visual = silhouette_metrics(first_path)
+
         post_physics = root_diagnostics(driver)
         require(bool(post_physics['remnant_id']), 'step 16 must physically resolve the small head-on pair')
         require(post_physics['physical_body_count'] == 1, f'fixture must physically resolve 2->1, got {post_physics["physical_body_count"]}')
         require(post_physics['source_b_present'] == 0, 'absorbed source must be absent from the physical result')
 
-        wait_for_collected_frames(driver)
-        first_path = capture_canvas(driver, '01-first-post-solver')
-        first_visual = silhouette_metrics(first_path)
         wait_for_collected_progress(driver, 0.85)
         history = stop_handoff_frame_collector(driver)
         require(history, 'production renderer did not publish any applied solid handoff frames')
