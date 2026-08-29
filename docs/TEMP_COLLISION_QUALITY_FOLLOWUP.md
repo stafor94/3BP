@@ -23,13 +23,14 @@
 
 ### B. Physical debris motion
 - [x] debris 개선이 필요한 비항성 충돌에서 실제 mass-carrying ejecta velocity가 contact geometry를 반영해 충돌점에서 바깥 방향으로 분산되도록 production state를 수정했다.
+- [x] ejecta spawn을 surviving solid의 실제 위치/반경 기준으로 계산해 생성 직후 물리 overlap을 제거했다.
 - [x] renderer-only offset은 실제 물리 개선의 대체재로 사용하지 않고, 실제 fragment velocity 방향을 따르는 작은 de-clumping 보조 연출로 축소했다.
-- [ ] fragment/ejecta를 포함한 represented mass 및 linear momentum conservation을 유지한다. (구현은 survivor correction 포함, 전체 회귀 재검증 중)
-- [ ] deterministic replay 성질을 유지한다.
+- [ ] fragment/ejecta를 포함한 represented mass 및 linear momentum conservation을 현재 HEAD에서 유지한다.
+- [ ] deterministic replay 성질을 현재 HEAD에서 유지한다.
 
 ### C. Remnant response
 - [x] ejecta momentum 변경분만큼 remnant/survivor 실제 velocity에 반대 방향 공통 보정을 적용해 renderer-only recoil 없이 state에 반영했다.
-- [ ] remnant velocity가 ejecta momentum을 제외한 전체 운동량과 일치하는지 전체 conservation regression으로 재확인한다.
+- [ ] remnant velocity가 ejecta momentum을 제외한 전체 운동량과 일치하는지 현재 HEAD conservation regression으로 재확인한다.
 - [ ] 기존 conservation regression을 tolerance 완화 없이 통과한다.
 
 ### D. Runtime continuity / visual result
@@ -43,20 +44,30 @@
 - [x] `AGENTS.md`, `VERSIONING.md`, `docs/AGENT_QUALITY_VALIDATION.md` 확인
 - [x] 사용자 제공 영상에서 baseline 문제 목록 고정
 - [x] collision/fragment 생성 경로 조사
-  - core non-stellar head-on ejecta는 실제 state에서 주로 collision-normal 수직 방향으로 생성됨
-  - renderer는 별도로 collision-normal outward offset을 추가해 물리 궤적과 화면 궤적이 불일치했음
+  - core non-stellar ejecta 실제 state와 renderer-only fragment motion의 역할 분리 확인
+  - head-on 실제 ejecta를 collision normal 양방향 중심으로 재정렬
 - [x] 실제 fragment/ejecta velocity 모델 1차 수정
 - [x] renderer-only fragment burst를 실제 physical velocity 종속 보조 연출로 축소
-- [x] regression 추가/수정
-  - production small head-on fixture에서 실제 ejecta의 collision-normal 지배도/양방향 분출/physical spawn/visual direction 정합성 검사 추가
-  - renderer de-clumping이 physical velocity를 따라가고 source scale의 10% 이하인지 검사
-- [ ] contact/remnant handoff 추가 수정 필요 여부 판단 — visual A/B 후 결정
+- [x] physical ejecta spawn clearance 추가
+  - survivor/remnant 실제 radius + ejecta radius 기준 ray clearance 적용
+  - production small-head 회귀를 단순 x 좌표 proxy가 아닌 실제 solid/ejecta 비중첩 계약으로 수정
+- [x] `8c73abf` 전체 CI PASS
+  - `npm run check:physics`, build, stellar/strict stellar, collision watch, camera, non-stellar, small-head, merge, absorption, actual disruption, frame continuity, mobile 포함
+- [x] `8c73abf` 기준 최신-main visual artifact A/B 1차 확인
+  - small head-on solver-backed artifact에서 900 ms 파편 표현이 baseline과 거의 동일
+  - merge handoff는 악화되지는 않았으나 overlap 체감 개선도 미미
+  - 기존 non-stellar destruction artifact는 물리 solver가 아니라 hard-coded synthetic fragment fixture라 실제 ejecta 수정 검증에 부적합함을 확인
+- [x] 구조적 visual validation 문제 수정
+  - `NonStellarDestructionVisualHarness`를 `fragmentAwareEngine.stepBodies` 실제 solver fixture로 전환
+  - browser regression에서 solver source 및 mass-bearing debris 존재를 직접 검사하도록 변경
+- [x] small head-on에서 실제 ejecta가 숨겨지던 presentation 계약 수정
+  - head-on physical spark의 실제 위치/운동은 보이게 유지
+  - isotropic/no-tail 형태를 유지해 renderer-only fake streak은 만들지 않음
+  - stellar/grazing 계약은 유지
+- [ ] 현재 HEAD `1d43504` 전체 CI 재검증
+- [ ] 새 solver-backed non-stellar artifact + small-head artifact A/B 재검증
+- [ ] contact/remnant handoff 추가 수정 필요 여부 판단 — 새 A/B 후 결정
 - [ ] package version + CHANGELOG 업데이트
-- [ ] `npm run check:physics`
-  - 1차 CI: 기존 head-on spark spawn-origin 계약과 충돌하여 실패
-  - 원인: 새 physical spawn은 contact point 기준인데 기존 회귀는 COM 기준으로 방향을 계산
-  - 조치: 기준을 삭제하지 않고 새 physical contact-origin 계약으로 회귀를 갱신, 재검증 중
-- [ ] `npm run build`
-- [ ] browser visual regression / A-B 결과 확인
+- [ ] deterministic replay 보강/확인
 - [ ] 임시 tracker 삭제
-- [ ] Draft PR #105 기술 검증 완료 후 ready 전환
+- [ ] Draft PR #105 기술 검증 완료 후 ready 전환 판단
