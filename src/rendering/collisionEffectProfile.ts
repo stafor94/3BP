@@ -1,6 +1,10 @@
 import * as THREE from 'three'
 import type { BodyState, EffectVisualKind } from '../types'
-import { getBodyPresentationRadius, MIN_BODY_RENDER_RADIUS } from './bodyPresentationRadius'
+import {
+  getBodyPresentationRadius,
+  MIN_BODY_RENDER_RADIUS,
+  MIN_FRAGMENT_RENDER_RADIUS,
+} from './bodyPresentationRadius'
 
 export type CollisionEffectProfile = {
   kind: EffectVisualKind
@@ -358,6 +362,9 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const compactTail = hasGeometry
     ? clamp(rawSparkTail * (1 - compactSplash * 0.78), 0.035, 0.22)
     : rawSparkTail
+  const sparkVisualRadius = smallNonStellarSpark && headOn >= 0.86
+    ? clamp(body.radius * 0.72, MIN_FRAGMENT_RENDER_RADIUS, 0.012)
+    : clamp(body.radius * 0.62, 0.01, 0.025)
 
   return {
     kind,
@@ -366,7 +373,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     baseOpacity: 0.54 * (1 - compactSplash * 0.12),
     innerGlow: 0.5 * (1 - compactSplash * 0.18),
     outerGlow: 0.08 * (1 - compactSplash * 0.35),
-    visualRadius: clamp(body.radius * 0.62, 0.01, 0.025),
+    visualRadius: sparkVisualRadius,
     anisotropicStretch: THREE.MathUtils.lerp(compactStretch, 1, directionalSuppression),
     widthScale: THREE.MathUtils.lerp(compactWidth, 1, directionalSuppression),
     tailLength: compactTail * (1 - directionalSuppression),
