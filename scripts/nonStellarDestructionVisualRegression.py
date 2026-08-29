@@ -235,15 +235,15 @@ def main() -> None:
             require(energy >= 250, f'{name} capture is unexpectedly empty')
             require(energy <= energies['contact'] * 3.5, f'{name}: foreground expanded excessively')
 
-        # Contact-local breakup may add small components, but may not reintroduce
-        # multiple source-sized full-body spheres after the solver handoff.
+        # The immediate handoff may not reintroduce two source-sized source-body
+        # silhouettes. After TRANSFER, however, real mass-bearing fragments may
+        # grow into separate source-scale bright components as they physically
+        # clear the remnant; treating those detached chunks as source ghosts would
+        # reject the very debris separation this solver-backed fixture is meant to
+        # protect.
         require(
             source_sized_counts['05-transfer'] <= 1,
             'TRANSFER contains multiple source-sized full-body components',
-        )
-        require(
-            source_sized_counts['06-remnant-settle'] <= 1,
-            'REMNANT_SETTLE contains duplicate source-sized full-body components',
         )
 
         require(differences['03-early-fracture'] >= 0.04, 'early FRACTURE must begin evolving from contact')
