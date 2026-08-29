@@ -6,6 +6,15 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.23] - 2026-08-29
+
+### Fixed
+- non-stellar absorption staging에서 작은 피흡수체가 침강·축소를 시작한 뒤에도 renderer 전용 contact bridge가 최초 접촉 위치를 다시 적용해 화면상 피흡수체가 고정되던 문제를 수정했습니다. 흡수 전환이 시작되면 contact bridge가 위치 소유권을 넘기고 같은 pair를 다시 획득하지 않도록 했습니다.
+- headless WebGL 환경에서 정상적인 solid handoff 첫 프레임의 픽셀 실루엣 면적이 실행마다 흔들려 CI가 간헐적으로 실패하던 회귀 게이트 하한을 실제 관측 범위에 맞게 조정했습니다. absorbed silhouette 유지, 반지름·opacity·거리 수렴, centroid, blue component 및 frame-to-frame 연속성 검증은 그대로 유지합니다.
+
+### Added
+- absorption source의 radius가 축소되기 시작한 뒤 contact bridge가 해제되고 sink 위치가 계속 진행되는지 검증하는 collision presentation regression을 추가했습니다.
+
 ## [0.19.22] - 2026-08-29
 
 ### Fixed
@@ -397,7 +406,6 @@
 
 ### Added
 - 항성-항성 topology handoff 위에 넓은 white-hot contact ridge, compression plane, 양방향 plasma를 직접 렌더링하는 전용 topology mask를 추가했습니다.
-
 ### Changed
 - 잔존체가 처음 드러나는 구간까지 impact peak mask를 유지하고 render-layer geometry/opacity 회귀 검증을 추가했습니다.
 
@@ -897,7 +905,6 @@
 ### Changed
 - 충돌 관찰 시 추적 카메라를 더 가까이 당겨 충돌 천체와 장면을 크게 볼 수 있도록 조정했습니다.
 - 충돌 대상 종류의 시각적 구분을 강화했습니다.
-
 ## [0.15.8] - 2026-08-25
 
 ### Added
@@ -997,7 +1004,6 @@
 
 ### Fixed
 - 합체/충돌 후 추적 대상이 사라졌을 때 해당 계보에서 가장 큰 생존 천체를 계속 추적하도록 수정했습니다.
-
 ## [0.12.2] - 2026-08-24
 
 ### Fixed
