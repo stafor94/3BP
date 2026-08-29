@@ -3,11 +3,15 @@ import type { BodyState, Vec3 } from '../types'
 import { getBodyPresentationRadius } from './bodyPresentationRadius'
 
 const MAX_PRESENTATION_OVERLAP_RATIO = 0.14
+const PRESENTATION_RADIUS_EPSILON = 1e-9
 
 type ContactBridge = {
   aId: string
   bId: string
   separation: number
+  radiusA: number
+  radiusB: number
+  released: boolean
 }
 
 const activeContacts = new Map<string, ContactBridge>()
@@ -99,7 +103,14 @@ export function getCollisionPresentationContactBodies(bodies: BodyState[]) {
         getBodyPresentationRadius(b.radius)
       const physicalSeparation = distance(a.position, b.position)
       if (!activeContacts.has(pairKey) && physicalSeparation <= presentationContact && isApproaching(a, b)) {
-        activeContacts.set(pairKey, { aId: a.id, bId: b.id, separation: physicalSeparation })
+        activeContacts.set(pairKey, {
+          aId: a.id,
+          bId: b.id,
+          separation: physicalSeparation,
+          radiusA: a.radius,
+          radiusB: b.radius,
+          released: false,
+        })
       }
     }
   }
@@ -109,6 +120,21 @@ export function getCollisionPresentationContactBodies(bodies: BodyState[]) {
     const a = byId.get(contact.aId)
     const b = byId.get(contact.bId)
     if (!a || !b) continue
+
+    // Some collision staging paths intentionally shrink and sink a source body
+    // before topology handoff (notably extreme-mass-ratio absorption). Once that
+    // explicit presentation animation starts, it must own the render positions;
+    // keeping the contact shell active would pin the shrinking body at its first
+    // contact separation. Retain the released bridge entry only to prevent the
+    // same pair from being re-acquired on the next renderer frame.
+    if (
+      a.radius < contact.radiusA - PRESENTATION_RADIUS_EPSILON ||
+      b.radius < contact.radiusB - PRESENTATION_RADIUS_EPSILON
+    ) {
+      contact.released = true
+    }
+    if (contact.released) continue
+
     const contactDistance = getBodyPresentationRadius(a.radius) + getBodyPresentationRadius(b.radius)
     const minimumSeparation = contactDistance - Math.min(
       getBodyPresentationRadius(a.radius),
