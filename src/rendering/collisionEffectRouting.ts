@@ -1,4 +1,5 @@
 import type { BodyState } from '../types'
+import { getCollisionPresentationContactBodies } from './collisionPresentationContact'
 import { getCollisionSolidHandoffRenderBodies } from './collisionSolidHandoff'
 
 /**
@@ -14,6 +15,8 @@ import { getCollisionSolidHandoffRenderBodies } from './collisionSolidHandoff'
  */
 export function getCelestialBodyRenderBodies(bodies: BodyState[]) {
   return getCollisionSolidHandoffRenderBodies(
-    bodies.filter((body) => body.bodyType !== 'effect'),
+    getCollisionPresentationContactBodies(
+      bodies.filter((body) => body.bodyType !== 'effect'),
+    ),
   )
 }

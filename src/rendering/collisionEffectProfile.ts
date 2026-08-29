@@ -330,7 +330,14 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   // exists, but its directional spark silhouette hands visual ownership back to
   // the contact flash. This prevents two real ejecta bodies from reading as a
   // bright axial pillar while preserving oblique/grazing directional sparks.
-  const directionalSuppression = hasGeometry ? smooth01((headOn - 0.86) / 0.1) : 0
+  const smallNonStellarSpark = hasGeometry &&
+    visual?.sourceMaxRadius !== undefined &&
+    visual.sourceMaxRadius <= MIN_BODY_RENDER_RADIUS
+  const directionalSuppression = smallNonStellarSpark && headOn >= 0.86
+    ? 1
+    : hasGeometry
+      ? smooth01((headOn - 0.86) / 0.1)
+      : 0
   const visualDuration = hasGeometry
     ? Math.max(0.42, duration * (1 - compactSplash * 0.71))
     : duration

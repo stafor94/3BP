@@ -6,6 +6,19 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.22] - 2026-08-29
+
+### Fixed
+- non-stellar collision의 solid handoff 대상을 merge/absorbed outcome이 아닌 실제 2→1 lineage topology로 판정해, production에서 `disrupted`로 분류되는 작은 moon 정면 충돌도 두 source silhouette에서 remnant로 연속 전환합니다.
+- physics 위치와 분리된 renderer 전용 contact bridge를 추가해 최소 표시 반지름이 먼저 맞닿은 뒤 solver contact까지 접근하는 동안 깊은 화면상 관통을 제한하고, 그 마지막 presentation 위치를 post-solver handoff 시작점으로 전달합니다.
+- 작은 high-head-on collision의 실제 mass-bearing tiny ejecta에는 source scale metadata를 전달하고 directional spark 표현을 compact contact burst에 넘겨 ±tangent 세로 spike를 제거했습니다. ejecta의 질량·속도·방향은 변경하지 않았습니다.
+
+### Changed
+- small head-on browser fixture를 직접 result/flash/fragment를 만드는 synthetic 장면에서 실제 `fragmentAwareEngine.stepBodies()`가 classify, staging, disrupt resolve, ejecta 생성을 수행하는 production 조건으로 교체했습니다.
+
+### Added
+- 실제 영상과 같은 `0.00199 + 0.001` moon, `0.0187 + 0.0175` physical radius, `0.4717` relative speed 조건에서 disrupt 2→1 topology, presentation contact envelope, source ghost의 physics 격리, spark ownership, mass/momentum 보존을 검증하는 regression을 추가했습니다.
+
 ## [0.19.21] - 2026-08-29
 
 ### Fixed

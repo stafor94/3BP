@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { BodyState, Vec3 } from '../types'
 import { getBodyPresentationRadius } from './bodyPresentationRadius'
+import { resetCollisionPresentationContactState } from './collisionPresentationContact'
 import {
   COLLISION_REMNANT_FORMATION_START_MS,
   findCollisionVisualTransitions,
@@ -143,11 +144,10 @@ function getAbsorbedOpacity(progress: number) {
   return 1 - fadeProgress
 }
 
-function groupMergeTransitions(transitions: CollisionVisualTransition[]) {
+function groupTopologyTransitions(transitions: CollisionVisualTransition[]) {
   const grouped = new Map<string, CollisionVisualTransition[]>()
   transitions.forEach((transition) => {
     if (!transition.resultId) return
-    if (transition.outcome !== 'merged-survivor' && transition.outcome !== 'absorbed') return
     const entries = grouped.get(transition.resultId) ?? []
     entries.push(transition)
     grouped.set(transition.resultId, entries)
@@ -157,15 +157,21 @@ function groupMergeTransitions(transitions: CollisionVisualTransition[]) {
 
 function beginHandoffs(previous: BodyState[], current: BodyState[], now: number) {
   const currentById = new Map(current.map((body) => [body.id, body]))
-  const grouped = groupMergeTransitions(findCollisionVisualTransitions(previous, current))
+  const grouped = groupTopologyTransitions(findCollisionVisualTransitions(previous, current))
 
   grouped.forEach((transitions, resultId) => {
     if (activeHandoffs.has(resultId)) return
-    const survivorTransition = transitions.find((transition) => transition.outcome === 'merged-survivor')
-    const absorbedTransitions = transitions.filter((transition) => transition.outcome === 'absorbed')
     const result = currentById.get(resultId)
-    if (!survivorTransition || absorbedTransitions.length === 0 || !result) return
-    if (result.bodyType === 'star') return
+    const uniqueTransitions = [...new Map(
+      transitions.map((transition) => [transition.source.id, transition]),
+    ).values()]
+    if (uniqueTransitions.length < 2 || !result) return
+    if (result.bodyType === 'star' || result.bodyType === 'fragment' || result.bodyType === 'effect') return
+    const survivorTransition = uniqueTransitions.slice().sort((a, b) =>
+      b.source.mass - a.source.mass || b.source.radius - a.source.radius ||
+      a.source.id.localeCompare(b.source.id)
+    )[0]
+    const absorbedTransitions = uniqueTransitions.filter((transition) => transition !== survivorTransition)
 
     absorbedTransitions.forEach((transition) => {
       retiredPresentationSeeds.delete(seedKey(bodySeed(transition.source.id)))
@@ -445,6 +451,7 @@ export function resetCollisionSolidHandoffState() {
   activeHandoffs.clear()
   retiredPresentationSeeds.clear()
   previousBodies = null
+  resetCollisionPresentationContactState()
   if (typeof window !== 'undefined') window.__collisionSolidHandoffMetrics = {}
 }
 
