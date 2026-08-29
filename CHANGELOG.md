@@ -6,6 +6,21 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.24] - 2026-08-29
+
+### Fixed
+- non-stellar collision의 transient `fragment` debris가 물리 ejecta 궤적만 따라가며 충돌점 또는 잔존 천체 표면 근처에서 얼룩처럼 붙어 보이던 현상을 완화했습니다. renderer가 같은 collision serial의 contact flash에서 접촉점, collision normal, 충돌 에너지 힌트를 읽어 짧은 outward burst를 추가합니다.
+
+### Changed
+- 파편 presentation 방향은 collision normal의 양쪽 반구를 기본으로 하고 fragment id 기반의 작은 angular variation을 더하며, burst 거리/지속시간과 표시 크기에 결정론적 편차를 적용합니다. 높은 에너지는 조금 더 멀고 빠르게 퍼지고 낮은 에너지는 짧고 완만하게 이동합니다.
+- outward burst는 초반 약 `0.26~0.58` simulation seconds 안에 ease-out으로 끝나 이후에는 기존 physical fragment trajectory를 일정 오프셋으로 따라가며, 기존 fragment lifetime/fade 입력은 유지합니다.
+
+### Added
+- collision effect routing regression에 양쪽 normal 방향 방사, angular/size variation, 에너지별 burst 차이, deterministic replay, 원본 fragment의 position/velocity/mass/radius 불변, lifecycle 불변 검증을 추가했습니다.
+
+### Unchanged
+- collision 판정/penetration/contact threshold, absorb/merge/disrupt/hitRun 결정, physical fragment spawn/velocity/direction/momentum, remnant 운동량 보존, collision result UI, fragment lifetime/fade 정책은 변경하지 않았습니다.
+
 ## [0.19.23] - 2026-08-29
 
 ### Fixed
