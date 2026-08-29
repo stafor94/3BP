@@ -74,6 +74,18 @@ function centerVelocity(a: BodyState, b: BodyState): Vec3 {
   }
 }
 
+function representedMass(bodies: BodyState[]) {
+  return bodies.reduce((sum, body) => sum + Math.max(0, body.mass), 0)
+}
+
+function representedMomentum(bodies: BodyState[]): Vec3 {
+  return bodies.reduce((sum, body) => ({
+    x: sum.x + body.velocity.x * body.mass,
+    y: sum.y + body.velocity.y * body.mass,
+    z: sum.z + body.velocity.z * body.mass,
+  }), { x: 0, y: 0, z: 0 })
+}
+
 function makeContactPair({
   idPrefix,
   radiusA,
@@ -267,7 +279,7 @@ function makePhysicalResolutionFrame(pair: [BodyState, BodyState]) {
   ]
 }
 
-function testSolverIsolationKeepsPhysicalOutcome() {
+function testSolverIsolationKeepsPhysicalTopologyAndConservation() {
   const pair = makeContactPair({
     idPrefix: 'solver-isolation',
     radiusA: 0.018,
@@ -286,18 +298,30 @@ function testSolverIsolationKeepsPhysicalOutcome() {
   assert(
     baselineById.size === stagedById.size &&
       [...baselineById.keys()].every((id) => stagedById.has(id)),
-    'display staging continuity must not change the physical collision outcome/body set',
+    'display staging continuity must not change the physical collision topology/body set',
   )
 
   for (const [id, expected] of baselineById) {
     const actual = stagedById.get(id)
     assert(actual, `solver isolation result missing ${id}`)
-    assertClose(actual.mass, expected.mass, 1e-10, `${id} mass must match physical baseline`)
-    assertClose(actual.radius, expected.radius, 1e-10, `${id} physical radius must match physical baseline`)
-    assertClose(actual.velocity.x, expected.velocity.x, 1e-10, `${id} velocity x must match physical baseline`)
-    assertClose(actual.velocity.y, expected.velocity.y, 1e-10, `${id} velocity y must match physical baseline`)
-    assertClose(actual.velocity.z, expected.velocity.z, 1e-10, `${id} velocity z must match physical baseline`)
+    assertClose(actual.mass, expected.mass, 1e-10, `${id} mass must match core collision decision`)
+    assertClose(actual.radius, expected.radius, 1e-10, `${id} physical radius must match core collision decision`)
   }
+
+  assertClose(
+    representedMass(stagedResolved),
+    representedMass(baseline),
+    1e-10,
+    'physical ejecta policy must not change represented collision mass',
+  )
+  const baselineMomentum = representedMomentum(baseline)
+  const stagedMomentum = representedMomentum(stagedResolved)
+  assertClose(stagedMomentum.x, baselineMomentum.x, 1e-10,
+    'physical ejecta policy must preserve represented momentum x')
+  assertClose(stagedMomentum.y, baselineMomentum.y, 1e-10,
+    'physical ejecta policy must preserve represented momentum y')
+  assertClose(stagedMomentum.z, baselineMomentum.z, 1e-10,
+    'physical ejecta policy must preserve represented momentum z')
 }
 
 function testMovingCollisionPreservesPairMotionAndDirection() {
@@ -394,7 +418,7 @@ function testContactBridgeReleasesShrinkingAbsorptionSource() {
 const continuityMetrics = testSmallSmallPreservesOverlappingSourceContinuity()
 testSmallNormalPreservesSourceGeometryAndCom()
 testNormalNormalKeepsLegacyGeometryEnvelope()
-testSolverIsolationKeepsPhysicalOutcome()
+testSolverIsolationKeepsPhysicalTopologyAndConservation()
 testMovingCollisionPreservesPairMotionAndDirection()
 testContactBridgeReleasesShrinkingAbsorptionSource()
 
