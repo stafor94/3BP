@@ -79,11 +79,18 @@ function representedMomentum(bodies: BodyState[]) {
   }), { x: 0, y: 0, z: 0 })
 }
 
+function collisionIdPattern(id: string) {
+  // Collision serials exist only to keep simultaneous runtime entities unique.
+  // Replay determinism concerns the stable lineage/type/index pattern plus exact
+  // physical state, not the process-global serial number itself.
+  return id.replace(/(flash|shock|afterglow|plasma|fx|frag)\d+(?=-|$)/g, '$1#')
+}
+
 function snapshot(frame: BodyState[]) {
   return frame
     .filter((body) => body.mass > 0)
     .map((body) => ({
-      id: body.id,
+      idPattern: collisionIdPattern(body.id),
       bodyType: body.bodyType,
       name: body.name,
       mass: body.mass,
@@ -91,7 +98,7 @@ function snapshot(frame: BodyState[]) {
       position: { ...body.position },
       velocity: { ...body.velocity },
     }))
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => a.idPattern.localeCompare(b.idPattern))
 }
 
 const initial = makeFixture()
@@ -104,7 +111,7 @@ const secondSnapshot = snapshot(second)
 
 assert(
   JSON.stringify(firstSnapshot) === JSON.stringify(secondSnapshot),
-  'identical initial states must resolve to exactly identical ids, masses, positions, and velocities',
+  'identical initial states must resolve to identical fragment count, id patterns, masses, positions, and velocities',
 )
 
 const solids = first.filter((body) => body.bodyType !== 'effect' && body.bodyType !== 'fragment')
