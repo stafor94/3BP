@@ -1,5 +1,9 @@
 import { stepBodies as stepCoreBodies } from '../src/physics/engine'
 import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
+import {
+  getCollisionPresentationContactBodies,
+  resetCollisionPresentationContactState,
+} from '../src/rendering/collisionPresentationContact'
 import type { BodyState, Vec3 } from '../src/types'
 
 const MIN_RENDER_RADIUS = 0.025
@@ -332,13 +336,69 @@ function testMovingCollisionPreservesPairMotionAndDirection() {
   )
 }
 
+function testContactBridgeReleasesShrinkingAbsorptionSource() {
+  resetCollisionPresentationContactState()
+  const primary: BodyState = {
+    id: 'bridge-absorption-primary',
+    name: 'bridge absorption primary',
+    color: '#8ca0b4',
+    mass: 0.35,
+    radius: 0.0688,
+    position: { x: 0, y: 0, z: 0 },
+    velocity: { x: 0, y: 0, z: 0 },
+    bodyType: 'planet',
+  }
+  const impactor: BodyState = {
+    id: 'bridge-absorption-impactor',
+    name: 'bridge absorption impactor',
+    color: '#b49b83',
+    mass: 0.0016,
+    radius: 0.0187,
+    position: { x: 0.0874, y: 0, z: 0 },
+    velocity: { x: -0.2, y: 0, z: 0 },
+    bodyType: 'moon',
+  }
+
+  const contactFrame = getCollisionPresentationContactBodies([primary, impactor])
+  const contactPair = getPair(contactFrame, primary.id, impactor.id)
+  const contactSeparation = pairSeparation(contactPair.a, contactPair.b)
+  assertClose(
+    contactSeparation,
+    pairSeparation(primary, impactor),
+    1e-12,
+    'contact bridge must preserve an already-overlapping first presentation frame',
+  )
+
+  const shrinkingImpactor: BodyState = {
+    ...impactor,
+    radius: 0.009,
+    position: { x: 0.055, y: 0, z: 0 },
+  }
+  const shrinkingFrame = getCollisionPresentationContactBodies([primary, shrinkingImpactor])
+  const shrinkingPair = getPair(shrinkingFrame, primary.id, impactor.id)
+  const shrinkingSeparation = pairSeparation(shrinkingPair.a, shrinkingPair.b)
+
+  assertClose(
+    shrinkingSeparation,
+    pairSeparation(primary, shrinkingImpactor),
+    1e-12,
+    'contact bridge must release explicit shrinking/sinking absorption geometry',
+  )
+  assert(
+    shrinkingSeparation < contactSeparation * 0.8,
+    'released absorption presentation must continue sinking instead of staying pinned at first contact',
+  )
+  resetCollisionPresentationContactState()
+}
+
 const continuityMetrics = testSmallSmallPreservesOverlappingSourceContinuity()
 testSmallNormalPreservesSourceGeometryAndCom()
 testNormalNormalKeepsLegacyGeometryEnvelope()
 testSolverIsolationKeepsPhysicalOutcome()
 testMovingCollisionPreservesPairMotionAndDirection()
+testContactBridgeReleasesShrinkingAbsorptionSource()
 
-console.log('collision presentation radius regression checks passed (5)')
+console.log('collision presentation radius regression checks passed (6)')
 console.log(JSON.stringify({
   smallSmallSourceSeparation: continuityMetrics.sourceSeparation,
   smallSmallFirstStagingSeparation: continuityMetrics.firstSeparation,
