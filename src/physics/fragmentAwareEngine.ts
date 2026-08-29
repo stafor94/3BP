@@ -476,9 +476,9 @@ function getEjectaClearanceDistance(
   survivors: BodyState[],
 ) {
   // The solver emits debris at topology handoff after the staged contact bridge.
-  // Give the actual mass-bearing ejecta enough physical separation to read as
-  // outgoing material immediately, while still deriving the clearance entirely
-  // from source/survivor geometry rather than a renderer-only offset.
+  // Keep actual mass-bearing ejecta outside both the physical survivor and the
+  // non-stellar visibility floor, so tiny-body debris cannot remain physically
+  // separated yet still read as a renderer-glued surface artifact.
   let distance = sourceRadius * 0.5
   const margin = sourceRadius * 0.18
 
@@ -499,7 +499,9 @@ function getEjectaClearanceDistance(
       0,
       centerDistanceSquared - projected * projected,
     )
-    const clearanceRadius = survivor.radius + ejectaRadius + margin
+    const visibleSurvivorRadius = getBodyPresentationRadius(survivor.radius)
+    const clearanceRadius = Math.max(survivor.radius, visibleSurvivorRadius) +
+      ejectaRadius + margin
     const clearanceRadiusSquared = clearanceRadius * clearanceRadius
     if (perpendicularSquared >= clearanceRadiusSquared) return
 
