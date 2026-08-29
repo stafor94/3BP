@@ -1,5 +1,5 @@
 import type { BodyState, BodyType, Vec3 } from '../types'
-import { getCollisionContactDistance } from './collisionContact'
+import { getCollisionContactDistance, getLinearCollisionContactFraction } from './collisionContact'
 
 const G = 1
 const SOFTENING_SQUARED = 1e-6
@@ -57,30 +57,6 @@ function accelerations(bodies: BodyState[]): Vec3[] {
   })
 }
 
-function contactFraction(relativeStart: Vec3, relativeEnd: Vec3, contactDistance: number): number | null {
-  const contactDistanceSquared = contactDistance * contactDistance
-  const startDistanceSquared = magnitudeSquared(relativeStart)
-
-  if (startDistanceSquared <= contactDistanceSquared) return null
-
-  const travel = sub(relativeEnd, relativeStart)
-  const a = magnitudeSquared(travel)
-  if (a <= 1e-18) return null
-
-  const b = 2 * dot(relativeStart, travel)
-  const c = startDistanceSquared - contactDistanceSquared
-  const discriminant = b * b - 4 * a * c
-  if (discriminant < 0) return null
-
-  const root = Math.sqrt(discriminant)
-  const first = (-b - root) / (2 * a)
-  const second = (-b + root) / (2 * a)
-
-  if (first >= 0 && first <= 1) return first
-  if (second >= 0 && second <= 1) return second
-  return null
-}
-
 function interpolate(a: Vec3, b: Vec3, t: number): Vec3 {
   return add(a, scale(sub(b, a), t))
 }
@@ -104,7 +80,7 @@ function findCollisionDuringStep(
 
       const relativeStart = sub(b.position, a.position)
       const relativeEnd = sub(next[j].position, next[i].position)
-      const fraction = contactFraction(relativeStart, relativeEnd, getCollisionContactDistance(a, b))
+      const fraction = getLinearCollisionContactFraction(relativeStart, relativeEnd, getCollisionContactDistance(a, b))
       if (fraction === null || fraction >= earliestFraction) continue
 
       const positionA = interpolate(a.position, next[i].position, fraction)
