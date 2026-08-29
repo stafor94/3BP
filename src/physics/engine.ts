@@ -1186,6 +1186,7 @@ function makeEjecta(
             temperatureBias: speedEnergy,
             headOn: geometry.headOn,
             grazing: geometry.grazing,
+            sourceMaxRadius: Math.max(a.radius, b.radius),
           }
         : undefined,
     }

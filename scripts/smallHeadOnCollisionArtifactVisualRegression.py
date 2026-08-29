@@ -278,6 +278,33 @@ def main() -> None:
         capture_canvas(driver, '01-contact')
 
         trigger(driver)
+        production_state = driver.execute_script(
+            """
+            const root = document.querySelector('[data-visual-regression="small-head-on-collision-artifacts"]');
+            const metrics = Object.values(window.__collisionSolidHandoffMetrics || {});
+            return {
+              physicsSource: root?.dataset.physicsSource || '',
+              physicalSourceCount: Number(root?.dataset.physicalSourceCount || -1),
+              handoffCount: metrics.length,
+              overrideApplied: metrics.some((metric) => metric.overrideApplied === true),
+              absorbedCount: metrics.reduce((count, metric) => count + (metric.absorbed?.length || 0), 0),
+            };
+            """
+        )
+        require(
+            production_state['physicsSource'] == 'fragmentAwareEngine.stepBodies',
+            'artifact harness must execute the production fragment-aware collision path',
+        )
+        require(
+            production_state['physicalSourceCount'] == 0,
+            'first post-solver frame must remove both source bodies from physics immediately',
+        )
+        require(
+            production_state['handoffCount'] >= 1
+            and production_state['overrideApplied']
+            and production_state['absorbedCount'] >= 1,
+            f'disrupt topology must apply two-solid renderer handoff: {production_state}',
+        )
         started_at = time.monotonic()
         captures: dict[str, Path] = {}
         for name, target in CAPTURES:
