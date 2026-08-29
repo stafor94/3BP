@@ -142,8 +142,8 @@ const sparks = resolved.filter((body) => body.bodyType === 'effect' && body.name
 assert(sparks.length > 0, 'production path must expose the real tiny ejecta as collision sparks')
 assert(sparks.every((spark) => spark.effectVisual?.sourceMaxRadius === 0.0187),
   'production spark must carry source scale for renderer-only ownership routing')
-assert(sparks.every((spark) => getCollisionEffectProfile(spark).fadeAlpha === 0),
-  'small high-head-on tangent sparks must hand presentation ownership to the compact contact burst')
+assert(sparks.every((spark) => getCollisionEffectProfile(spark).fadeAlpha >= 0.6),
+  'small high-head-on physical ejecta must remain visible at their actual solver positions')
 
 const physicalEjectaDirections = sparks.map((spark) => {
   const relative = {
