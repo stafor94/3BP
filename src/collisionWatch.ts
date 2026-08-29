@@ -1,11 +1,22 @@
 import { getEffectiveBodyType } from './bodyTypes'
 import { bodyCarriesCollisionLineage } from './collisionIdentity'
 import { getCollisionContactDistance } from './physics/collisionContact'
-import type { BodyState } from './types'
+import type { BodyState, BodyType, StellarCollisionOutcome } from './types'
 
 const CONTACT_EPSILON = 1e-8
 const COLLISION_RESULT_AGE_EPSILON = 1e-9
 const STELLAR_IMPACT_PEAK_COMPRESSION_RATIO = 0.075
+
+/**
+ * UI-facing projection of collision outcomes that already exist in the engine.
+ * `mergeOrAbsorb` is intentionally a presentation bucket because the persisted
+ * post-collision topology does not distinguish those two single-remnant modes.
+ */
+export type CollisionWatchOutcome =
+  | StellarCollisionOutcome
+  | 'disrupt'
+  | 'hitRun'
+  | 'mergeOrAbsorb'
 
 export function isBodyDescendedFrom(bodyId: string, sourceId: string) {
   const bodyParts = new Set(bodyId.split('+'))
@@ -83,6 +94,15 @@ function hasCollisionFlashForPair(
   )
 }
 
+function hasCollisionFlashForCompositeRemnant(bodies: BodyState[], remnantId: string) {
+  const prefix = `${remnantId}+flash`
+  return bodies.some((body) =>
+    body.bodyType === 'effect' &&
+    body.name === 'Collision flash' &&
+    body.id.startsWith(prefix),
+  )
+}
+
 export function hasTargetPairCollisionResult(
   bodies: BodyState[],
   sourceAId: string,
@@ -97,6 +117,38 @@ export function hasTargetPairCollisionResult(
   return (descendantA.collisionCooldown ?? 0) > 0 &&
     (descendantB.collisionCooldown ?? 0) > 0 &&
     hasCollisionFlashForPair(bodies, descendantA.id, descendantB.id)
+}
+
+export function resolveCollisionWatchOutcome(
+  bodies: BodyState[],
+  sourceAId: string,
+  sourceBId: string,
+  sourceAType: BodyType,
+  sourceBType: BodyType,
+): CollisionWatchOutcome | null {
+  if (!hasTargetPairCollisionResult(bodies, sourceAId, sourceBId)) return null
+
+  const descendantA = resolveBodyDescendant(bodies, sourceAId)
+  const descendantB = resolveBodyDescendant(bodies, sourceBId)
+  if (!descendantA || !descendantB) return null
+
+  if (sourceAType === 'star' && sourceBType === 'star') {
+    const stellarOutcome = descendantA.stellarCollisionOutcome ?? descendantB.stellarCollisionOutcome
+    if (stellarOutcome) return stellarOutcome
+  }
+
+  if (descendantA.id === descendantB.id) {
+    // Non-stellar `disrupt` creates a composite remnant with the same immediate
+    // pair id used by its collision flash. `merge` / `absorb` preserve one input
+    // identity instead, so the flash has an extra peer id before `+flash`.
+    // This keeps the UI projection correct even if either source already carries
+    // lineage from an earlier third-party collision.
+    return hasCollisionFlashForCompositeRemnant(bodies, descendantA.id)
+      ? 'disrupt'
+      : 'mergeOrAbsorb'
+  }
+
+  return 'hitRun'
 }
 
 export function didCollisionWatchTargetImpact(
