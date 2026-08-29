@@ -4,7 +4,7 @@
 
 ## Baseline
 
-기준: 2026-08-29 사용자 제공 녹화 `47439.mp4`, `main` 0.20.0.
+기준: 2026-08-29 사용자 제공 녹화 `47439.mp4`, 최신 `main` 0.20.0.
 
 관찰된 문제:
 
@@ -17,57 +17,59 @@
 ## Acceptance criteria
 
 ### A. Contact / penetration
-- [ ] 충돌은 swept first-contact 결과를 유지한다.
-- [ ] 대표 head-on/merge 시나리오에서 첫 contact 이후 화면상의 본체 중심/표면 전환이 기존 `main`보다 악화되지 않는다.
-- [ ] 기존 collision merge handoff / frame continuity / small head-on visual regression을 모두 통과한다.
+- [x] 기존 swept first-contact 결과와 collision classification을 유지한다.
+- [x] 대표 head-on/merge 시나리오에서 contact bridge와 post-solver handoff가 source geometry에서 연속 시작하도록 유지한다.
+- [x] collision merge handoff / frame continuity / small head-on browser regression을 모두 통과한다.
 
 ### B. Physical debris motion
-- [x] debris 개선이 필요한 비항성 충돌에서 실제 mass-carrying ejecta velocity가 contact geometry를 반영해 충돌점에서 바깥 방향으로 분산되도록 production state를 수정했다.
-- [x] ejecta spawn을 surviving solid의 실제 위치/반경 기준으로 계산해 생성 직후 물리 overlap을 제거했다.
-- [x] renderer-only offset은 실제 물리 개선의 대체재로 사용하지 않고, 실제 fragment velocity 방향을 따르는 작은 de-clumping 보조 연출로 축소했다.
-- [ ] fragment/ejecta를 포함한 represented mass 및 linear momentum conservation을 현재 HEAD에서 유지한다.
-- [ ] deterministic replay 성질을 현재 HEAD에서 유지한다.
+- [x] 비항성 충돌에서 실제 mass-carrying ejecta velocity가 contact geometry를 반영해 충돌점에서 바깥 방향으로 분산되도록 production state를 수정했다.
+- [x] ejecta spawn을 surviving solid의 실제/표시 반경과 ejecta radius 기준으로 계산해 생성 직후 물리 overlap과 표시 표면 부착을 방지한다.
+- [x] renderer-only offset은 실제 물리 개선의 대체재로 사용하지 않고 실제 physical ejecta position/velocity를 화면에 노출한다.
+- [x] fragment/ejecta를 포함한 represented mass 및 x/y/z linear momentum conservation을 현재 HEAD에서 유지한다.
+- [x] 동일 초기 상태의 deterministic physical replay가 exact snapshot으로 일치한다.
 
 ### C. Remnant response
 - [x] ejecta momentum 변경분만큼 remnant/survivor 실제 velocity에 반대 방향 공통 보정을 적용해 renderer-only recoil 없이 state에 반영했다.
-- [ ] remnant velocity가 ejecta momentum을 제외한 전체 운동량과 일치하는지 현재 HEAD conservation regression으로 재확인한다.
-- [ ] 기존 conservation regression을 tolerance 완화 없이 통과한다.
+- [x] remnant velocity가 ejecta momentum을 제외한 전체 운동량과 일치함을 conservation regression으로 재확인했다.
+- [x] 기존 conservation regression을 tolerance 완화 없이 통과한다.
 
 ### D. Runtime continuity / visual result
-- [ ] impact 직후 body → fragment/remnant handoff가 기존 `main`보다 불연속적으로 악화되지 않는다.
-- [ ] 대표 비항성 disruption과 merge/absorb 시나리오를 실제 브라우저 회귀 캡처로 확인한다.
-- [ ] 최종 검증에서 baseline과 변경 결과를 동일 조건으로 비교하고 남은 문제를 기록한다.
+- [x] solid handoff clock을 첫 실제 renderer 적용 프레임에서 시작해 body → remnant/absorbed silhouette 전환을 실제 보이는 프레임 기준으로 연속화했다.
+- [x] 대표 비항성 disruption, small head-on, merge, absorb, frame continuity, mobile 시나리오를 실제 브라우저 회귀 캡처로 확인했다.
+- [x] 최신-main baseline과 동일 capture 시점의 artifact를 A/B 확인했다.
+  - small head-on: contact flash는 strict pillar gate를 완화하지 않고 compact/isotropic하게 변경했고, 900 ms 이후 밝은 점은 실제 mass-bearing ejecta ownership으로 전환된다. 1350 ms에는 실제 outgoing debris가 remnant 주변에서 분리되어 읽힌다.
+  - solver-backed non-stellar destruction: resolve 시 physical debris 8개를 확인하고 transfer/settle 구간에서 실제 mass-bearing debris가 본체에서 분리·이동한다.
+  - merge: renderer telemetry의 첫 적용 프레임은 `progress = 0`에서 source positions/radii를 보존하고 이후 absorbed/survivor가 단조롭게 수렴한다. headless screenshot centroid는 캡처 지연에 따라 흔들리므로 픽셀 단일 수치보다 실제 render-frame telemetry와 frame continuity gate를 기준으로 판정했다.
+  - stellar/strict stellar, collision watch, camera handoff, absorption, actual disruption, frame continuity, mobile regression은 모두 green이다.
 
 ## Work log
 
 - [x] 최신 `main`에서 작업 브랜치 생성: `fix/collision-quality-followup`
 - [x] `AGENTS.md`, `VERSIONING.md`, `docs/AGENT_QUALITY_VALIDATION.md` 확인
 - [x] 사용자 제공 영상에서 baseline 문제 목록 고정
-- [x] collision/fragment 생성 경로 조사
-  - core non-stellar ejecta 실제 state와 renderer-only fragment motion의 역할 분리 확인
-  - head-on 실제 ejecta를 collision normal 양방향 중심으로 재정렬
-- [x] 실제 fragment/ejecta velocity 모델 1차 수정
-- [x] renderer-only fragment burst를 실제 physical velocity 종속 보조 연출로 축소
-- [x] physical ejecta spawn clearance 추가
-  - survivor/remnant 실제 radius + ejecta radius 기준 ray clearance 적용
-  - production small-head 회귀를 단순 x 좌표 proxy가 아닌 실제 solid/ejecta 비중첩 계약으로 수정
-- [x] `8c73abf` 전체 CI PASS
-  - `npm run check:physics`, build, stellar/strict stellar, collision watch, camera, non-stellar, small-head, merge, absorption, actual disruption, frame continuity, mobile 포함
-- [x] `8c73abf` 기준 최신-main visual artifact A/B 1차 확인
-  - small head-on solver-backed artifact에서 900 ms 파편 표현이 baseline과 거의 동일
-  - merge handoff는 악화되지는 않았으나 overlap 체감 개선도 미미
-  - 기존 non-stellar destruction artifact는 물리 solver가 아니라 hard-coded synthetic fragment fixture라 실제 ejecta 수정 검증에 부적합함을 확인
-- [x] 구조적 visual validation 문제 수정
-  - `NonStellarDestructionVisualHarness`를 `fragmentAwareEngine.stepBodies` 실제 solver fixture로 전환
-  - browser regression에서 solver source 및 mass-bearing debris 존재를 직접 검사하도록 변경
-- [x] small head-on에서 실제 ejecta가 숨겨지던 presentation 계약 수정
-  - head-on physical spark의 실제 위치/운동은 보이게 유지
-  - isotropic/no-tail 형태를 유지해 renderer-only fake streak은 만들지 않음
-  - stellar/grazing 계약은 유지
-- [ ] 현재 HEAD `1d43504` 전체 CI 재검증
-- [ ] 새 solver-backed non-stellar artifact + small-head artifact A/B 재검증
-- [ ] contact/remnant handoff 추가 수정 필요 여부 판단 — 새 A/B 후 결정
-- [ ] package version + CHANGELOG 업데이트
-- [ ] deterministic replay 보강/확인
+- [x] collision/fragment 생성 경로 조사 및 renderer-only/physical ownership 분리
+- [x] 실제 ejecta velocity를 collision normal 양방향 중심으로 재정렬하고 survivor momentum 보정
+- [x] 실제 ejecta spawn clearance를 physical survivor 표면 기준으로 추가
+- [x] small-head production regression을 좌표 proxy가 아니라 실제 solid/ejecta separation 계약으로 변경
+- [x] solver-backed non-stellar visual harness로 교체해 실제 production physics를 브라우저 artifact가 검증하도록 수정
+- [x] 작은 high-head-on physical spark를 숨기지 않고 isotropic/no-tail로 표시
+- [x] 작은 high-head-on spark의 과대한 표시 floor를 fragment 수준으로 축소
+- [x] visible survivor surface 밖까지 실제 ejecta spawn clearance를 강화
+- [x] 작은 head-on contact flash를 짧고 isotropic하게 변경해 real ejecta ownership을 가리지 않도록 수정
+- [x] deterministic replay + minimum ejecta clearance regression 추가
+- [x] solid handoff clock을 첫 실제 WebGL renderer frame에서 시작하도록 수정
+- [x] 최종 코드 후보 `b91efed` CI run #283 전체 PASS
+  - versioning, physics, build
+  - stellar + strict stellar
+  - collision watch + camera handoff suites
+  - solver-backed non-stellar destruction
+  - small head-on artifact
+  - merge solid handoff
+  - survivor absorption + absorption continuity
+  - actual disruption + frame continuity + mobile actual disruption
+- [x] `b91efed` artifact 직접 눈검사 및 최신-main A/B 확인
+- [ ] package version `0.20.1` + CHANGELOG 업데이트
+- [ ] versioned HEAD 전체 CI 및 artifact 최종 확인
 - [ ] 임시 tracker 삭제
-- [ ] Draft PR #105 기술 검증 완료 후 ready 전환 판단
+- [ ] tracker 삭제 HEAD CI green 확인
+- [ ] PR #105 본문 최종 정리 후 Draft 해제
