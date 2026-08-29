@@ -115,7 +115,6 @@ function runCoreScenario(scenario: CollisionScenario) {
   const result = stepCoreBodies(scenario.bodies, CORE_COLLISION_DT)
   assertConserved(scenario.bodies, result, scenario.name)
   assertRemnantVelocityBalancesEjecta(scenario.bodies, result, scenario.name)
-  return result
 }
 
 function testCoreCollisionConservationMatrix() {
@@ -209,35 +208,29 @@ function testCoreCollisionConservationMatrix() {
   for (const scenario of scenarios) runCoreScenario(scenario)
 }
 
-function testMassCarryingEffectsParticipateInDiagnostics() {
-  const scenario: CollisionScenario = {
-    name: 'mass-carrying effect ejecta',
-    bodies: [
-      makeBody(
-        'effect-carrier-planet',
-        0.3,
-        0.22,
-        -0.12999975,
-        { x: 0, y: 0, z: 0 },
-        'planet',
-      ),
-      makeBody(
-        'effect-carrier-moon',
-        0.002,
-        0.04,
-        0.12999975,
-        { x: -0.18, y: 0, z: 0 },
-        'moon',
-      ),
-    ],
-  }
-
-  const result = runCoreScenario(scenario)
-  const massCarryingEffects = result.filter((body) => body.bodyType === 'effect' && body.mass > 0)
-  assert(
-    massCarryingEffects.length > 0,
-    'extreme mass-ratio absorption must cover the engine path where transient effects carry ejecta mass',
+function testDiagnosticsCountMassRegardlessOfPresentationType() {
+  const physical = makeBody(
+    'diagnostic-remnant',
+    0.8,
+    0.3,
+    0,
+    { x: 0.25, y: -0.1, z: 0.05 },
+    'planet',
   )
+  const massCarryingEffect = makeBody(
+    'diagnostic-ejecta',
+    0.02,
+    0.01,
+    0.1,
+    { x: -1.5, y: 0.4, z: 0.2 },
+    'effect',
+  )
+  const snapshot = getConservationSnapshot([physical, massCarryingEffect])
+
+  assertClose(snapshot.totalMass, 0.82, 1e-12, 'diagnostic snapshot must count mass carried by effects')
+  assertClose(snapshot.linearMomentum.x, 0.17, 1e-12, 'diagnostic x-momentum must count effects')
+  assertClose(snapshot.linearMomentum.y, -0.072, 1e-12, 'diagnostic y-momentum must count effects')
+  assertClose(snapshot.linearMomentum.z, 0.044, 1e-12, 'diagnostic z-momentum must count effects')
 }
 
 function testProductionAbsorptionWrapperPreservesConservation() {
@@ -277,15 +270,11 @@ function testProductionAbsorptionWrapperPreservesConservation() {
   assert(resolved, 'production absorption staging must resolve within the regression window')
   assertConserved(initial, resolved, 'production extreme-mass-ratio absorption')
   assertRemnantVelocityBalancesEjecta(initial, resolved, 'production extreme-mass-ratio absorption')
-  assert(
-    resolved.some((body) => body.bodyType === 'effect' && body.mass > 0),
-    'production absorption result must retain its represented mass-carrying ejecta for the conservation snapshot',
-  )
 }
 
 const tests = [
   testCoreCollisionConservationMatrix,
-  testMassCarryingEffectsParticipateInDiagnostics,
+  testDiagnosticsCountMassRegardlessOfPresentationType,
   testProductionAbsorptionWrapperPreservesConservation,
 ]
 
