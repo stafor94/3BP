@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import base64
 import json
 import math
 import os
@@ -62,15 +61,6 @@ def capture_canvas(driver: webdriver.Chrome, name: str) -> Path:
     return path
 
 
-def write_data_url_png(data_url: str, name: str) -> Path:
-    prefix = 'data:image/png;base64,'
-    require(data_url.startswith(prefix), f'first production render frame did not provide a PNG data URL for {name}')
-    path = OUTPUT_DIR / f'{name}.png'
-    path.write_bytes(base64.b64decode(data_url[len(prefix):]))
-    require(path.exists() and path.stat().st_size > 0, f'failed to persist {name}')
-    return path
-
-
 def root_diagnostics(driver: webdriver.Chrome) -> dict[str, float | int | str]:
     root = driver.find_element(By.CSS_SELECTOR, '[data-visual-regression="collision-merge-handoff"]')
     return {
@@ -120,7 +110,6 @@ def install_handoff_frame_collector(driver: webdriver.Chrome) -> None:
     driver.execute_script(
         """
         window.__collisionSolidHandoffFrameHistory = [];
-        window.__collisionSolidHandoffFirstFramePng = '';
         window.__collisionSolidHandoffCollectorLastSequence = 0;
         window.__collisionSolidHandoffCollectorActive = true;
 
@@ -131,15 +120,8 @@ def install_handoff_frame_collector(driver: webdriver.Chrome) -> None:
           if (metric) {
             const sequence = Number(metric.renderFrameSequence || 0);
             if (sequence > 0 && sequence !== window.__collisionSolidHandoffCollectorLastSequence) {
-              const snapshot = JSON.parse(JSON.stringify(metric));
-              window.__collisionSolidHandoffFrameHistory.push(snapshot);
+              window.__collisionSolidHandoffFrameHistory.push(JSON.parse(JSON.stringify(metric)));
               window.__collisionSolidHandoffCollectorLastSequence = sequence;
-              if (!window.__collisionSolidHandoffFirstFramePng) {
-                const canvas = document.querySelector('.simulation-view canvas');
-                if (canvas) {
-                  window.__collisionSolidHandoffFirstFramePng = canvas.toDataURL('image/png');
-                }
-              }
             }
           }
           requestAnimationFrame(collect);
@@ -156,6 +138,13 @@ def collected_handoff_frames(driver: webdriver.Chrome) -> list[dict[str, object]
     ) or []
 
 
+def wait_for_collected_frames(driver: webdriver.Chrome) -> list[dict[str, object]]:
+    WebDriverWait(driver, 3, poll_frequency=0.01).until(
+        lambda browser: bool(collected_handoff_frames(browser))
+    )
+    return collected_handoff_frames(driver)
+
+
 def wait_for_collected_progress(driver: webdriver.Chrome, minimum: float) -> list[dict[str, object]]:
     def reached(browser: webdriver.Chrome) -> bool:
         history = collected_handoff_frames(browser)
@@ -165,17 +154,13 @@ def wait_for_collected_progress(driver: webdriver.Chrome, minimum: float) -> lis
     return collected_handoff_frames(driver)
 
 
-def stop_handoff_frame_collector(driver: webdriver.Chrome) -> tuple[list[dict[str, object]], str]:
-    snapshot = driver.execute_script(
+def stop_handoff_frame_collector(driver: webdriver.Chrome) -> list[dict[str, object]]:
+    return driver.execute_script(
         """
         window.__collisionSolidHandoffCollectorActive = false;
-        return {
-          history: window.__collisionSolidHandoffFrameHistory || [],
-          firstFramePng: window.__collisionSolidHandoffFirstFramePng || '',
-        };
+        return window.__collisionSolidHandoffFrameHistory || [];
         """
-    ) or {}
-    return snapshot.get('history') or [], str(snapshot.get('firstFramePng') or '')
+    ) or []
 
 
 def sample_at_or_after(history: list[dict[str, object]], minimum: float) -> dict[str, object]:
@@ -201,7 +186,7 @@ def is_body_colored(pixel: tuple[int, int, int]) -> bool:
     brightest = max(r, g, b)
     darkest = min(r, g, b)
     chroma = brightest - darkest
-    if brightest < 9 or chroma < 2 or chroma / max(brightest, 1) < 0.025:
+    if brightest < 20 or chroma < 2 or chroma / max(brightest, 1) < 0.025:
         return False
     warm = r >= g * 1.005 and r >= b * 1.015
     cool = b >= r * 1.015 and b >= g * 1.005
@@ -212,28 +197,17 @@ def is_blue_body(pixel: tuple[int, int, int]) -> bool:
     r, g, b = pixel
     brightest = max(r, g, b)
     return (
-        brightest >= 9
+        brightest >= 20
         and b >= r * 1.025
         and b >= g * 1.008
         and b - min(r, g) >= 2
     )
 
 
-def silhouette_metrics(path: Path) -> dict[str, float | int]:
-    image = Image.open(path).convert('RGB')
-    width, height = image.size
-    x0, x1 = int(width * 0.18), int(width * 0.82)
-    y0, y1 = int(height * 0.16), int(height * 0.84)
-    occupied: set[tuple[int, int]] = set()
-    blue_pixels = 0
-    for y in range(y0, y1):
-        for x in range(x0, x1):
-            pixel = image.getpixel((x, y))
-            if is_blue_body(pixel):
-                blue_pixels += 1
-            if is_body_colored(pixel):
-                occupied.add((x, y))
-
+def connected_components(
+    occupied: set[tuple[int, int]],
+    minimum_size: int,
+) -> list[list[tuple[int, int]]]:
     components: list[list[tuple[int, int]]] = []
     while occupied:
         seed = occupied.pop()
@@ -250,13 +224,33 @@ def silhouette_metrics(path: Path) -> dict[str, float | int]:
                         occupied.remove(candidate)
                         queue.append(candidate)
                         points.append(candidate)
-        if len(points) >= 24:
+        if len(points) >= minimum_size:
             components.append(points)
-
     components.sort(key=len, reverse=True)
+    return components
+
+
+def silhouette_metrics(path: Path) -> dict[str, float | int]:
+    image = Image.open(path).convert('RGB')
+    width, height = image.size
+    x0, x1 = int(width * 0.18), int(width * 0.82)
+    y0, y1 = int(height * 0.16), int(height * 0.84)
+    occupied: set[tuple[int, int]] = set()
+    blue_occupied: set[tuple[int, int]] = set()
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            pixel = image.getpixel((x, y))
+            if is_blue_body(pixel):
+                blue_occupied.add((x, y))
+            if is_body_colored(pixel):
+                occupied.add((x, y))
+
+    components = connected_components(occupied, 24)
     selected = components[:3]
     points = [point for component in selected for point in component]
     require(len(points) >= 80, f'body silhouette is not detectable in {path.name}')
+    blue_components = connected_components(blue_occupied, 80)
+    blue_pixels = len(blue_components[0]) if blue_components else 0
     area = len(points)
     cx = sum(x for x, _ in points) / area
     cy = sum(y for _, y in points) / area
@@ -315,10 +309,12 @@ def main() -> None:
         require(post_physics['physical_body_count'] == 1, f'fixture must physically resolve 2->1, got {post_physics["physical_body_count"]}')
         require(post_physics['source_b_present'] == 0, 'absorbed source must be absent from the physical result')
 
+        wait_for_collected_frames(driver)
+        first_path = capture_canvas(driver, '01-first-post-solver')
+        first_visual = silhouette_metrics(first_path)
         wait_for_collected_progress(driver, 0.85)
-        history, first_frame_png = stop_handoff_frame_collector(driver)
+        history = stop_handoff_frame_collector(driver)
         require(history, 'production renderer did not publish any applied solid handoff frames')
-        require(first_frame_png, 'production renderer collector did not preserve the first post-solver canvas frame')
 
         first = history[0]
         samples = [
@@ -332,9 +328,6 @@ def main() -> None:
             require(bool(sample.get('overrideSampled')), f'{label} solid handoff sample did not come from the renderer frame sampler')
             require(bool(sample.get('overrideApplied')), f'{label} solid handoff sample was not applied to the renderer meshes')
             require(int(sample.get('renderFrameSequence') or 0) > 0, f'{label} solid handoff telemetry must identify the production render frame')
-
-        first_path = write_data_url_png(first_frame_png, '01-first-post-solver')
-        first_visual = silhouette_metrics(first_path)
 
         first_absorbed = (first.get('absorbed') or [])[0]
         first_survivor = first.get('survivor') or {}
@@ -387,6 +380,10 @@ def main() -> None:
         require(
             centroid_jump <= 24.0,
             f'first post-solver screen-space collision centroid jumped {centroid_jump:.2f}px',
+        )
+        require(
+            int(first_visual['blue_pixels']) >= 80,
+            'first post-solver browser frame must contain a distinct absorbed blue solid component',
         )
         require(
             int(first_visual['blue_pixels']) >= int(pre_visual['blue_pixels']) * 0.35,
