@@ -29,6 +29,7 @@ const checks = [
   { source: 'nonStellarRegression.ts', output: 'nonStellarRegression.mjs' },
   { source: 'collisionPresentationRadiusRegression.ts', output: 'collisionPresentationRadiusRegression.mjs' },
   { source: 'productionSmallHeadOnDisruptRegression.ts', output: 'productionSmallHeadOnDisruptRegression.mjs' },
+  { source: 'collisionEjectaDeterminismRegression.ts', output: 'collisionEjectaDeterminismRegression.mjs' },
   { source: 'trackingRegression.ts', output: 'trackingRegression.mjs' },
   { source: 'collisionCameraTrackingHandoffRegression.ts', output: 'collisionCameraTrackingHandoffRegression.mjs' },
   { source: 'collisionWatchTimingRegression.ts', output: 'collisionWatchTimingRegression.mjs' },
