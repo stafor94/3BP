@@ -168,8 +168,10 @@ assert(
   'head-on ejecta must physically leave both sides of the contact region',
 )
 assert(
-  sparks.every((spark) => Math.abs(spark.position.x) > 0.02),
-  'head-on ejecta physical spawn positions must already be separated from the contact center',
+  sparks.every((spark) => physicalSolids.every((solid) =>
+    separation(spark, solid) + 1e-9 >= spark.radius + solid.radius
+  )),
+  'head-on ejecta physical spawn positions must start clear of surviving solid bodies',
 )
 assert(
   sparks.every((spark, index) => {
