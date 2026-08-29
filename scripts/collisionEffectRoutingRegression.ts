@@ -1,4 +1,3 @@
-
 import { getCelestialBodyRenderBodies } from '../src/rendering/collisionEffectRouting'
 import { createFragmentVisualMotionContext } from '../src/rendering/fragmentVisualMotion'
 import type { BodyState, EffectVisualKind } from '../src/types'
@@ -112,11 +111,11 @@ const renderedA = transientRendered.find((body) => body.id === transientA.id)
 const renderedB = transientRendered.find((body) => body.id === transientB.id)
 assert(renderedA && renderedB, 'transient fragments must remain renderable')
 assert(renderedA !== transientA && renderedB !== transientB, 'transient debris motion must use render-only clones')
-assert(renderedA.position.x > transientA.position.x, 'positive-side debris must burst outward along collision normal')
-assert(renderedB.position.x < transientB.position.x, 'negative-side debris must burst outward along the opposite normal')
+assert(renderedA.position.x > transientA.position.x, 'positive-moving debris may receive only a small forward de-clumping offset')
+assert(renderedB.position.x < transientB.position.x, 'negative-moving debris may receive only a small forward de-clumping offset')
 assert(
   Math.abs(renderedA.position.y - transientA.position.y) > 1e-6,
-  'debris burst must include deterministic angular variation instead of a single shared direction',
+  'presentation offset must follow the fragment physical travel vector rather than an unrelated axis',
 )
 assert(
   !near(renderedA.radius / transientA.radius, renderedB.radius / transientB.radius, 1e-6),
@@ -163,15 +162,31 @@ const highEnergy = createFragmentVisualMotionContext(transientA, highEnergyFlash
 assert(lowEnergy && highEnergy, 'energy comparison must produce visual motion contexts')
 assert(
   highEnergy.burstDistance > lowEnergy.burstDistance,
-  'higher collision energy must create a longer presentation-only debris burst',
+  'higher collision energy may create a slightly longer de-clumping offset',
 )
 assert(
   highEnergy.burstDuration < lowEnergy.burstDuration,
-  'higher collision energy must deliver the debris burst more quickly',
+  'higher collision energy must deliver the small presentation offset more quickly',
 )
 assert(
-  Math.abs(highEnergy.direction.x) > Math.hypot(highEnergy.direction.y, highEnergy.direction.z),
-  'collision normal must remain the dominant debris direction after angular variation',
+  highEnergy.burstDistance <= (flash.effectVisual?.sourceMaxRadius ?? 0) * 0.1 + 1e-12,
+  'renderer-only fragment displacement must stay subordinate to the physical source scale',
+)
+const physicalRelativeA = {
+  x: transientA.velocity.x - flash.velocity.x,
+  y: transientA.velocity.y - flash.velocity.y,
+  z: transientA.velocity.z - flash.velocity.z,
+}
+const physicalRelativeLength = Math.hypot(physicalRelativeA.x, physicalRelativeA.y, physicalRelativeA.z)
+const visualDirectionLength = Math.hypot(highEnergy.direction.x, highEnergy.direction.y, highEnergy.direction.z)
+const alignment = (
+  highEnergy.direction.x * physicalRelativeA.x +
+  highEnergy.direction.y * physicalRelativeA.y +
+  highEnergy.direction.z * physicalRelativeA.z
+) / Math.max(physicalRelativeLength * visualDirectionLength, 1e-12)
+assert(
+  alignment > 0.999999,
+  'renderer fragment offset must follow the actual physical fragment velocity',
 )
 
 console.log('Collision effect routing regression passed')
