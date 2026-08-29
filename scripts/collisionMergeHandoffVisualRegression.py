@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
 import json
 import math
 import os
@@ -61,6 +62,15 @@ def capture_canvas(driver: webdriver.Chrome, name: str) -> Path:
     return path
 
 
+def write_data_url_png(data_url: str, name: str) -> Path:
+    prefix = 'data:image/png;base64,'
+    require(data_url.startswith(prefix), f'first production render frame did not provide a PNG data URL for {name}')
+    path = OUTPUT_DIR / f'{name}.png'
+    path.write_bytes(base64.b64decode(data_url[len(prefix):]))
+    require(path.exists() and path.stat().st_size > 0, f'failed to persist {name}')
+    return path
+
+
 def root_diagnostics(driver: webdriver.Chrome) -> dict[str, float | int | str]:
     root = driver.find_element(By.CSS_SELECTOR, '[data-visual-regression="collision-merge-handoff"]')
     return {
@@ -106,11 +116,84 @@ def handoff_metrics(driver: webdriver.Chrome) -> dict[str, object]:
     ) or {}
 
 
-def wait_for_progress(driver: webdriver.Chrome, minimum: float) -> dict[str, object]:
-    WebDriverWait(driver, 4, poll_frequency=0.01).until(
-        lambda browser: float((handoff_metrics(browser) or {}).get('progress', -1)) >= minimum
+def install_handoff_frame_collector(driver: webdriver.Chrome) -> None:
+    driver.execute_script(
+        """
+        window.__collisionSolidHandoffFrameHistory = [];
+        window.__collisionSolidHandoffFirstFramePng = '';
+        window.__collisionSolidHandoffCollectorLastSequence = 0;
+        window.__collisionSolidHandoffCollectorActive = true;
+
+        const collect = () => {
+          if (!window.__collisionSolidHandoffCollectorActive) return;
+          const values = Object.values(window.__collisionSolidHandoffMetrics || {});
+          const metric = values.find((value) => value && value.overrideApplied);
+          if (metric) {
+            const sequence = Number(metric.renderFrameSequence || 0);
+            if (sequence > 0 && sequence !== window.__collisionSolidHandoffCollectorLastSequence) {
+              const snapshot = JSON.parse(JSON.stringify(metric));
+              window.__collisionSolidHandoffFrameHistory.push(snapshot);
+              window.__collisionSolidHandoffCollectorLastSequence = sequence;
+              if (!window.__collisionSolidHandoffFirstFramePng) {
+                const canvas = document.querySelector('.simulation-view canvas');
+                if (canvas) {
+                  window.__collisionSolidHandoffFirstFramePng = canvas.toDataURL('image/png');
+                }
+              }
+            }
+          }
+          requestAnimationFrame(collect);
+        };
+
+        requestAnimationFrame(collect);
+        """
     )
-    return handoff_metrics(driver)
+
+
+def collected_handoff_frames(driver: webdriver.Chrome) -> list[dict[str, object]]:
+    return driver.execute_script(
+        'return window.__collisionSolidHandoffFrameHistory || [];'
+    ) or []
+
+
+def wait_for_collected_progress(driver: webdriver.Chrome, minimum: float) -> list[dict[str, object]]:
+    def reached(browser: webdriver.Chrome) -> bool:
+        history = collected_handoff_frames(browser)
+        return any(float(sample.get('progress', -1)) >= minimum for sample in history)
+
+    WebDriverWait(driver, 4, poll_frequency=0.01).until(reached)
+    return collected_handoff_frames(driver)
+
+
+def stop_handoff_frame_collector(driver: webdriver.Chrome) -> tuple[list[dict[str, object]], str]:
+    snapshot = driver.execute_script(
+        """
+        window.__collisionSolidHandoffCollectorActive = false;
+        return {
+          history: window.__collisionSolidHandoffFrameHistory || [],
+          firstFramePng: window.__collisionSolidHandoffFirstFramePng || '',
+        };
+        """
+    ) or {}
+    return snapshot.get('history') or [], str(snapshot.get('firstFramePng') or '')
+
+
+def sample_at_or_after(history: list[dict[str, object]], minimum: float) -> dict[str, object]:
+    for sample in history:
+        if float(sample.get('progress', -1)) >= minimum:
+            return sample
+    raise AssertionError(f'no production render sample reached handoff progress {minimum:.2f}')
+
+
+def presentation_area(sample: dict[str, object]) -> float:
+    survivor = sample.get('survivor') or {}
+    survivor_radius = max(0.0, float(survivor.get('radius', 0.0)))
+    area = math.pi * survivor_radius * survivor_radius
+    for absorbed in sample.get('absorbed') or []:
+        radius = max(0.0, float(absorbed.get('radius', 0.0)))
+        opacity = min(1.0, max(0.0, float(absorbed.get('opacity', 0.0))))
+        area += math.pi * radius * radius * opacity
+    return area
 
 
 def is_body_colored(pixel: tuple[int, int, int]) -> bool:
@@ -225,31 +308,33 @@ def main() -> None:
         pre_path = capture_canvas(driver, '00-pre-resolve')
         pre_visual = silhouette_metrics(pre_path)
 
+        install_handoff_frame_collector(driver)
         advance_step(driver, 16)
         post_physics = root_diagnostics(driver)
         require(bool(post_physics['remnant_id']), 'step 16 must physically resolve the small head-on pair')
         require(post_physics['physical_body_count'] == 1, f'fixture must physically resolve 2->1, got {post_physics["physical_body_count"]}')
         require(post_physics['source_b_present'] == 0, 'absorbed source must be absent from the physical result')
 
-        WebDriverWait(driver, 3, poll_frequency=0.01).until(
-            lambda browser: bool(handoff_metrics(browser))
-        )
-        first = handoff_metrics(driver)
-        require(bool(first.get('overrideSampled')), 'solid handoff state was not sampled by the production render frame')
-        require(bool(first.get('overrideApplied')), 'sampled solid handoff was not applied to the production renderer meshes')
-        require(int(first.get('renderFrameSequence') or 0) > 0, 'solid handoff telemetry must identify the production render frame')
-        first_path = capture_canvas(driver, '01-first-post-solver')
-        first_visual = silhouette_metrics(first_path)
+        wait_for_collected_progress(driver, 0.85)
+        history, first_frame_png = stop_handoff_frame_collector(driver)
+        require(history, 'production renderer did not publish any applied solid handoff frames')
+        require(first_frame_png, 'production renderer collector did not preserve the first post-solver canvas frame')
 
-        samples = [first]
-        captures = [('first', first_visual)]
-        for label, progress in [('early', 0.25), ('mid', 0.55), ('late', 0.85)]:
-            sample = wait_for_progress(driver, progress)
+        first = history[0]
+        samples = [
+            first,
+            sample_at_or_after(history, 0.25),
+            sample_at_or_after(history, 0.55),
+            sample_at_or_after(history, 0.85),
+        ]
+        sample_labels = ['first', 'early', 'mid', 'late']
+        for label, sample in zip(sample_labels, samples):
             require(bool(sample.get('overrideSampled')), f'{label} solid handoff sample did not come from the renderer frame sampler')
             require(bool(sample.get('overrideApplied')), f'{label} solid handoff sample was not applied to the renderer meshes')
-            path = capture_canvas(driver, f'02-{label}-{progress:.2f}')
-            samples.append(sample)
-            captures.append((label, silhouette_metrics(path)))
+            require(int(sample.get('renderFrameSequence') or 0) > 0, f'{label} solid handoff telemetry must identify the production render frame')
+
+        first_path = write_data_url_png(first_frame_png, '01-first-post-solver')
+        first_visual = silhouette_metrics(first_path)
 
         first_absorbed = (first.get('absorbed') or [])[0]
         first_survivor = first.get('survivor') or {}
@@ -308,10 +393,11 @@ def main() -> None:
             'absorbed blue source silhouette vanished from the first post-solver browser frame',
         )
 
-        adjacent_areas = [float(pre_visual['area'])] + [float(metrics['area']) for _, metrics in captures]
-        for before, after in zip(adjacent_areas, adjacent_areas[1:]):
-            ratio = after / max(before, 1.0)
-            require(0.58 <= ratio <= 1.75, f'visible solid silhouette changed too abruptly between captures: ratio={ratio:.3f}')
+        history_areas = [presentation_area(sample) for sample in history]
+        require(all(area > 0 for area in history_areas), 'production handoff frames must retain a positive visible solid area')
+        for before, after in zip(history_areas, history_areas[1:]):
+            ratio = after / max(before, 1e-12)
+            require(0.58 <= ratio <= 1.75, f'visible solid silhouette changed too abruptly between renderer frames: ratio={ratio:.3f}')
 
         time.sleep(0.75)
         settled_path = capture_canvas(driver, '03-settled')
@@ -330,9 +416,11 @@ def main() -> None:
         payload = {
             'staging_separations': separations,
             'post_physics': post_physics,
-            'handoff_samples': samples,
+            'handoff_frame_count': len(history),
+            'handoff_samples': dict(zip(sample_labels, samples)),
+            'handoff_frame_areas': history_areas,
             'pre_visual': pre_visual,
-            'captures': {label: metrics for label, metrics in captures},
+            'first_visual': first_visual,
             'settled_visual': settled_visual,
             'first_area_ratio': first_area_ratio,
             'first_centroid_jump_px': centroid_jump,
