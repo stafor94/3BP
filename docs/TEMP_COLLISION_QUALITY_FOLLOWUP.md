@@ -22,14 +22,14 @@
 - [ ] 기존 collision merge handoff / frame continuity / small head-on visual regression을 모두 통과한다.
 
 ### B. Physical debris motion
-- [ ] debris 개선이 필요한 비항성 충돌에서 실제 `fragment` velocity가 contact geometry와 impact energy를 반영해 충돌점에서 바깥 방향으로 분산된다.
-- [ ] renderer-only offset은 실제 물리 개선의 대체재로 사용하지 않는다. 필요하면 보조 연출로만 유지한다.
-- [ ] fragment/ejecta를 포함한 represented mass 및 linear momentum conservation을 유지한다.
+- [x] debris 개선이 필요한 비항성 충돌에서 실제 mass-carrying ejecta velocity가 contact geometry를 반영해 충돌점에서 바깥 방향으로 분산되도록 production state를 수정했다.
+- [x] renderer-only offset은 실제 물리 개선의 대체재로 사용하지 않고, 실제 fragment velocity 방향을 따르는 작은 de-clumping 보조 연출로 축소했다.
+- [ ] fragment/ejecta를 포함한 represented mass 및 linear momentum conservation을 유지한다. (구현은 survivor correction 포함, 전체 회귀 재검증 중)
 - [ ] deterministic replay 성질을 유지한다.
 
 ### C. Remnant response
-- [ ] remnant velocity는 ejecta momentum을 제외한 전체 운동량과 일치한다.
-- [ ] 비대칭/고에너지 충돌에서 remnant의 post-impact motion이 실제 state에 반영되고 renderer-only recoil로 위장하지 않는다.
+- [x] ejecta momentum 변경분만큼 remnant/survivor 실제 velocity에 반대 방향 공통 보정을 적용해 renderer-only recoil 없이 state에 반영했다.
+- [ ] remnant velocity가 ejecta momentum을 제외한 전체 운동량과 일치하는지 전체 conservation regression으로 재확인한다.
 - [ ] 기존 conservation regression을 tolerance 완화 없이 통과한다.
 
 ### D. Runtime continuity / visual result
@@ -42,13 +42,21 @@
 - [x] 최신 `main`에서 작업 브랜치 생성: `fix/collision-quality-followup`
 - [x] `AGENTS.md`, `VERSIONING.md`, `docs/AGENT_QUALITY_VALIDATION.md` 확인
 - [x] 사용자 제공 영상에서 baseline 문제 목록 고정
-- [ ] collision/fragment 생성 경로 조사
-- [ ] 실제 fragment velocity 모델 수정
-- [ ] contact/remnant handoff 필요 수정
-- [ ] regression 추가/수정
+- [x] collision/fragment 생성 경로 조사
+  - core non-stellar head-on ejecta는 실제 state에서 주로 collision-normal 수직 방향으로 생성됨
+  - renderer는 별도로 collision-normal outward offset을 추가해 물리 궤적과 화면 궤적이 불일치했음
+- [x] 실제 fragment/ejecta velocity 모델 1차 수정
+- [x] renderer-only fragment burst를 실제 physical velocity 종속 보조 연출로 축소
+- [x] regression 추가/수정
+  - production small head-on fixture에서 실제 ejecta의 collision-normal 지배도/양방향 분출/physical spawn/visual direction 정합성 검사 추가
+  - renderer de-clumping이 physical velocity를 따라가고 source scale의 10% 이하인지 검사
+- [ ] contact/remnant handoff 추가 수정 필요 여부 판단 — visual A/B 후 결정
 - [ ] package version + CHANGELOG 업데이트
 - [ ] `npm run check:physics`
+  - 1차 CI: 기존 head-on spark spawn-origin 계약과 충돌하여 실패
+  - 원인: 새 physical spawn은 contact point 기준인데 기존 회귀는 COM 기준으로 방향을 계산
+  - 조치: 기준을 삭제하지 않고 새 physical contact-origin 계약으로 회귀를 갱신, 재검증 중
 - [ ] `npm run build`
 - [ ] browser visual regression / A-B 결과 확인
 - [ ] 임시 tracker 삭제
-- [ ] 최종 PR 생성
+- [ ] Draft PR #105 기술 검증 완료 후 ready 전환
