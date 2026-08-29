@@ -68,30 +68,6 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     // Synthetic overlap flashes build toward contact. Physical stellar flashes
     // start at the impact peak. Solid-body flashes stay compact and broad so an
     // impact reads as a local burst instead of a white beam across the survivor.
-    const syntheticBuild = syntheticStellar ? smooth01(progress / 0.72) : 0
-    const rise = syntheticStellar
-      ? 0.14 + syntheticBuild * 0.86
-      : physicalStellar
-        ? 1
-        : 0.56 + 0.44 * smooth01(progress / 0.055)
-    const peakHoldProgress = physicalStellar ? 0.1 : 0.16
-    const postPeakProgress = clamp(
-      (progress - peakHoldProgress) / Math.max(1 - peakHoldProgress, 1e-6),
-      0,
-      1,
-    )
-    const decay = syntheticStellar
-      ? 1
-      : progress <= peakHoldProgress
-        ? 1
-        : Math.pow(1 - postPeakProgress, physicalStellar ? 3.55 : 3.2)
-    const outcomeBrightnessBoost = physicalStellar
-      ? stellarOutcome === 'merge'
-        ? 1.1
-        : stellarOutcome === 'partialDisruption'
-          ? 1.05
-          : 1
-      : 1
     const rawStretch = visual?.stretch ?? (physicalStellar ? 2.75 : 2.55)
     const rawWidth = visual?.widthScale ?? (physicalStellar ? 0.48 : 0.42)
     const legacySolidFlashRadius = clamp(body.radius * 0.32, 0.038, 0.082)
@@ -109,10 +85,40 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       visual?.sourceMaxRadius !== undefined &&
       Math.abs(visual.sourceMaxRadius) <= SMALL_HEAD_ON_CONTACT_FLASH_SOURCE_RADIUS_MAX &&
       rawWidth <= SMALL_HEAD_ON_CONTACT_FLASH_WIDTH_MAX
+    // Tiny head-on collisions spend much longer in wall-clock observation than
+    // in simulation time. Let the compact impact flash finish early enough that
+    // the real mass-bearing ejecta can become the visible owner of the event.
+    const contactProgress = smallHeadOnSolidFlash
+      ? clamp(age / Math.max(duration * 0.25, 1e-6), 0, 1)
+      : progress
+    const syntheticBuild = syntheticStellar ? smooth01(contactProgress / 0.72) : 0
+    const rise = syntheticStellar
+      ? 0.14 + syntheticBuild * 0.86
+      : physicalStellar
+        ? 1
+        : 0.56 + 0.44 * smooth01(contactProgress / 0.055)
+    const peakHoldProgress = physicalStellar ? 0.1 : 0.16
+    const postPeakProgress = clamp(
+      (contactProgress - peakHoldProgress) / Math.max(1 - peakHoldProgress, 1e-6),
+      0,
+      1,
+    )
+    const decay = syntheticStellar
+      ? 1
+      : contactProgress <= peakHoldProgress
+        ? 1
+        : Math.pow(1 - postPeakProgress, physicalStellar ? 3.55 : 3.2)
+    const outcomeBrightnessBoost = physicalStellar
+      ? stellarOutcome === 'merge'
+        ? 1.1
+        : stellarOutcome === 'partialDisruption'
+          ? 1.05
+          : 1
+      : 1
 
     return {
       kind,
-      progress,
+      progress: contactProgress,
       fadeAlpha: rise * decay,
       baseOpacity: syntheticStellar
         ? 0.72
@@ -124,7 +130,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       innerGlow: syntheticStellar ? 0.48 : physicalStellar ? 0.72 : 0.68,
       outerGlow: syntheticStellar ? 0.18 : physicalStellar ? 0.22 : 0.14,
       visualRadius: syntheticStellar
-        ? clamp(body.radius * (0.76 + progress * 0.14), 0.05, 0.13)
+        ? clamp(body.radius * (0.76 + contactProgress * 0.14), 0.05, 0.13)
         : physicalStellar
           ? clamp(
               body.radius * (stellarOutcome === 'merge' ? 0.88 : stellarOutcome === 'hitAndRun' ? 0.72 : 0.8),
@@ -134,10 +140,14 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           : solidFlashRadius,
       anisotropicStretch: stellar
         ? clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : 3.05)
-        : clamp(rawStretch, 1.18, 1.45),
+        : smallHeadOnSolidFlash
+          ? 1
+          : clamp(rawStretch, 1.18, 1.45),
       widthScale: stellar
         ? clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66)
-        : clamp(rawWidth, 0.86, 1.00),
+        : smallHeadOnSolidFlash
+          ? 1
+          : clamp(rawWidth, 0.86, 1.00),
       // Negative tail is a renderer-local sentinel for compact solid-body masks.
       // -2 selects the radial small/high-head-on burst with no directional ridge;
       // -1 preserves the existing compact directional mask for other collisions.
@@ -155,7 +165,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           ? (visual?.brightness ?? 2.08) * outcomeBrightnessBoost
           : clamp(visual?.brightness ?? 1.28, 0, 1.5),
       turbulence: visual?.turbulence ?? (physicalStellar ? 0.72 : 0.2),
-      cooling: syntheticStellar ? progress * 0.1 : smooth01(progress),
+      cooling: syntheticStellar ? contactProgress * 0.1 : smooth01(contactProgress),
     }
   }
 
