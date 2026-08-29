@@ -100,22 +100,42 @@ const disrupted = makeBody('moon-a+moon-b', 'moon', {
   collisionLineageIds: ['moon-a', 'moon-b'],
 })
 assert(
-  resolveCollisionWatchOutcome([disrupted], 'moon-a', 'moon-b', 'moon', 'moon') === 'disrupt',
-  'non-stellar disruption must be identified from the engine composite-remnant identity',
+  resolveCollisionWatchOutcome(
+    [disrupted, makeFlash('moon-a', 'moon-b')],
+    'moon-a',
+    'moon-b',
+    'moon',
+    'moon',
+  ) === 'disrupt',
+  'non-stellar disruption must use the engine composite remnant/flash identity',
 )
 
-const mergedOrAbsorbed = makeBody('planet-a', 'planet', {
-  collisionLineageIds: ['planet-a', 'moon-c'],
+const lineageDisrupted = makeBody('moon-f+third+moon-g', 'moon', {
+  collisionLineageIds: ['moon-f', 'third', 'moon-g'],
 })
 assert(
   resolveCollisionWatchOutcome(
-    [mergedOrAbsorbed],
+    [lineageDisrupted, makeFlash('moon-f+third', 'moon-g')],
+    'moon-f',
+    'moon-g',
+    'moon',
+    'moon',
+  ) === 'disrupt',
+  'disruption mapping must remain correct after an earlier third-party lineage change',
+)
+
+const mergedOrAbsorbed = makeBody('planet-a+third', 'planet', {
+  collisionLineageIds: ['planet-a', 'third', 'moon-c'],
+})
+assert(
+  resolveCollisionWatchOutcome(
+    [mergedOrAbsorbed, makeFlash('planet-a+third', 'moon-c')],
     'planet-a',
     'moon-c',
     'planet',
     'moon',
   ) === 'mergeOrAbsorb',
-  'single-remnant non-stellar merge/absorb must remain an honest combined presentation bucket',
+  'single-remnant non-stellar merge/absorb must remain distinct from a composite disruption after prior lineage changes',
 )
 
 const hitRunA = makeBody('moon-d', 'moon', { collisionCooldown: 0.05 })
