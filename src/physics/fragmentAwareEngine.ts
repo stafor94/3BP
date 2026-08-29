@@ -475,8 +475,12 @@ function getEjectaClearanceDistance(
   sourceRadius: number,
   survivors: BodyState[],
 ) {
-  let distance = sourceRadius * 0.42
-  const margin = sourceRadius * 0.035
+  // The solver emits debris at topology handoff after the staged contact bridge.
+  // Give the actual mass-bearing ejecta enough physical separation to read as
+  // outgoing material immediately, while still deriving the clearance entirely
+  // from source/survivor geometry rather than a renderer-only offset.
+  let distance = sourceRadius * 0.5
+  const margin = sourceRadius * 0.18
 
   survivors.forEach((survivor) => {
     const toCenter = {
@@ -505,7 +509,7 @@ function getEjectaClearanceDistance(
     distance = Math.max(distance, exitDistance)
   })
 
-  return Math.min(distance, sourceRadius * 2.4 + ejectaRadius)
+  return Math.min(distance, sourceRadius * 2.6 + ejectaRadius)
 }
 
 function shapeNonStellarCollisionEjecta(
