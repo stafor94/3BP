@@ -30,6 +30,7 @@ const checks = [
   { source: 'trackingRegression.ts', output: 'trackingRegression.mjs' },
   { source: 'collisionCameraTrackingHandoffRegression.ts', output: 'collisionCameraTrackingHandoffRegression.mjs' },
   { source: 'collisionWatchTimingRegression.ts', output: 'collisionWatchTimingRegression.mjs' },
+  { source: 'collisionResultUiRegression.ts', output: 'collisionResultUiRegression.mjs' },
   { source: 'stellarEvolutionRegression.ts', output: 'stellarEvolutionRegression.mjs' },
   { source: 'stellarRenderingRegression.ts', output: 'stellarRenderingRegression.mjs' },
   { source: 'simulationSettingsRegression.ts', output: 'simulationSettingsRegression.mjs' },

@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
+import { resolveCollisionWatchOutcome, type CollisionWatchOutcome } from '../collisionWatch'
 import { translations, type Language } from '../i18n'
-import type { BodyType } from '../types'
+import type { BodyState, BodyType } from '../types'
 import '../collision-watch-info.css'
 
 export type CollisionWatchBodyInfo = {
@@ -23,7 +25,13 @@ export type CollisionWatchDetails = {
 
 type Props = {
   details: CollisionWatchDetails
+  bodies: BodyState[]
   language: Language
+}
+
+type CachedOutcome = {
+  pairKey: string
+  outcome: CollisionWatchOutcome
 }
 
 function formatValue(value: number) {
@@ -32,9 +40,40 @@ function formatValue(value: number) {
   return value.toFixed(digits).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1')
 }
 
-export function CollisionWatchInfo({ details, language }: Props) {
+function getOutcomeLabel(outcome: CollisionWatchOutcome, language: Language) {
+  const t = translations[language]
+  switch (outcome) {
+    case 'merge': return t.collisionWatchOutcomeMerge
+    case 'hitAndRun': return t.collisionWatchOutcomeHitAndRun
+    case 'partialDisruption': return t.collisionWatchOutcomePartialDisruption
+    case 'disrupt': return t.collisionWatchOutcomeDisrupt
+    case 'hitRun': return t.collisionWatchOutcomeHitRun
+    case 'mergeOrAbsorb': return t.collisionWatchOutcomeMergeOrAbsorb
+  }
+}
+
+export function CollisionWatchInfo({ details, bodies, language }: Props) {
   const t = translations[language]
   const impacted = details.impactObservedAt !== null
+  const resolvedOutcome = impacted
+    ? resolveCollisionWatchOutcome(
+        bodies,
+        details.bodyA.sourceId,
+        details.bodyB.sourceId,
+        details.bodyA.type,
+        details.bodyB.type,
+      )
+    : null
+  const [cachedOutcome, setCachedOutcome] = useState<CachedOutcome | null>(null)
+
+  useEffect(() => {
+    if (!resolvedOutcome) return
+    setCachedOutcome({ pairKey: details.pairKey, outcome: resolvedOutcome })
+  }, [details.pairKey, resolvedOutcome])
+
+  const outcome = resolvedOutcome ?? (
+    cachedOutcome?.pairKey === details.pairKey ? cachedOutcome.outcome : null
+  )
 
   const renderBody = (body: CollisionWatchBodyInfo) => (
     <article className="collision-watch-body-card">
@@ -64,6 +103,12 @@ export function CollisionWatchInfo({ details, language }: Props) {
           <span className="collision-watch-phase-dot" aria-hidden="true" />
           {impacted ? t.collisionWatchImpact : t.collisionWatchApproaching}
         </span>
+        {impacted && (
+          <span className={`collision-watch-outcome${outcome ? ' resolved' : ''}`}>
+            <span>{t.collisionWatchOutcome}</span>
+            <strong>{outcome ? getOutcomeLabel(outcome, language) : t.collisionWatchOutcomePending}</strong>
+          </span>
+        )}
         <small>{t.relativeSpeed} {formatValue(details.closingSpeed)}</small>
       </div>
       <div className="collision-watch-pair">

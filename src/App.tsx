@@ -903,7 +903,7 @@ export default function App() {
           )}
         />
         {collisionWatchInfo && (
-          <CollisionWatchInfo details={collisionWatchInfo} language={language} />
+          <CollisionWatchInfo details={collisionWatchInfo} bodies={bodies} language={language} />
         )}
         {collisionPrediction && !collisionCameraFocus && (
           <CollisionAlert
