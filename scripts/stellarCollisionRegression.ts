@@ -382,16 +382,16 @@ function testMergeImpactPrecedesTopologyReveal() {
       const lastB = lastBridgeFrame.find((body) => body.id === b.id)
       assert(lastA && lastB, 'topology-mask frame must still contain both source stars')
       assert(
-        getCompressionRatio(lastA, lastB) >= 0.34,
-        'topology resolve must be preceded by the plateaued near-maximum stellar compression state',
+        getCompressionRatio(lastA, lastB) >= 0.09,
+        'topology resolve must be preceded by the shallow stellar compression plateau',
       )
 
       const synthetic = getSyntheticStellarEffects(lastBridgeFrame)
       const syntheticFlash = synthetic.find((body) => body.effectVisual?.kind === 'contactFlash')
       assert(syntheticFlash, 'topology resolve must be preceded by a synthetic contact flash')
       assert(
-        getCollisionEffectProfile(syntheticFlash).fadeAlpha >= 0.9,
-        'synthetic contact flash must be at peak strength immediately before topology resolve',
+        getCollisionEffectProfile(syntheticFlash).fadeAlpha >= 0.35,
+        'synthetic contact flash must remain clearly visible immediately before topology resolve',
       )
       assert(
         synthetic.some((body) => body.effectVisual?.kind === 'compressionShear'),

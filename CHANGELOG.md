@@ -6,6 +6,19 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.19.24] - 2026-08-29
+
+### Fixed
+- core physics가 timestep 끝의 겹침만 검사하던 경로에 swept solid-contact 판정을 추가해, 한 timestep 안에서 두 천체가 완전히 교차하는 고속 충돌도 최초 접촉 지점에서 놓치지 않고 처리합니다. 이미 접촉/겹침으로 시작한 frame도 추가 적분 전에 우선 해소합니다.
+- collision impact staging의 표시 overlap 상한을 일반 천체 6%, stellar hit-and-run 6%, stellar merge 10%, stellar partial-disruption 8%로 낮춰 병합 직전 깊은 관통 인상을 줄였습니다. 실제 solver handoff의 microscopic overlap과 기존 충돌 분류 공식은 그대로 유지합니다.
+- impact staging duration보다 큰 단일 timestep에서 남은 overshoot 시간이 버려지던 경로를 보정해 충돌 처리 때문에 simulation time이 느려지지 않도록 했습니다.
+
+### Added
+- 고속 완전 교차(tunneling), 접선 grazing/near-miss, 빠른 star-planet first-contact surface, 큰 timestep overshoot, stellar pre-resolution overlap 상한을 자동 검증하는 physics regression을 추가했습니다.
+
+### Unchanged
+- absorb/merge/disrupt/hitRun 분류 공식과 ejecta fraction 공식, fragment/ejecta 속도·방향 생성 로직, 충돌 결과 UI 및 renderer 로직은 변경하지 않았습니다.
+
 ## [0.19.23] - 2026-08-29
 
 ### Fixed

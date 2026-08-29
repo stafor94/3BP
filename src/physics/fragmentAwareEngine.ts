@@ -17,10 +17,10 @@ const COLLISION_IMPACT_SIM_DURATION = 0.024
 const STELLAR_HIT_RUN_IMPACT_SIM_DURATION = 0.018
 const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.024
 const STELLAR_PARTIAL_IMPACT_SIM_DURATION = 0.021
-const IMPACT_MAX_OVERLAP_RATIO = 0.14
-const STELLAR_HIT_RUN_MAX_OVERLAP_RATIO = 0.18
-const STELLAR_MERGE_MAX_OVERLAP_RATIO = 0.36
-const STELLAR_PARTIAL_MAX_OVERLAP_RATIO = 0.24
+const IMPACT_MAX_OVERLAP_RATIO = 0.06
+const STELLAR_HIT_RUN_MAX_OVERLAP_RATIO = 0.06
+const STELLAR_MERGE_MAX_OVERLAP_RATIO = 0.1
+const STELLAR_PARTIAL_MAX_OVERLAP_RATIO = 0.08
 const STELLAR_MERGE_COMPRESSION_END_PROGRESS = 0.55
 const CONTACT_RESOLUTION_OVERLAP = 1e-6
 const CONTACT_RESOLUTION_DT = 1e-8
@@ -975,7 +975,7 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   }
 
   if (transition.elapsed + 1e-12 >= impactDuration) {
-    return resolveTransition(transition, 0)
+    return resolveTransition(transition, Math.max(0, dt - impactDuration))
   }
 
   const frame = buildCollisionImpactFrame(transition)

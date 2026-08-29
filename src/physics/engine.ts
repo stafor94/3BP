@@ -1,7 +1,7 @@
 import { mergeCollisionLineageIds, selectCollisionPrimary } from '../collisionIdentity'
 import { getEquilibriumStellarDisplayColor, getStellarTemperatureKelvin } from '../starColors'
 import type { BodyState, BodyType, EffectVisualState, StellarCollisionOutcome, Vec3 } from '../types'
-import { getCollisionContactDistance } from './collisionContact'
+import { getCollisionContactDistance, getLinearCollisionContactFraction } from './collisionContact'
 import { add, magnitude, magnitudeSquared, scale, sub } from './vector'
 
 const G = 1
@@ -1485,7 +1485,20 @@ function resolvePartialDisruption(
   )
 }
 
-function resolveCollisions(input: BodyState[]): BodyState[] {
+type CollisionResolutionHint = {
+  bodyAId: string
+  bodyBId: string
+  geometry: CollisionGeometry
+  decision: CollisionDecision
+}
+
+type SweptCollision = {
+  bodyAId: string
+  bodyBId: string
+  fraction: number
+}
+
+function resolveCollisions(input: BodyState[], hint?: CollisionResolutionHint): BodyState[] {
   const bodies = input.map(cloneBody)
   let resolved = true
 
@@ -1500,8 +1513,9 @@ function resolveCollisions(input: BodyState[]): BodyState[] {
         if (magnitude(sub(a.position, b.position)) > getCollisionContactDistance(a, b)) continue
 
         collisionSerial += 1
-        const geometry = getCollisionGeometry(a, b)
-        const decision = classifyCollision(a, b, geometry)
+        const hintedPair = hint !== undefined && a.id === hint.bodyAId && b.id === hint.bodyBId
+        const geometry = hintedPair ? hint.geometry : getCollisionGeometry(a, b)
+        const decision = hintedPair ? hint.decision : classifyCollision(a, b, geometry)
         const baseResultCount = decision.mode === 'hitRun' || decision.stellarOutcome === 'partialDisruption' ? 2 : 1
         // Reserve all non-physical VFX slots before allocating ejecta so large
         // stellar flashes/shock sheets/afterglow cannot exceed the dynamic-body cap.
@@ -1540,10 +1554,7 @@ function advanceTransientState(input: BodyState[], dt: number): BodyState[] {
     .filter((body) => body.bodyType !== 'effect' || (body.age ?? 0) < (body.lifetime ?? EFFECT_LIFETIME))
 }
 
-export function stepBodies(input: BodyState[], dt: number): BodyState[] {
-  if (dt <= 0) return input.map(cloneBody)
-  if (input.length === 0) return []
-
+function integrateBodies(input: BodyState[], dt: number): BodyState[] {
   const bodies = input.map(cloneBody)
   const a0 = accelerations(bodies)
   const nextPositions = bodies.map((body, i) =>
@@ -1551,10 +1562,153 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   )
   const provisional = bodies.map((body, i) => ({ ...body, position: nextPositions[i] }))
   const a1 = accelerations(provisional)
-  const integrated = provisional.map((body, i) => ({
+  return provisional.map((body, i) => ({
     ...body,
     velocity: add(body.velocity, scale(add(a0[i], a1[i]), 0.5 * dt)),
   }))
+}
 
-  return advanceTransientState(resolveCollisions(integrated), dt)
+function hasResolvableCollision(bodies: BodyState[]) {
+  for (let i = 0; i < bodies.length; i += 1) {
+    const a = bodies[i]
+    if (a.bodyType === 'effect' || (a.collisionCooldown ?? 0) > 0) continue
+    for (let j = i + 1; j < bodies.length; j += 1) {
+      const b = bodies[j]
+      if (b.bodyType === 'effect' || (b.collisionCooldown ?? 0) > 0) continue
+      if (magnitude(sub(a.position, b.position)) <= getCollisionContactDistance(a, b)) return true
+    }
+  }
+  return false
+}
+
+function findEarliestSweptCollision(current: BodyState[], next: BodyState[]): SweptCollision | null {
+  let earliest: SweptCollision | null = null
+
+  for (let i = 0; i < current.length; i += 1) {
+    const a = current[i]
+    if (a.bodyType === 'effect' || (a.collisionCooldown ?? 0) > 0) continue
+
+    for (let j = i + 1; j < current.length; j += 1) {
+      const b = current[j]
+      if (b.bodyType === 'effect' || (b.collisionCooldown ?? 0) > 0) continue
+
+      const fraction = getLinearCollisionContactFraction(
+        sub(b.position, a.position),
+        sub(next[j].position, next[i].position),
+        getCollisionContactDistance(a, b),
+      )
+      if (fraction === null || (earliest && fraction >= earliest.fraction)) continue
+      earliest = { bodyAId: a.id, bodyBId: b.id, fraction }
+    }
+  }
+
+  return earliest
+}
+
+function interpolateBodies(current: BodyState[], next: BodyState[], fraction: number) {
+  return current.map((body, index) => ({
+    ...cloneBody(body),
+    position: add(body.position, scale(sub(next[index].position, body.position), fraction)),
+    velocity: add(body.velocity, scale(sub(next[index].velocity, body.velocity), fraction)),
+  }))
+}
+
+function nudgeSweptPairIntoContact(bodies: BodyState[], collision: SweptCollision) {
+  const bodyA = bodies.find((body) => body.id === collision.bodyAId)
+  const bodyB = bodies.find((body) => body.id === collision.bodyBId)
+  if (!bodyA || !bodyB) return bodies
+
+  const delta = sub(bodyB.position, bodyA.position)
+  const distance = magnitude(delta)
+  const contactDistance = getCollisionContactDistance(bodyA, bodyB)
+  const targetDistance = Math.max(0, contactDistance - 1e-10)
+  if (distance <= targetDistance || distance <= 1e-12) return bodies
+
+  const normal = scale(delta, 1 / distance)
+  const correction = distance - targetDistance
+  const totalMass = bodyA.mass + bodyB.mass
+  const weightA = totalMass > 1e-12 ? bodyB.mass / totalMass : 0.5
+  const weightB = totalMass > 1e-12 ? bodyA.mass / totalMass : 0.5
+  bodyA.position = add(bodyA.position, scale(normal, correction * weightA))
+  bodyB.position = sub(bodyB.position, scale(normal, correction * weightB))
+  return bodies
+}
+
+function getCollisionResolutionHint(
+  contactFrame: BodyState[],
+  integrated: BodyState[],
+  collision: SweptCollision,
+): CollisionResolutionHint | undefined {
+  const contactA = contactFrame.find((body) => body.id === collision.bodyAId)
+  const contactB = contactFrame.find((body) => body.id === collision.bodyBId)
+  const endA = integrated.find((body) => body.id === collision.bodyAId)
+  const endB = integrated.find((body) => body.id === collision.bodyBId)
+  if (!contactA || !contactB || !endA || !endB) return undefined
+
+  const contactGeometry = getCollisionGeometry(contactA, contactB)
+  const endDistance = magnitude(sub(endA.position, endB.position))
+  const endOverlaps = endDistance <= getCollisionContactDistance(endA, endB)
+  const geometry = endOverlaps
+    ? (() => {
+        const endGeometry = getCollisionGeometry(endA, endB)
+        return {
+          ...contactGeometry,
+          relativeVelocity: endGeometry.relativeVelocity,
+          relativeSpeed: endGeometry.relativeSpeed,
+          escapeSpeed: endGeometry.escapeSpeed,
+          speedRatio: endGeometry.speedRatio,
+          headOn: endGeometry.headOn,
+          grazing: endGeometry.grazing,
+          impactParameter: endGeometry.impactParameter,
+          compressionSeverity: endGeometry.compressionSeverity,
+        }
+      })()
+    : contactGeometry
+
+  return {
+    bodyAId: contactA.id,
+    bodyBId: contactB.id,
+    geometry,
+    decision: classifyCollision(contactA, contactB, geometry),
+  }
+}
+
+export function stepBodies(input: BodyState[], dt: number): BodyState[] {
+  if (dt <= 0) return input.map(cloneBody)
+  if (input.length === 0) return []
+
+  let bodies = input.map(cloneBody)
+  let remaining = dt
+  let collisionIterations = 0
+
+  while (remaining > 1e-12 && collisionIterations < MAX_DYNAMIC_BODIES) {
+    if (hasResolvableCollision(bodies)) {
+      bodies = resolveCollisions(bodies)
+      collisionIterations += 1
+      continue
+    }
+
+    const integrated = integrateBodies(bodies, remaining)
+    const sweptCollision = findEarliestSweptCollision(bodies, integrated)
+    if (!sweptCollision) {
+      bodies = integrated
+      remaining = 0
+      break
+    }
+
+    const contactFrame = nudgeSweptPairIntoContact(
+      interpolateBodies(bodies, integrated, sweptCollision.fraction),
+      sweptCollision,
+    )
+    const hint = getCollisionResolutionHint(contactFrame, integrated, sweptCollision)
+    bodies = resolveCollisions(contactFrame, hint)
+    remaining *= Math.max(0, 1 - sweptCollision.fraction)
+    collisionIterations += 1
+  }
+
+  if (remaining > 1e-12) {
+    bodies = resolveCollisions(integrateBodies(bodies, remaining))
+  }
+
+  return advanceTransientState(bodies, dt)
 }

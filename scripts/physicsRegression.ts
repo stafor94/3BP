@@ -2,7 +2,7 @@ import {
   didCollisionWatchTargetImpact,
   resolveBodyDescendant,
 } from '../src/collisionWatch'
-import { getCollisionContactDistance } from '../src/physics/collisionContact'
+import { getCollisionContactDistance, getLinearCollisionContactFraction } from '../src/physics/collisionContact'
 import { stepBodies as stepCoreBodies } from '../src/physics/engine'
 import { stepBodies as stepFragmentAwareBodies } from '../src/physics/fragmentAwareEngine'
 import {
@@ -94,6 +94,29 @@ function testContactDistanceUsesVisibleSurface() {
   )
 }
 
+function testLinearContactFractionHandlesCrossingAndGraze() {
+  const crossing = getLinearCollisionContactFraction(
+    { x: -2, y: 0, z: 0 },
+    { x: 2, y: 0, z: 0 },
+    0.4,
+  )
+  assert(crossing !== null && crossing > 0 && crossing < 1, 'fast crossing must report first contact')
+
+  const grazing = getLinearCollisionContactFraction(
+    { x: -1, y: 0.4, z: 0 },
+    { x: 1, y: 0.4, z: 0 },
+    0.4,
+  )
+  assertClose(grazing ?? -1, 0.5, 1e-10, 'tangent sweep must report the grazing contact')
+
+  const miss = getLinearCollisionContactFraction(
+    { x: -1, y: 0.4001, z: 0 },
+    { x: 1, y: 0.4001, z: 0 },
+    0.4,
+  )
+  assert(miss === null, 'near-grazing pass outside the solid boundary must remain a miss')
+}
+
 function testFlashStartsAtImpactSurface() {
   const star: BodyState = {
     id: 'flash-star',
@@ -128,6 +151,35 @@ function testFlashStartsAtImpactSurface() {
   )
   assertClose(flash.position.y, 0, 1e-8, 'flash y position must stay on the impact point')
   assertClose(flash.position.z, 0, 1e-8, 'flash z position must stay on the impact point')
+}
+
+function testHighSpeedSweepPreventsTunneling() {
+  const a = makeBody('sweep-a', 0.2, 0.1, -1, 'planet')
+  const b = makeBody('sweep-b', 0.2, 0.1, 1, 'planet')
+  a.velocity.x = 20
+  b.velocity.x = -20
+
+  const resolved = stepCoreBodies([a, b], 0.1)
+  const flash = resolved.find((body) => body.bodyType === 'effect' && body.name === 'Collision flash')
+  assert(flash, 'bodies that cross completely inside one timestep must still collide')
+  assert(
+    !(resolved.some((body) => body.id === a.id) && resolved.some((body) => body.id === b.id)),
+    'a swept head-on collision must not tunnel through with both original bodies untouched',
+  )
+}
+
+function testFastImpactResolvesNearFirstContactSurface() {
+  const star = makeBody('sweep-star', 10, 1, 0, 'star')
+  const planet = makeBody('sweep-planet', 0.1, 0.1, 1.6, 'planet')
+  planet.velocity.x = -8
+
+  const resolved = stepCoreBodies([star, planet], 0.1)
+  const flash = resolved.find((body) => body.bodyType === 'effect' && body.name === 'Collision flash')
+  assert(flash, 'fast star-planet impact must create a collision flash')
+  assert(
+    flash.position.x > 0.94,
+    `fast impact flash must stay near the first-contact surface instead of deep penetration, got ${flash.position.x}`,
+  )
 }
 
 function testHitAndRunSurvivorsDoNotOverlap() {
@@ -225,6 +277,36 @@ function testStagedImpactKeepsCollidersVisibleBeforeResolution() {
   assert(sawVisibleOverlap, 'merge impact staging must visibly compress the colliders after contact')
 }
 
+function testLargeCollisionStepPreservesOvershootTime() {
+  const a = makeBody('overshoot-a', 0.2, 0.2, -0.2005, 'planet')
+  const b = makeBody('overshoot-b', 0.2, 0.2, 0.2005, 'planet')
+  a.velocity.x = 0.5
+  b.velocity.x = -0.5
+  const tracer: BodyState = {
+    id: 'overshoot-tracer',
+    name: 'Overshoot tracer',
+    color: '#ffffff',
+    mass: 0,
+    radius: 0.01,
+    position: { x: 5, y: 0, z: 0 },
+    velocity: { x: 1, y: 0, z: 0 },
+    bodyType: 'effect',
+    age: 0,
+    lifetime: 10,
+  }
+
+  const dt = 0.05
+  const frame = stepFragmentAwareBodies([a, b, tracer], dt)
+  const movedTracer = frame.find((body) => body.id === tracer.id)
+  assert(movedTracer, 'unrelated tracer must survive the collision transition')
+  assertClose(
+    movedTracer.position.x,
+    tracer.position.x + tracer.velocity.x * dt,
+    2e-6,
+    'large collision timestep must preserve post-impact overshoot time',
+  )
+}
+
 function testStellarMergeDeepensBeforeResolution() {
   const starA: BodyState = {
     id: 'stellar-merge-a',
@@ -277,12 +359,12 @@ function testStellarMergeDeepensBeforeResolution() {
     `stellar merge staging must preserve a 14-18 frame topology-mask envelope, got ${contactFrames}`,
   )
   assert(
-    deepestOverlap >= minRadius * 0.34,
-    'stellar merge contact bridge must reach the near-maximum compression plateau before resolving',
+    deepestOverlap >= minRadius * 0.09,
+    'stellar merge contact bridge must retain a shallow readable compression plateau before resolving',
   )
   assert(
-    deepestOverlap <= minRadius * 0.361,
-    'stellar merge display staging must not exceed the configured 36% overlap target',
+    deepestOverlap <= minRadius * 0.101,
+    'stellar merge display staging must stay within the reduced 10% overlap target',
   )
 }
 
@@ -397,9 +479,13 @@ function testPerspectiveCameraFramingMatchesOneTwentiethWidth() {
 
 const tests = [
   testContactDistanceUsesVisibleSurface,
+  testLinearContactFractionHandlesCrossingAndGraze,
   testFlashStartsAtImpactSurface,
+  testHighSpeedSweepPreventsTunneling,
+  testFastImpactResolvesNearFirstContactSurface,
   testHitAndRunSurvivorsDoNotOverlap,
   testStagedImpactKeepsCollidersVisibleBeforeResolution,
+  testLargeCollisionStepPreservesOvershootTime,
   testStellarMergeDeepensBeforeResolution,
   testCollisionWatchFollowsDescendantLineage,
   testCollisionWatchRequiresTargetHitAndRunResult,
