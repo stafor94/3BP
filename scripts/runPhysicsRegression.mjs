@@ -8,6 +8,7 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const outDir = resolve(root, '.tmp-physics-regression')
 const checks = [
   { source: 'physicsRegression.ts', output: 'physicsRegression.mjs' },
+  { source: 'collisionConservationRegression.ts', output: 'collisionConservationRegression.mjs' },
   { source: 'stellarCollisionRegression.ts', output: 'stellarCollisionRegression.mjs' },
   { source: 'stellarEjectaRegression.ts', output: 'stellarEjectaRegression.mjs' },
   { source: 'collisionVfxRegression.ts', output: 'collisionVfxRegression.mjs' },
