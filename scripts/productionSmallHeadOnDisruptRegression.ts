@@ -13,6 +13,7 @@ import type { BodyState, Vec3 } from '../src/types'
 const A_ID = 'production-small-head-on-a'
 const B_ID = 'production-small-head-on-b'
 const DT = 0.0015
+const MIN_VISIBLE_EJECTA_GAP_RATIO = 0.16
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -79,6 +80,8 @@ const initialCenterVelocity = {
 const physicalContact = initial[0].radius + initial[1].radius
 const presentationContact = getBodyPresentationRadius(initial[0].radius) +
   getBodyPresentationRadius(initial[1].radius)
+const minimumVisibleEjectaGap = Math.max(initial[0].radius, initial[1].radius) *
+  MIN_VISIBLE_EJECTA_GAP_RATIO
 let bodies = initial
 let previousPresentedSeparation: number | null = null
 let lastSources: BodyState[] | null = null
@@ -169,9 +172,10 @@ assert(
 )
 assert(
   sparks.every((spark) => physicalSolids.every((solid) =>
-    separation(spark, solid) + 1e-9 >= spark.radius + solid.radius
+    separation(spark, solid) + 1e-9 >=
+      getBodyPresentationRadius(solid.radius) + spark.radius + minimumVisibleEjectaGap
   )),
-  'head-on ejecta physical spawn positions must start clear of surviving solid bodies',
+  'head-on ejecta must physically spawn outside the visible survivor surface with clearance',
 )
 assert(
   sparks.every((spark, index) => {
@@ -204,6 +208,7 @@ console.log(JSON.stringify({
   remnantId: remnant.id,
   physicalContact,
   presentationContact,
+  minimumVisibleEjectaGap,
   transitionOutcomes: transitions.map((transition) => transition.outcome),
   sparkCount: sparks.length,
   ejectaNormalShares: physicalEjectaDirections.map(({ xShare }) => xShare),
