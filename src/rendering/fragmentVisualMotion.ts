@@ -1,4 +1,3 @@
-
 import type { BodyState, Vec3 } from '../types'
 
 export type FragmentVisualMotionContext = {
@@ -24,11 +23,6 @@ const scale = (value: Vec3, scalar: number): Vec3 => ({
   x: value.x * scalar,
   y: value.y * scalar,
   z: value.z * scalar,
-})
-const cross = (a: Vec3, b: Vec3): Vec3 => ({
-  x: a.y * b.z - a.z * b.y,
-  y: a.z * b.x - a.x * b.z,
-  z: a.x * b.y - a.y * b.x,
 })
 const magnitude = (value: Vec3) => Math.hypot(value.x, value.y, value.z)
 
@@ -62,24 +56,6 @@ function parseFragmentIdentity(id: string): FragmentIdentity | null {
   }
 }
 
-function getLateralDirection(outward: Vec3, seed: string, is2d: boolean): Vec3 {
-  if (is2d) {
-    const tangent = normalize({ x: -outward.y, y: outward.x, z: 0 }, { x: 0, y: 1, z: 0 })
-    return scale(tangent, seededScalar(`${seed}:side`) < 0.5 ? -1 : 1)
-  }
-
-  const reference = Math.abs(outward.z) < 0.82
-    ? { x: 0, y: 0, z: 1 }
-    : { x: 0, y: 1, z: 0 }
-  const basisA = normalize(cross(reference, outward), { x: 1, y: 0, z: 0 })
-  const basisB = normalize(cross(outward, basisA), { x: 0, y: 1, z: 0 })
-  const azimuth = seededScalar(`${seed}:azimuth`) * Math.PI * 2
-  return normalize(
-    add(scale(basisA, Math.cos(azimuth)), scale(basisB, Math.sin(azimuth))),
-    basisA,
-  )
-}
-
 export function createFragmentVisualMotionContext(
   fragment: BodyState,
   flash: BodyState,
@@ -104,16 +80,11 @@ export function createFragmentVisualMotionContext(
     : identity.index % 2 === 0 ? 1 : -1
   const outward = scale(collisionNormal, sideSign)
   const relativeVelocity = sub(fragment.velocity, flash.velocity)
-  const is2d =
-    Math.abs(outward.z) + Math.abs(collisionOffset.z) + Math.abs(relativeVelocity.z) < 1e-8
-  const lateral = getLateralDirection(outward, fragment.id, is2d)
-  const energy = clamp(flash.effectVisual?.temperatureBias ?? 0.35, 0, 1)
-  const angle = 0.14 + seededScalar(`${fragment.id}:angle`) * (0.24 + energy * 0.08)
-  const direction = normalize(
-    add(scale(outward, Math.cos(angle)), scale(lateral, Math.sin(angle))),
-    outward,
-  )
+  // Physical fragment motion is now the source of truth. The renderer only adds
+  // a small deterministic de-clumping offset in that same travel direction.
+  const direction = normalize(relativeVelocity, outward)
 
+  const energy = clamp(flash.effectVisual?.temperatureBias ?? 0.35, 0, 1)
   const sourceRadius = Math.max(
     flash.effectVisual?.sourceMaxRadius ?? 0,
     fragment.radius * 2.5,
@@ -122,17 +93,17 @@ export function createFragmentVisualMotionContext(
   const kickSpeed = magnitude(relativeVelocity)
   const distanceVariation = 0.82 + seededScalar(`${fragment.id}:distance`) * 0.36
   const speedVariation = 0.86 + seededScalar(`${fragment.id}:speed`) * 0.32
-  const sourceDrivenDistance = sourceRadius * (0.18 + energy * 0.28) * distanceVariation
-  const kickDrivenDistance = kickSpeed * (0.055 + energy * 0.055) * speedVariation
-  const minimumDistance = fragment.radius * (1.05 + energy * 0.65)
+  const sourceDrivenDistance = sourceRadius * (0.025 + energy * 0.045) * distanceVariation
+  const kickDrivenDistance = kickSpeed * (0.008 + energy * 0.012) * speedVariation
+  const minimumDistance = fragment.radius * (0.12 + energy * 0.12)
   const burstDistance = clamp(
     Math.max(sourceDrivenDistance, kickDrivenDistance, minimumDistance),
-    fragment.radius * 0.8,
-    sourceRadius * 0.58,
+    fragment.radius * 0.08,
+    sourceRadius * 0.1,
   )
-  const durationVariation = (seededScalar(`${fragment.id}:duration`) - 0.5) * 0.14
-  const burstDuration = clamp(0.5 - energy * 0.16 + durationVariation, 0.26, 0.58)
-  const sizeScale = 0.84 + seededScalar(`${fragment.id}:size`) * 0.32
+  const durationVariation = (seededScalar(`${fragment.id}:duration`) - 0.5) * 0.06
+  const burstDuration = clamp(0.24 - energy * 0.06 + durationVariation, 0.16, 0.3)
+  const sizeScale = 0.9 + seededScalar(`${fragment.id}:size`) * 0.2
 
   return { direction, burstDistance, burstDuration, sizeScale }
 }
