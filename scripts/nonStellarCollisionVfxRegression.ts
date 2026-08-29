@@ -68,6 +68,13 @@ function centerOfMassVelocity(a: BodyState, b: BodyState): Vec3 {
   return scale(add(scale(a.velocity, a.mass), scale(b.velocity, b.mass)), 1 / totalMass)
 }
 
+function collisionContactPoint(a: BodyState, b: BodyState): Vec3 {
+  const normal = normalize(subtract(b.position, a.position))
+  const surfaceA = add(a.position, scale(normal, a.radius))
+  const surfaceB = subtract(b.position, scale(normal, b.radius))
+  return scale(add(surfaceA, surfaceB), 0.5)
+}
+
 function makeContactPair({
   idPrefix,
   radiusA,
@@ -317,16 +324,16 @@ function testHeadOnSparkPresentationKeepsPhysicalMotion() {
   assert(sparks.every((spark) => spark.mass > 0), 'collision spark fixture must remain mass-bearing')
 
   const centerVelocity = centerOfMassVelocity(pair[0], pair[1])
-  const centerPosition = centerOfMassPosition(pair[0], pair[1])
+  const contactPoint = collisionContactPoint(pair[0], pair[1])
   const spark = sparks[0]
   const direction = spark.effectVisual?.direction
   assert(direction, 'collision spark must retain its physical ejecta direction metadata')
   const travelVelocity = normalize(subtract(spark.velocity, centerVelocity))
-  const spawnDirection = normalize(subtract(spark.position, centerPosition))
+  const spawnDirection = normalize(subtract(spark.position, contactPoint))
   assert(dot(direction, travelVelocity) > 0.999999999,
-    'presentation compaction must not rotate spark physical velocity away from ejecta direction')
+    'physical ejecta shaping must not rotate spark velocity away from its direction metadata')
   assert(dot(direction, spawnDirection) > 0.999999,
-    'presentation compaction must not move the mass-bearing spark spawn off its ejecta direction')
+    'physical ejecta shaping must spawn the mass-bearing spark along its travel direction from contact')
   assertClose(spark.lifetime ?? -1, LEGACY_SPARK_BODY_LIFETIME, 1e-12,
     'mass-bearing collision spark production lifetime must remain on the pre-existing fragment-aware cap')
   assert((spark.effectVisual?.headOn ?? 0) > 0.99 && (spark.effectVisual?.grazing ?? 1) < 0.01,
