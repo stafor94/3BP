@@ -17,7 +17,7 @@ const COLLISION_IMPACT_SIM_DURATION = 0.024
 const STELLAR_HIT_RUN_IMPACT_SIM_DURATION = 0.018
 const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.024
 const STELLAR_PARTIAL_IMPACT_SIM_DURATION = 0.021
-const IMPACT_MAX_OVERLAP_RATIO = 0.06
+const IMPACT_MAX_OVERLAP_RATIO = 0.025
 const STELLAR_HIT_RUN_MAX_OVERLAP_RATIO = 0.06
 const STELLAR_MERGE_MAX_OVERLAP_RATIO = 0.1
 const STELLAR_PARTIAL_MAX_OVERLAP_RATIO = 0.08
@@ -450,6 +450,64 @@ function normalizeDirection(value: Vec3, fallback: Vec3): Vec3 {
   return { x: 1, y: 0, z: 0 }
 }
 
+function getCollisionSolidSurvivors(
+  bodies: BodyState[],
+  bodyA: BodyState,
+  bodyB: BodyState,
+) {
+  return bodies.filter((body) =>
+    body.mass > 0 &&
+    body.bodyType !== 'fragment' &&
+    body.bodyType !== 'effect' &&
+    (
+      bodyCarriesCollisionLineage(body, bodyA.id) ||
+      bodyCarriesCollisionLineage(body, bodyB.id) ||
+      body.id === bodyA.id ||
+      body.id === bodyB.id
+    ),
+  )
+}
+
+function getEjectaClearanceDistance(
+  contactPoint: Vec3,
+  direction: Vec3,
+  ejectaRadius: number,
+  sourceRadius: number,
+  survivors: BodyState[],
+) {
+  let distance = sourceRadius * 0.42
+  const margin = sourceRadius * 0.035
+
+  survivors.forEach((survivor) => {
+    const toCenter = {
+      x: survivor.position.x - contactPoint.x,
+      y: survivor.position.y - contactPoint.y,
+      z: survivor.position.z - contactPoint.z,
+    }
+    const projected = toCenter.x * direction.x +
+      toCenter.y * direction.y +
+      toCenter.z * direction.z
+    const centerDistanceSquared =
+      toCenter.x * toCenter.x +
+      toCenter.y * toCenter.y +
+      toCenter.z * toCenter.z
+    const perpendicularSquared = Math.max(
+      0,
+      centerDistanceSquared - projected * projected,
+    )
+    const clearanceRadius = survivor.radius + ejectaRadius + margin
+    const clearanceRadiusSquared = clearanceRadius * clearanceRadius
+    if (perpendicularSquared >= clearanceRadiusSquared) return
+
+    const exitDistance = projected + Math.sqrt(
+      Math.max(0, clearanceRadiusSquared - perpendicularSquared),
+    )
+    distance = Math.max(distance, exitDistance)
+  })
+
+  return Math.min(distance, sourceRadius * 2.4 + ejectaRadius)
+}
+
 function shapeNonStellarCollisionEjecta(
   input: BodyState[],
   stepped: BodyState[],
@@ -511,6 +569,7 @@ function shapeNonStellarCollisionEjecta(
   const geometry = getTrackingCollisionGeometry(bodyA, bodyB)
   const sourceRadius = Math.max(bodyA.radius, bodyB.radius, 1e-6)
   const ejectaIds = new Set(ejecta.map((body) => body.id))
+  const collisionSolids = getCollisionSolidSurvivors(stepped, bodyA, bodyB)
   const beforeMomentum = ejecta.reduce((sum, body) => ({
     x: sum.x + body.velocity.x * body.mass,
     y: sum.y + body.velocity.y * body.mass,
@@ -566,7 +625,13 @@ function shapeNonStellarCollisionEjecta(
       y: outward.y * outwardWeight + lateral.y * (1 - outwardWeight),
       z: outward.z * outwardWeight + lateral.z * (1 - outwardWeight),
     }, outward)
-    const spawnDistance = sourceRadius * (0.98 + geometry.headOn * 0.12) + body.radius * 1.2
+    const spawnDistance = getEjectaClearanceDistance(
+      contactPoint,
+      direction,
+      body.radius,
+      sourceRadius,
+      collisionSolids,
+    )
     const velocity = {
       x: centerVelocity.x + direction.x * relativeSpeed,
       y: centerVelocity.y + direction.y * relativeSpeed,
@@ -599,21 +664,7 @@ function shapeNonStellarCollisionEjecta(
     y: afterMomentum.y - beforeMomentum.y,
     z: afterMomentum.z - beforeMomentum.z,
   }
-  const survivorIds = new Set(
-    shaped
-      .filter((body) =>
-        body.mass > 0 &&
-        body.bodyType !== 'fragment' &&
-        body.bodyType !== 'effect' &&
-        (
-          bodyCarriesCollisionLineage(body, bodyA.id) ||
-          bodyCarriesCollisionLineage(body, bodyB.id) ||
-          body.id === bodyA.id ||
-          body.id === bodyB.id
-        ),
-      )
-      .map((body) => body.id),
-  )
+  const survivorIds = new Set(collisionSolids.map((body) => body.id))
   const survivorMass = shaped.reduce(
     (sum, body) => survivorIds.has(body.id) ? sum + body.mass : sum,
     0,
