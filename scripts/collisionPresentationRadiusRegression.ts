@@ -48,6 +48,10 @@ function displayedRadius(body: BodyState) {
   return Math.max(body.radius, MIN_RENDER_RADIUS)
 }
 
+function pairSeparation(a: BodyState, b: BodyState) {
+  return vectorLength(subtract(b.position, a.position))
+}
+
 function centerOfMass(a: BodyState, b: BodyState): Vec3 {
   const totalMass = a.mass + b.mass
   return {
@@ -151,54 +155,47 @@ function resolveStagingWithoutOvershoot(pair: [BodyState, BodyState]) {
   return stepFragmentAwareBodies(frame, STAGING_DT - 5e-13)
 }
 
-function visualPenetration(a: BodyState, b: BodyState) {
-  const distance = vectorLength(subtract(b.position, a.position))
-  return displayedRadius(a) + displayedRadius(b) - distance
-}
-
-function assertPresentationOverlapBound(a: BodyState, b: BodyState, label: string) {
-  const penetration = visualPenetration(a, b)
-  const allowed = Math.min(displayedRadius(a), displayedRadius(b)) * IMPACT_MAX_OVERLAP_RATIO
-  assert(
-    penetration >= -1e-9,
-    `${label}: staged silhouettes must not open an artificial visible gap (${penetration})`,
-  )
-  assert(
-    penetration <= allowed + 1e-9,
-    `${label}: visual penetration ${penetration} exceeds presentation allowance ${allowed}`,
-  )
-}
-
-function testSmallSmallUsesRenderedContactDistance() {
+function testSmallSmallPreservesOverlappingSourceContinuity() {
   const pair = makeContactPair({
-    idPrefix: 'small-small',
+    idPrefix: 'small-small-continuity',
     radiusA: 0.018,
     radiusB: 0.017,
     massA: 0.02,
     massB: 0.02,
   })
-  const sourceRadii = pair.map((body) => body.radius)
-  const frame = stepStaging(pair, 10)
-  const { a, b } = getPair(frame, pair[0].id, pair[1].id)
+  const sourceSeparation = pairSeparation(pair[0], pair[1])
+  const presentationContact = displayedRadius(pair[0]) + displayedRadius(pair[1])
+  const maxPresentationOverlap = Math.min(displayedRadius(pair[0]), displayedRadius(pair[1])) *
+    IMPACT_MAX_OVERLAP_RATIO
+  const deepestPresentationTarget = presentationContact - maxPresentationOverlap
 
-  assertPresentationOverlapBound(a, b, 'small-small')
-  assertClose(a.radius, sourceRadii[0], 1e-12, 'small-small body A physical radius must not change')
-  assertClose(b.radius, sourceRadii[1], 1e-12, 'small-small body B physical radius must not change')
-
-  const visualContact = displayedRadius(pair[0]) + displayedRadius(pair[1])
-  const legacyLateDistance = pair[0].radius + pair[1].radius -
-    Math.min(pair[0].radius, pair[1].radius) * IMPACT_MAX_OVERLAP_RATIO
-  const legacyPenetration = visualContact - legacyLateDistance
-  const stagedPenetration = visualPenetration(a, b)
   assert(
-    stagedPenetration < legacyPenetration * 0.25,
-    'small-small presentation correction must remove the deep legacy penetration',
+    sourceSeparation < deepestPresentationTarget,
+    'fixture must begin already inside the rendered-radius staging envelope',
   )
 
-  return { legacyPenetration, stagedPenetration }
+  const firstFrame = stepStaging(pair, 1)
+  const first = getPair(firstFrame, pair[0].id, pair[1].id)
+  const firstSeparation = pairSeparation(first.a, first.b)
+  const impactFrame = stepStaging(pair, 10)
+  const impact = getPair(impactFrame, pair[0].id, pair[1].id)
+  const impactSeparation = pairSeparation(impact.a, impact.b)
+
+  assert(
+    firstSeparation <= sourceSeparation + 1e-10,
+    `first staging frame must not rewind outward: source=${sourceSeparation}, first=${firstSeparation}`,
+  )
+  assert(
+    impactSeparation <= firstSeparation + 1e-10,
+    `impact staging must not increase separation after contact: first=${firstSeparation}, impact=${impactSeparation}`,
+  )
+  assertClose(first.a.radius, pair[0].radius, 1e-12, 'small-small body A physical radius must not change')
+  assertClose(first.b.radius, pair[1].radius, 1e-12, 'small-small body B physical radius must not change')
+
+  return { sourceSeparation, firstSeparation, impactSeparation, presentationContact }
 }
 
-function testSmallNormalCorrectsAsymmetricallyWithoutMovingCom() {
+function testSmallNormalPreservesSourceGeometryAndCom() {
   const pair = makeContactPair({
     idPrefix: 'small-normal',
     radiusA: 0.018,
@@ -208,26 +205,20 @@ function testSmallNormalCorrectsAsymmetricallyWithoutMovingCom() {
   })
   const sourceCenter = centerOfMass(pair[0], pair[1])
   const velocity = centerVelocity(pair[0], pair[1])
+  const sourceSeparation = pairSeparation(pair[0], pair[1])
   const frame = stepStaging(pair, 1)
   const { a, b } = getPair(frame, pair[0].id, pair[1].id)
+  const stagedSeparation = pairSeparation(a, b)
 
-  assertPresentationOverlapBound(a, b, 'small-normal')
+  assert(
+    stagedSeparation <= sourceSeparation + 1e-10,
+    'small-normal first staging frame must not move the pair outward',
+  )
   const expectedCenter = add(sourceCenter, scale(velocity, STAGING_DT))
   const stagedCenter = centerOfMass(a, b)
   assertClose(stagedCenter.x, expectedCenter.x, 1e-10, 'small-normal COM x must stay continuous')
   assertClose(stagedCenter.y, expectedCenter.y, 1e-10, 'small-normal COM y must stay continuous')
   assertClose(stagedCenter.z, expectedCenter.z, 1e-10, 'small-normal COM z must stay continuous')
-
-  const physicalContact = pair[0].radius + pair[1].radius
-  const totalMass = pair[0].mass + pair[1].mass
-  const physicalA = expectedCenter.x - physicalContact * (pair[1].mass / totalMass)
-  const physicalB = expectedCenter.x + physicalContact * (pair[0].mass / totalMass)
-  const correctionA = Math.abs(a.position.x - physicalA)
-  const correctionB = Math.abs(b.position.x - physicalB)
-  assert(
-    correctionA > correctionB * 5,
-    'small-normal correction should move the low-mass small body much more than the normal primary',
-  )
 }
 
 function testNormalNormalKeepsLegacyGeometryEnvelope() {
@@ -240,7 +231,7 @@ function testNormalNormalKeepsLegacyGeometryEnvelope() {
   })
   const frame = stepStaging(pair, 10)
   const { a, b } = getPair(frame, pair[0].id, pair[1].id)
-  const distance = vectorLength(subtract(b.position, a.position))
+  const distance = pairSeparation(a, b)
   const physicalContact = pair[0].radius + pair[1].radius
   const maxLegacyOverlap = Math.min(pair[0].radius, pair[1].radius) * IMPACT_MAX_OVERLAP_RATIO
 
@@ -291,7 +282,7 @@ function testSolverIsolationKeepsPhysicalOutcome() {
   assert(
     baselineById.size === stagedById.size &&
       [...baselineById.keys()].every((id) => stagedById.has(id)),
-    'display-radius staging must not change the physical collision outcome/body set',
+    'display staging continuity must not change the physical collision outcome/body set',
   )
 
   for (const [id, expected] of baselineById) {
@@ -320,30 +311,37 @@ function testMovingCollisionPreservesPairMotionAndDirection() {
     closingSpeed: 0.28,
   })
   const sourceCenter = centerOfMass(pair[0], pair[1])
+  const sourceSeparation = pairSeparation(pair[0], pair[1])
   const frame = stepStaging(pair, 1)
   const { a, b } = getPair(frame, pair[0].id, pair[1].id)
   const stagedCenter = centerOfMass(a, b)
+  const stagedSeparation = pairSeparation(a, b)
   const expectedCenter = add(sourceCenter, scale(pairVelocity, STAGING_DT))
   const stagedNormal = normalize(subtract(b.position, a.position))
 
-  assertPresentationOverlapBound(a, b, 'moving-small')
+  assert(
+    stagedSeparation <= sourceSeparation + 1e-10,
+    'moving collision first staging frame must not rewind outward',
+  )
   assertClose(stagedCenter.x, expectedCenter.x, 1e-10, 'moving collision COM x must follow pair drift')
   assertClose(stagedCenter.y, expectedCenter.y, 1e-10, 'moving collision COM y must follow pair drift')
   assertClose(stagedCenter.z, expectedCenter.z, 1e-10, 'moving collision COM z must follow pair drift')
   assert(
     dot(stagedNormal, normal) > 0.999999999,
-    'moving collision display correction must preserve the collision direction',
+    'moving collision continuity clamp must preserve the collision direction',
   )
 }
 
-const smallSmallMetrics = testSmallSmallUsesRenderedContactDistance()
-testSmallNormalCorrectsAsymmetricallyWithoutMovingCom()
+const continuityMetrics = testSmallSmallPreservesOverlappingSourceContinuity()
+testSmallNormalPreservesSourceGeometryAndCom()
 testNormalNormalKeepsLegacyGeometryEnvelope()
 testSolverIsolationKeepsPhysicalOutcome()
 testMovingCollisionPreservesPairMotionAndDirection()
 
 console.log('collision presentation radius regression checks passed (5)')
 console.log(JSON.stringify({
-  smallSmallLegacyVisualPenetration: smallSmallMetrics.legacyPenetration,
-  smallSmallCorrectedVisualPenetration: smallSmallMetrics.stagedPenetration,
+  smallSmallSourceSeparation: continuityMetrics.sourceSeparation,
+  smallSmallFirstStagingSeparation: continuityMetrics.firstSeparation,
+  smallSmallImpactSeparation: continuityMetrics.impactSeparation,
+  smallSmallPresentationContact: continuityMetrics.presentationContact,
 }))

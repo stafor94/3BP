@@ -1,4 +1,5 @@
 import type { BodyState } from '../types'
+import { getCollisionSolidHandoffRenderBodies } from './collisionSolidHandoff'
 
 /**
  * Collision effect bodies are render instructions for the dedicated VFX layers.
@@ -7,8 +8,12 @@ import type { BodyState } from '../types'
  * spawned celestial object.
  *
  * Keep the physical simulation state untouched and expose only physical bodies
- * (including real collision fragments) to the ordinary body renderer.
+ * (including real collision fragments) to the ordinary body renderer. The
+ * collision solid handoff may add presentation-only source silhouettes after a
+ * physical 2->1 merge; those never re-enter the simulation/physics body array.
  */
 export function getCelestialBodyRenderBodies(bodies: BodyState[]) {
-  return bodies.filter((body) => body.bodyType !== 'effect')
+  return getCollisionSolidHandoffRenderBodies(
+    bodies.filter((body) => body.bodyType !== 'effect'),
+  )
 }

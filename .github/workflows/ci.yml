@@ -60,6 +60,10 @@ jobs:
         run: python scripts/productionCameraHandoffVisualRegression.py
       - name: Non-stellar destruction browser visual regression
         run: python scripts/nonStellarDestructionVisualRegression.py
+      - name: Small head-on collision artifact browser visual regression
+        run: python scripts/smallHeadOnCollisionArtifactVisualRegression.py
+      - name: Collision merge solid handoff browser visual regression
+        run: python scripts/collisionMergeHandoffVisualRegression.py
       - name: Survivor absorption browser visual regression
         run: python scripts/survivorAbsorptionVisualRegression.py
       - name: Absorption continuity browser visual regression
@@ -124,6 +128,22 @@ jobs:
         with:
           name: non-stellar-destruction-visual-regression
           path: non-stellar-destruction-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload small head-on collision artifact captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: small-head-on-collision-artifact-visual-regression
+          path: small-head-on-collision-artifact-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision merge handoff captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-merge-handoff-visual-regression
+          path: collision-merge-handoff-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload survivor absorption visual captures

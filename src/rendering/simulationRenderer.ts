@@ -17,6 +17,7 @@ import {
   getSimulationBodyPresentationRadius,
   MIN_BODY_RENDER_RADIUS,
 } from './bodyPresentationRadius'
+import { renderCollisionSolidHandoffFrame } from './collisionSolidHandoff'
 import { createFragmentGeometry } from './fragmentGeometry'
 import {
   getTrackingHandoffProgress,
@@ -1836,6 +1837,7 @@ export function createSimulationRenderer(
         trackedBody.position.z,
       )
     }
+    renderCollisionSolidHandoffFrame(scene, renderFrameSequence)
     renderer.render(scene, camera)
   }
 

@@ -608,6 +608,28 @@ function getCollisionPresentationContactDistance(a: BodyState, b: BodyState) {
   return getBodyPresentationRadius(a.radius) + getBodyPresentationRadius(b.radius)
 }
 
+function getBodySeparation(a: BodyState, b: BodyState) {
+  return Math.hypot(
+    b.position.x - a.position.x,
+    b.position.y - a.position.y,
+    b.position.z - a.position.z,
+  )
+}
+
+function getCollisionImpactContactDistance(a: BodyState, b: BodyState, overlap: number) {
+  const presentationTarget = Math.max(
+    0,
+    getCollisionPresentationContactDistance(a, b) - overlap,
+  )
+  if (!isNonStellarPair(a, b)) return presentationTarget
+
+  // Once a non-stellar transition starts, the source frame is the continuity
+  // boundary. Render-radius staging may compress farther inward, but it must
+  // never rewind an already-touching/overlapping pair back out toward the
+  // presentation-radius contact shell.
+  return Math.min(getBodySeparation(a, b), presentationTarget)
+}
+
 function getImpactDuration(a: BodyState, b: BodyState, mode: CollisionPresentationMode) {
   if (!isStellarPair(a, b)) return COLLISION_IMPACT_SIM_DURATION
   if (mode === 'merge') return STELLAR_MERGE_IMPACT_SIM_DURATION
@@ -817,12 +839,17 @@ function buildCollisionImpactFrame(transition: CollisionTransition) {
   const impactDuration = getImpactDuration(pair.bodyA, pair.bodyB, transition.mode)
   const progress = Math.min(1, Math.max(0, transition.elapsed / impactDuration))
   const overlap = getImpactOverlap(pair.bodyA, pair.bodyB, progress, transition.mode)
+  const impactContactDistance = getCollisionImpactContactDistance(
+    pair.bodyA,
+    pair.bodyB,
+    overlap,
+  )
   const impactPositions = getDriftedCollisionContactPositions(
     pair.bodyA,
     pair.bodyB,
     transition.elapsed,
-    overlap,
-    getCollisionPresentationContactDistance(pair.bodyA, pair.bodyB),
+    0,
+    impactContactDistance,
   )
 
   const nonStellarAbsorption =
