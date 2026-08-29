@@ -340,20 +340,20 @@ function testHeadOnSparkPresentationKeepsPhysicalMotion() {
     'head-on spark fixture must expose presentation geometry without changing physical direction')
 
   const profile = getCollisionEffectProfile(spark)
-  assertClose(profile.fadeAlpha, 0, 1e-12,
-    'very head-on collision spark must hide the directional body presentation at impact')
+  assert(profile.fadeAlpha >= 0.6 && profile.fadeAlpha <= 0.64,
+    'very head-on mass-bearing sparks must remain visibly owned by their actual physical positions')
   assertClose(profile.anisotropicStretch, 1, 1e-12,
-    'very head-on collision spark presentation must be isotropic before it is suppressed')
+    'very head-on collision spark presentation must stay isotropic instead of faking a directional streak')
   assertClose(profile.widthScale, 1, 1e-12,
     'very head-on collision spark presentation must remove narrow directional width')
   assertClose(profile.tailLength, 0, 1e-12,
     'very head-on collision spark presentation must remove the directional tail channel')
 
-  const fadedProfile = getCollisionEffectProfile({ ...spark, age: 0.6 })
-  assertClose(fadedProfile.fadeAlpha, 0, 1e-12,
-    'suppressed head-on spark must remain visually hidden while its mass-bearing BodyState persists')
+  const movingProfile = getCollisionEffectProfile({ ...spark, age: 0.2 })
+  assert(movingProfile.fadeAlpha >= 0.08,
+    'head-on physical spark must remain visible long enough for its real ejecta travel to read')
   assertClose(spark.lifetime ?? -1, LEGACY_SPARK_BODY_LIFETIME, 1e-12,
-    'visual suppression must not mutate the existing physical/effect BodyState lifetime')
+    'physical spark visibility must not mutate the existing physical/effect BodyState lifetime')
 
   const legacyVisualRadius = clamp(spark.radius * 0.62, 0.01, 0.025)
   const legacyVisibleUntil = LEGACY_SPARK_BODY_LIFETIME * (1 - Math.pow(0.002, 1 / 2.15))
@@ -393,7 +393,8 @@ function testHeadOnSparkPresentationKeepsPhysicalMotion() {
     legacyLargestAxis: legacyVisualRadius * 2 * LEGACY_SPARK_STRETCH,
     newLargestAxis: profile.visualRadius * 2 * Math.max(profile.anisotropicStretch, profile.widthScale),
     legacyVisibleUntil,
-    newVisibleUntil: 0,
+    impactFadeAlpha: profile.fadeAlpha,
+    movingFadeAlpha: movingProfile.fadeAlpha,
   }
 }
 
