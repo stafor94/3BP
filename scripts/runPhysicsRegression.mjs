@@ -16,6 +16,7 @@ const checks = [
   { source: 'nonStellarCollisionVfxRegression.ts', output: 'nonStellarCollisionVfxRegression.mjs' },
   { source: 'collisionPresentationArtifactRegression.ts', output: 'collisionPresentationArtifactRegression.mjs' },
   { source: 'collisionSolidHandoffRegression.ts', output: 'collisionSolidHandoffRegression.mjs' },
+  { source: 'collisionPenetrationRegression.ts', output: 'collisionPenetrationRegression.mjs' },
   { source: 'collisionMacroFragmentContinuityRegression.ts', output: 'collisionMacroFragmentContinuityRegression.mjs' },
   { source: 'collisionEffectRoutingRegression.ts', output: 'collisionEffectRoutingRegression.mjs' },
   { source: 'collisionHandoffRegression.ts', output: 'collisionHandoffRegression.mjs' },

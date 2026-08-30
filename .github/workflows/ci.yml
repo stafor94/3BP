@@ -68,6 +68,8 @@ jobs:
         run: python scripts/survivorAbsorptionVisualRegression.py
       - name: Absorption continuity browser visual regression
         run: python scripts/absorptionContinuityVisualRegression.py
+      - name: Collision penetration browser A/B regression
+        run: python scripts/collisionPenetrationVisualRegression.py
       - name: Actual disruption browser visual regression
         run: python scripts/actualDisruptionVisualRegression.py
       - name: Collision frame continuity browser visual regression
@@ -160,6 +162,14 @@ jobs:
         with:
           name: absorption-continuity-visual-regression
           path: absorption-continuity-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision penetration visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-penetration-visual-regression
+          path: collision-penetration-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload actual disruption visual captures
