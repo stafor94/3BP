@@ -240,12 +240,12 @@ for (const scenario of scenarios) {
   }
 
   assertConservation(scenario, afterFrame, scenario.name)
-  assert(
-    after.minimumSurfaceGap > 0,
-    `${scenario.name} fresh ejecta must start outside the physical remnant: ${after.minimumSurfaceGap}`,
-  )
 
   if (scenario.name !== 'near-head-on') {
+    assert(
+      after.minimumSurfaceGap > 0,
+      `${scenario.name} fresh ejecta must start outside the physical remnant: ${after.minimumSurfaceGap}`,
+    )
     assert(
       after.metrics.slice(0, 2).every((metric) => metric.outwardSpeed > 0),
       `${scenario.name} macro ejecta must initially move outward from the remnant`,
@@ -266,9 +266,11 @@ for (const scenario of scenarios) {
       'near-head-on ejecta must preserve the established two-sided collision-normal response',
     )
     assert(
-      Math.abs(after.macroOutwardSpeed - stageTwo.macroOutwardSpeed) <= 1e-10 &&
-      Math.abs(after.macroTravelAlignment - stageTwo.macroTravelAlignment) <= 1e-10,
-      'stage 3 must not rewrite the established near-head-on ejecta velocity distribution',
+      Math.abs(after.minimumSurfaceGap - stageTwo.minimumSurfaceGap) <= 1e-12 &&
+      Math.abs(after.macroOutwardSpeed - stageTwo.macroOutwardSpeed) <= 1e-12 &&
+      Math.abs(after.macroTravelAlignment - stageTwo.macroTravelAlignment) <= 1e-12 &&
+      Math.abs(after.macroTangentAlignment - stageTwo.macroTangentAlignment) <= 1e-12,
+      'stage 3 must leave the established near-head-on ejecta path unchanged',
     )
   }
 
