@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { resolveBodyDescendant } from '../collisionWatch'
 import { installBodyLighting, syncBodyLightingState } from '../rendering/bodyLighting'
+import {
+  isCollisionMacroFragmentRenderBody,
+} from '../rendering/collisionMacroFragmentContinuity'
 import { getCelestialBodyRenderBodies } from '../rendering/collisionEffectRouting'
 import {
   installCollisionVisualContinuity,
@@ -47,6 +50,11 @@ declare global {
 
 function isRetainableCollisionCameraBody(body: BodyState | undefined): body is BodyState {
   return Boolean(body && body.bodyType !== 'effect' && body.bodyType !== 'fragment')
+}
+
+function getLightingSyncBodies(physicalBodies: BodyState[], renderBodies: BodyState[]) {
+  const macroFragments = renderBodies.filter(isCollisionMacroFragmentRenderBody)
+  return macroFragments.length > 0 ? [...physicalBodies, ...macroFragments] : physicalBodies
 }
 
 export function SimulationView({
@@ -155,7 +163,7 @@ export function SimulationView({
     collisionWatchPairKey,
     collisionImpactObserved,
   }
-  syncBodyLightingState(bodies)
+  syncBodyLightingState(getLightingSyncBodies(bodies, renderBodies))
   syncStellarRemnantPresentationState(bodies, simulationTime)
   syncLiveCollisionVfxState(bodies)
   syncCollisionVisualContinuityState(bodies)
@@ -170,7 +178,10 @@ export function SimulationView({
     // Install last so collision VFX keeps owning its existing draw-path bridge.
     installLiveCollisionVfxBridge()
     installCollisionVisualContinuity()
-    syncBodyLightingState(liveBodiesRef.current)
+    syncBodyLightingState(getLightingSyncBodies(
+      liveBodiesRef.current,
+      renderStateRef.current.bodies,
+    ))
     syncStellarRemnantPresentationState(
       liveBodiesRef.current,
       renderStateRef.current.simulationTime,
