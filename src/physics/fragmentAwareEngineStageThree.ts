@@ -5,11 +5,13 @@ import {
   getFragmentPresentationRadius,
 } from '../rendering/bodyPresentationRadius'
 import type { BodyState, Vec3 } from '../types'
+import { getCollisionContactDistance } from './collisionContact'
 import { stepBodies as stepStageTwoBodies } from './fragmentAwareEngineStageTwo'
 
 const COLLISION_FLASH_NAME = 'Collision flash'
 const COLLISION_SPARK_NAME = 'Collision spark'
 const EPSILON = 1e-12
+const MIN_DIRECTIONAL_EJECTA_ESCAPE_SPEED_RATIO = 0.5
 
 type CollisionPair = {
   bodyA: BodyState
@@ -24,6 +26,7 @@ type EjectaGeometry = {
   contactPoint: Vec3
   headOn: number
   grazing: number
+  speedRatio: number
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -140,6 +143,11 @@ function getEjectaGeometry(pair: CollisionPair): EjectaGeometry {
     ? clamp(tangentialSpeed / relativeSpeed, 0, 1)
     : 0
   const headOn = Math.sqrt(Math.max(0, 1 - grazing * grazing))
+  const contactDistance = getCollisionContactDistance(impactor, target)
+  const escapeSpeed = Math.sqrt(
+    Math.max(0, (2 * (impactor.mass + target.mass)) / Math.max(contactDistance, 1e-6)),
+  )
+  const speedRatio = relativeSpeed / Math.max(escapeSpeed, 1e-6)
   const referenceAxis: Vec3 = Math.abs(outwardNormal.z) < 0.85
     ? { x: 0, y: 0, z: 1 }
     : { x: 0, y: 1, z: 0 }
@@ -159,6 +167,7 @@ function getEjectaGeometry(pair: CollisionPair): EjectaGeometry {
     contactPoint,
     headOn,
     grazing,
+    speedRatio,
   }
 }
 
@@ -303,12 +312,18 @@ function shapeDirectionalCollisionEjecta(
     getEffectiveBodyType(pair.bodyB) === 'star'
   ) return
 
+  const geometry = getEjectaGeometry(pair)
+  // A deeply sub-escape, low-severity contact is the existing gentle merge
+  // handoff case, not the destructive-ejecta problem Stage 3 targets. Preserve
+  // its solver spawn/centroid exactly instead of turning harmless merge sparks
+  // into a newly separated plume.
+  if (geometry.speedRatio < MIN_DIRECTIONAL_EJECTA_ESCAPE_SPEED_RATIO) return
+
   const ejecta = stepped.filter((body) => isPhysicalEjecta(body, pair))
   if (ejecta.length === 0) return
   const solids = getCollisionSolids(stepped, pair)
   if (solids.length === 0) return
 
-  const geometry = getEjectaGeometry(pair)
   const collisionCenterVelocity = getMassWeightedVelocity(
     [pair.bodyA, pair.bodyB],
     geometry.target.velocity,
