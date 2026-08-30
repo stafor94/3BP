@@ -10,6 +10,7 @@ export const SURVIVOR_RESPONSE_MAX_MASS_RATIO = 0.45
 export const SURVIVOR_RESPONSE_MIN_SPEED_RATIO = 0.35
 
 const EPSILON = 1e-12
+const STABLE_SOURCE_RADIUS_TOLERANCE = 0.995
 const BODY_VERTEX_MARKER = `    vObjectNormal = objectNormal;
     vec4 worldPosition = modelMatrix * vec4(revealPosition, 1.0);`
 
@@ -37,7 +38,6 @@ export type CollisionSurvivorResponseProfile = {
 }
 
 type ActiveSurvivorResponse = {
-  resultId: string
   startedAt: number
   source: BodyState
   partner: BodyState
@@ -50,6 +50,7 @@ let previousBodies: BodyState[] | null = null
 let lastSimulationTime = 0
 let currentBodiesById = new Map<string, BodyState>()
 let currentBodiesBySeed = new Map<number, BodyState>()
+let stableSourcesById = new Map<string, BodyState>()
 const activeResponses = new Map<string, ActiveSurvivorResponse>()
 
 function clamp(value: number, min: number, max: number) {
@@ -112,6 +113,23 @@ function cloneBody(body: BodyState): BodyState {
       ? [...body.trackingContinuationIds]
       : undefined,
   }
+}
+
+function isStableResponseSource(body: BodyState) {
+  return body.bodyType !== 'star' && body.bodyType !== 'effect' && body.bodyType !== 'fragment'
+}
+
+function updateStableSourceCache(bodies: BodyState[]) {
+  bodies.forEach((body) => {
+    if (!isStableResponseSource(body)) return
+    const cached = stableSourcesById.get(body.id)
+    // Stage 2 intentionally shrinks an absorbed body during penetration staging.
+    // Keep the last essentially-full-size contact state instead of allowing that
+    // staging radius to masquerade as the physical impactor size for Stage 4.
+    if (!cached || body.radius >= cached.radius * STABLE_SOURCE_RADIUS_TOLERANCE) {
+      stableSourcesById.set(body.id, cloneBody(body))
+    }
+  })
 }
 
 function getSimulationBodySeed(id: string) {
@@ -194,8 +212,11 @@ export function getCollisionSurvivorResponseProfile(
       0,
       1,
     )
+    // A contact-local dent of a few percent of survivor radius remains modest,
+    // but is large enough to read beside a ~27% radius impactor. The amplitude
+    // still comes entirely from measured size/energy/recoil evidence.
     baseCompression = clamp(
-      severity * (0.048 + headOn * 0.024),
+      severity * (0.09 + headOn * 0.045),
       0,
       0.06,
     )
@@ -203,7 +224,7 @@ export function getCollisionSurvivorResponseProfile(
       ? clamp(tangentialRecoilSpeed / recoilSpeed, 0, 1)
       : 0
     baseShear = clamp(
-      severity * grazing * (0.030 + tangentialRecoilShare * 0.018),
+      severity * grazing * (0.055 + tangentialRecoilShare * 0.03),
       0,
       0.04,
     )
@@ -275,6 +296,7 @@ function resetState() {
   previousBodies = null
   currentBodiesById = new Map()
   currentBodiesBySeed = new Map()
+  stableSourcesById = new Map()
 }
 
 export function syncCollisionSurvivorResponseState(
@@ -307,9 +329,11 @@ export function syncCollisionSurvivorResponseState(
     const partnerTransition = selectPartnerTransition(resultTransitions, responseTransition)
     if (!partnerTransition) return
 
+    const source = stableSourcesById.get(responseTransition.source.id) ?? responseTransition.source
+    const partner = stableSourcesById.get(partnerTransition.source.id) ?? partnerTransition.source
     const profile = getCollisionSurvivorResponseProfile(
-      responseTransition.source,
-      partnerTransition.source,
+      source,
+      partner,
       result,
       responseTransition.contactNormal,
       responseTransition.presentationHeadOn,
@@ -319,10 +343,9 @@ export function syncCollisionSurvivorResponseState(
     if (!profile.eligible || profile.baseCompression + profile.baseShear <= 1e-5) return
 
     activeResponses.set(resultId, {
-      resultId,
       startedAt: now,
-      source: cloneBody(responseTransition.source),
-      partner: cloneBody(partnerTransition.source),
+      source: cloneBody(source),
+      partner: cloneBody(partner),
       contactNormal: { ...responseTransition.contactNormal },
       presentationHeadOn: responseTransition.presentationHeadOn,
     })
@@ -332,6 +355,10 @@ export function syncCollisionSurvivorResponseState(
   activeResponses.forEach((_response, bodyId) => {
     if (!activeIds.has(bodyId)) activeResponses.delete(bodyId)
   })
+  stableSourcesById.forEach((_body, bodyId) => {
+    if (!activeIds.has(bodyId)) stableSourcesById.delete(bodyId)
+  })
+  updateStableSourceCache(bodies)
 
   currentBodiesById = new Map(bodies.map((body) => [body.id, body]))
   currentBodiesBySeed = new Map(
