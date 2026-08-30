@@ -12,6 +12,7 @@ const COLLISION_FLASH_NAME = 'Collision flash'
 const COLLISION_SPARK_NAME = 'Collision spark'
 const EPSILON = 1e-12
 const MIN_DIRECTIONAL_EJECTA_ESCAPE_SPEED_RATIO = 0.5
+const MAX_DIRECTIONAL_EJECTA_HEAD_ON = 0.82
 
 type CollisionPair = {
   bodyA: BodyState
@@ -248,11 +249,6 @@ function getDirectionalEjectaVelocity(
   const speed = length(relativeVelocity)
   if (speed <= EPSILON) return { ...body.velocity }
 
-  // Very head-on collisions already have a tested, conservation-aware two-sided
-  // normal ejection pattern from the core solver. Stage 3 must not rewrite that
-  // established physical response; it only repairs contact-side spawn clearance.
-  if (geometry.headOn > 0.82) return { ...body.velocity }
-
   const rawPlane = normalize(
     projectToPlane(relativeVelocity, geometry.outwardNormal),
     geometry.forwardTangent,
@@ -313,11 +309,15 @@ function shapeDirectionalCollisionEjecta(
   ) return
 
   const geometry = getEjectaGeometry(pair)
-  // A deeply sub-escape, low-severity contact is the existing gentle merge
-  // handoff case, not the destructive-ejecta problem Stage 3 targets. Preserve
-  // its solver spawn/centroid exactly instead of turning harmless merge sparks
-  // into a newly separated plume.
-  if (geometry.speedRatio < MIN_DIRECTIONAL_EJECTA_ESCAPE_SPEED_RATIO) return
+  // Deeply sub-escape contacts are the existing gentle merge handoff, while
+  // strongly head-on contacts already have a tested two-sided normal ejecta
+  // response and presentation contract. Stage 3 is intentionally limited to
+  // the oblique/grazing destructive paths where impactor momentum lineage was
+  // being lost and fresh ejecta could start inside the remnant surface.
+  if (
+    geometry.speedRatio < MIN_DIRECTIONAL_EJECTA_ESCAPE_SPEED_RATIO ||
+    geometry.headOn > MAX_DIRECTIONAL_EJECTA_HEAD_ON
+  ) return
 
   const ejecta = stepped.filter((body) => isPhysicalEjecta(body, pair))
   if (ejecta.length === 0) return
