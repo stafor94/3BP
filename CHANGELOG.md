@@ -286,7 +286,7 @@
 - 흡수 충돌에서 피흡수체가 접촉면 근처에서 빠르게 작아지며 사라지고 생존 remnant가 같은 순간 최종 크기로 튀어, 실제로 질량이 넘어가기보다 한 천체가 교체되는 것처럼 보이던 전환을 자연스럽게 연결했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial-mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
+- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
 
 ## [0.19.9] - 2026-08-27
 
@@ -298,7 +298,7 @@
 - 모든 collision effect kind가 일반 천체 renderer에서 제외되면서 실제 remnant와 물리 fragment는 그대로 유지되고 원본 simulation state를 변경하지 않는지 검증하는 render-routing 회귀 체크를 추가했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 조건, collision prediction, 50% initial-mass tracking rule, tracking lineage semantics, remnant presentation, trail 정책, camera/tracking/collision camera 로직은 변경하지 않았습니다.
+- collision physics, merge/disruption 조건, collision prediction, 50% initial mass tracking rule, tracking lineage semantics, remnant presentation, trail 정책, camera/tracking/collision camera 로직은 변경하지 않았습니다.
 
 ## [0.19.8] - 2026-08-27
 
