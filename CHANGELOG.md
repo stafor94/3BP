@@ -6,6 +6,20 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.20.1] - 2026-08-30
+
+### Fixed
+- 비항성 충돌의 실제 mass-bearing ejecta가 surviving solid 표면에 붙거나 뭉쳐 보이지 않도록 실제 생성 위치와 방출 방향을 collision geometry 기준으로 조정했습니다.
+- ejecta momentum 변화량을 survivor/remnant의 실제 velocity에 보정해 represented linear momentum conservation을 유지했습니다.
+- post-solver solid handoff timing을 첫 실제 renderer frame 기준으로 시작해 source → remnant/absorbed 전환의 첫 visible-frame jump를 줄였습니다.
+- 작은 high-head-on 충돌에서 physical spark가 과도한 표시 크기로 뭉치거나 세로 기둥처럼 보이지 않도록 fragment-scale presentation을 적용했습니다.
+
+### Changed
+- non-stellar destruction browser regression을 synthetic fragment fixture 대신 실제 `fragmentAwareEngine.stepBodies()` 기반 production solver fixture로 전환했습니다.
+
+### Added
+- 동일 초기 상태에서 physical collision ejecta state의 deterministic replay와 minimum spawn clearance를 검증하는 regression을 추가했습니다.
+
 ## [0.20.0] - 2026-08-29
 
 ### Added

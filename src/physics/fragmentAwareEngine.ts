@@ -17,7 +17,7 @@ const COLLISION_IMPACT_SIM_DURATION = 0.024
 const STELLAR_HIT_RUN_IMPACT_SIM_DURATION = 0.018
 const STELLAR_MERGE_IMPACT_SIM_DURATION = 0.024
 const STELLAR_PARTIAL_IMPACT_SIM_DURATION = 0.021
-const IMPACT_MAX_OVERLAP_RATIO = 0.06
+const IMPACT_MAX_OVERLAP_RATIO = 0.025
 const STELLAR_HIT_RUN_MAX_OVERLAP_RATIO = 0.06
 const STELLAR_MERGE_MAX_OVERLAP_RATIO = 0.1
 const STELLAR_PARTIAL_MAX_OVERLAP_RATIO = 0.08
@@ -169,7 +169,12 @@ function finalizePhysicalBodies(input: BodyState[], stepped: BodyState[], dt: nu
 
 function advancePhysicalBodies(input: BodyState[], dt: number) {
   const stepped = stepPhysicsBodies(input, dt)
-  const withLocalizedAbsorptionEjecta = localizeExtremeAbsorptionEjecta(input, stepped, dt)
+  const withPhysicalEjectaMotion = shapeNonStellarCollisionEjecta(input, stepped, dt)
+  const withLocalizedAbsorptionEjecta = localizeExtremeAbsorptionEjecta(
+    input,
+    withPhysicalEjectaMotion,
+    dt,
+  )
   const withMassCorrection = normalizeExtremeMassRatioAbsorption(
     input,
     withLocalizedAbsorptionEjecta,
@@ -443,6 +448,252 @@ function normalizeDirection(value: Vec3, fallback: Vec3): Vec3 {
     }
   }
   return { x: 1, y: 0, z: 0 }
+}
+
+function getCollisionSolidSurvivors(
+  bodies: BodyState[],
+  bodyA: BodyState,
+  bodyB: BodyState,
+) {
+  return bodies.filter((body) =>
+    body.mass > 0 &&
+    body.bodyType !== 'fragment' &&
+    body.bodyType !== 'effect' &&
+    (
+      bodyCarriesCollisionLineage(body, bodyA.id) ||
+      bodyCarriesCollisionLineage(body, bodyB.id) ||
+      body.id === bodyA.id ||
+      body.id === bodyB.id
+    ),
+  )
+}
+
+function getEjectaClearanceDistance(
+  contactPoint: Vec3,
+  direction: Vec3,
+  ejectaRadius: number,
+  sourceRadius: number,
+  survivors: BodyState[],
+) {
+  // The solver emits debris at topology handoff after the staged contact bridge.
+  // Keep actual mass-bearing ejecta outside both the physical survivor and the
+  // non-stellar visibility floor, so tiny-body debris cannot remain physically
+  // separated yet still read as a renderer-glued surface artifact.
+  let distance = sourceRadius * 0.5
+  const margin = sourceRadius * 0.18
+
+  survivors.forEach((survivor) => {
+    const toCenter = {
+      x: survivor.position.x - contactPoint.x,
+      y: survivor.position.y - contactPoint.y,
+      z: survivor.position.z - contactPoint.z,
+    }
+    const projected = toCenter.x * direction.x +
+      toCenter.y * direction.y +
+      toCenter.z * direction.z
+    const centerDistanceSquared =
+      toCenter.x * toCenter.x +
+      toCenter.y * toCenter.y +
+      toCenter.z * toCenter.z
+    const perpendicularSquared = Math.max(
+      0,
+      centerDistanceSquared - projected * projected,
+    )
+    const visibleSurvivorRadius = getBodyPresentationRadius(survivor.radius)
+    const clearanceRadius = Math.max(survivor.radius, visibleSurvivorRadius) +
+      ejectaRadius + margin
+    const clearanceRadiusSquared = clearanceRadius * clearanceRadius
+    if (perpendicularSquared >= clearanceRadiusSquared) return
+
+    const exitDistance = projected + Math.sqrt(
+      Math.max(0, clearanceRadiusSquared - perpendicularSquared),
+    )
+    distance = Math.max(distance, exitDistance)
+  })
+
+  return Math.min(distance, sourceRadius * 2.6 + ejectaRadius)
+}
+
+function shapeNonStellarCollisionEjecta(
+  input: BodyState[],
+  stepped: BodyState[],
+  dt: number,
+): BodyState[] {
+  const collisionPair = findNewCollisionPair(input, stepped, dt)
+  if (!collisionPair) return stepped
+
+  const { bodyA, bodyB } = collisionPair
+  if (
+    getEffectiveBodyType(bodyA) === 'star' ||
+    getEffectiveBodyType(bodyB) === 'star'
+  ) return stepped
+
+  const ejecta = stepped.filter((body) =>
+    body.mass > 0 &&
+    (body.name === 'Debris' || body.name === COLLISION_SPARK_NAME) &&
+    (body.bodyType === 'fragment' || body.bodyType === 'effect') &&
+    isBodyDescendedFrom(body.id, bodyA.id) &&
+    isBodyDescendedFrom(body.id, bodyB.id),
+  )
+  if (ejecta.length === 0) return stepped
+
+  const delta = {
+    x: bodyB.position.x - bodyA.position.x,
+    y: bodyB.position.y - bodyA.position.y,
+    z: bodyB.position.z - bodyA.position.z,
+  }
+  const relativeVelocity = {
+    x: bodyB.velocity.x - bodyA.velocity.x,
+    y: bodyB.velocity.y - bodyA.velocity.y,
+    z: bodyB.velocity.z - bodyA.velocity.z,
+  }
+  const normal = normalizeDirection(delta, relativeVelocity)
+  const reference = Math.abs(normal.z) < 0.85
+    ? { x: 0, y: 0, z: 1 }
+    : { x: 0, y: 1, z: 0 }
+  const tangent = normalizeDirection({
+    x: reference.y * normal.z - reference.z * normal.y,
+    y: reference.z * normal.x - reference.x * normal.z,
+    z: reference.x * normal.y - reference.y * normal.x,
+  }, { x: -normal.y, y: normal.x, z: 0 })
+  const surfaceA = {
+    x: bodyA.position.x + normal.x * bodyA.radius,
+    y: bodyA.position.y + normal.y * bodyA.radius,
+    z: bodyA.position.z + normal.z * bodyA.radius,
+  }
+  const surfaceB = {
+    x: bodyB.position.x - normal.x * bodyB.radius,
+    y: bodyB.position.y - normal.y * bodyB.radius,
+    z: bodyB.position.z - normal.z * bodyB.radius,
+  }
+  const contactPoint = {
+    x: (surfaceA.x + surfaceB.x) * 0.5,
+    y: (surfaceA.y + surfaceB.y) * 0.5,
+    z: (surfaceA.z + surfaceB.z) * 0.5,
+  }
+  const centerVelocity = getCenterVelocity(bodyA, bodyB)
+  const geometry = getTrackingCollisionGeometry(bodyA, bodyB)
+  const sourceRadius = Math.max(bodyA.radius, bodyB.radius, 1e-6)
+  const ejectaIds = new Set(ejecta.map((body) => body.id))
+  const collisionSolids = getCollisionSolidSurvivors(stepped, bodyA, bodyB)
+  const beforeMomentum = ejecta.reduce((sum, body) => ({
+    x: sum.x + body.velocity.x * body.mass,
+    y: sum.y + body.velocity.y * body.mass,
+    z: sum.z + body.velocity.z * body.mass,
+  }), { x: 0, y: 0, z: 0 })
+
+  const shaped = stepped.map((body) => {
+    if (!ejectaIds.has(body.id)) return body
+
+    const velocityDelta = {
+      x: body.velocity.x - centerVelocity.x,
+      y: body.velocity.y - centerVelocity.y,
+      z: body.velocity.z - centerVelocity.z,
+    }
+    const relativeSpeed = Math.hypot(velocityDelta.x, velocityDelta.y, velocityDelta.z)
+    if (relativeSpeed <= 1e-10) return body
+
+    const normalProjection = velocityDelta.x * normal.x +
+      velocityDelta.y * normal.y +
+      velocityDelta.z * normal.z
+    const match = body.id.match(/-(\d+)$/)
+    const ordinal = match ? Number(match[1]) : 0
+    const sideSign = Math.abs(normalProjection) > relativeSpeed * 0.18
+      ? Math.sign(normalProjection)
+      : ordinal % 2 === 0 ? 1 : -1
+    const outward = {
+      x: normal.x * sideSign,
+      y: normal.y * sideSign,
+      z: normal.z * sideSign,
+    }
+    const lateralVelocity = {
+      x: velocityDelta.x - normal.x * normalProjection,
+      y: velocityDelta.y - normal.y * normalProjection,
+      z: velocityDelta.z - normal.z * normalProjection,
+    }
+    const lateralSign = (
+      lateralVelocity.x * tangent.x +
+      lateralVelocity.y * tangent.y +
+      lateralVelocity.z * tangent.z
+    ) < 0 ? -1 : 1
+    const lateral = normalizeDirection(lateralVelocity, {
+      x: tangent.x * lateralSign,
+      y: tangent.y * lateralSign,
+      z: tangent.z * lateralSign,
+    })
+    const outwardWeight = geometry.headOn > 0.72
+      ? 0.82
+      : geometry.grazing > 0.72
+        ? 0.46
+        : 0.66
+    const direction = normalizeDirection({
+      x: outward.x * outwardWeight + lateral.x * (1 - outwardWeight),
+      y: outward.y * outwardWeight + lateral.y * (1 - outwardWeight),
+      z: outward.z * outwardWeight + lateral.z * (1 - outwardWeight),
+    }, outward)
+    const spawnDistance = getEjectaClearanceDistance(
+      contactPoint,
+      direction,
+      body.radius,
+      sourceRadius,
+      collisionSolids,
+    )
+    const velocity = {
+      x: centerVelocity.x + direction.x * relativeSpeed,
+      y: centerVelocity.y + direction.y * relativeSpeed,
+      z: centerVelocity.z + direction.z * relativeSpeed,
+    }
+
+    return {
+      ...body,
+      position: {
+        x: contactPoint.x + direction.x * spawnDistance,
+        y: contactPoint.y + direction.y * spawnDistance,
+        z: contactPoint.z + direction.z * spawnDistance,
+      },
+      velocity,
+      effectVisual: body.effectVisual
+        ? { ...body.effectVisual, direction: { ...direction }, normal: { ...normal } }
+        : body.effectVisual,
+    }
+  })
+
+  const afterMomentum = shaped
+    .filter((body) => ejectaIds.has(body.id))
+    .reduce((sum, body) => ({
+      x: sum.x + body.velocity.x * body.mass,
+      y: sum.y + body.velocity.y * body.mass,
+      z: sum.z + body.velocity.z * body.mass,
+    }), { x: 0, y: 0, z: 0 })
+  const momentumDelta = {
+    x: afterMomentum.x - beforeMomentum.x,
+    y: afterMomentum.y - beforeMomentum.y,
+    z: afterMomentum.z - beforeMomentum.z,
+  }
+  const survivorIds = new Set(collisionSolids.map((body) => body.id))
+  const survivorMass = shaped.reduce(
+    (sum, body) => survivorIds.has(body.id) ? sum + body.mass : sum,
+    0,
+  )
+  if (survivorMass <= 1e-12) return shaped
+
+  const correction = {
+    x: -momentumDelta.x / survivorMass,
+    y: -momentumDelta.y / survivorMass,
+    z: -momentumDelta.z / survivorMass,
+  }
+  return shaped.map((body) => (
+    survivorIds.has(body.id)
+      ? {
+          ...body,
+          velocity: {
+            x: body.velocity.x + correction.x,
+            y: body.velocity.y + correction.y,
+            z: body.velocity.z + correction.z,
+          },
+        }
+      : body
+  ))
 }
 
 function localizeExtremeAbsorptionEjecta(

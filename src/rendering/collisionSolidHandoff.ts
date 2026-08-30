@@ -17,7 +17,7 @@ type ActiveSolidHandoff = {
   absorbed: BodyState[]
   initialResultPosition: Vec3
   result: BodyState
-  startedAt: number
+  startedAt: number | null
 }
 
 type HandoffSample = {
@@ -155,7 +155,7 @@ function groupTopologyTransitions(transitions: CollisionVisualTransition[]) {
   return grouped
 }
 
-function beginHandoffs(previous: BodyState[], current: BodyState[], now: number) {
+function beginHandoffs(previous: BodyState[], current: BodyState[]) {
   const currentById = new Map(current.map((body) => [body.id, body]))
   const grouped = groupTopologyTransitions(findCollisionVisualTransitions(previous, current))
 
@@ -182,7 +182,10 @@ function beginHandoffs(previous: BodyState[], current: BodyState[], now: number)
       absorbed: absorbedTransitions.map((transition) => cloneBody(transition.source)),
       initialResultPosition: { ...result.position },
       result: cloneBody(result),
-      startedAt: now,
+      // Do not start the visible handoff clock while React is only routing body
+      // data. A delayed WebGL frame must still render the source-continuous first
+      // frame instead of skipping ahead before anything was presented onscreen.
+      startedAt: null,
     })
   })
 }
@@ -194,7 +197,7 @@ function retireAbsorbedPresentation(handoff: ActiveSolidHandoff) {
 }
 
 function syncHandoffs(bodies: BodyState[], now: number) {
-  if (previousBodies) beginHandoffs(previousBodies, bodies, now)
+  if (previousBodies) beginHandoffs(previousBodies, bodies)
 
   const currentById = new Map(bodies.map((body) => [body.id, body]))
   activeHandoffs.forEach((handoff, resultId) => {
@@ -205,7 +208,10 @@ function syncHandoffs(bodies: BodyState[], now: number) {
       return
     }
     handoff.result = cloneBody(result)
-    if (now - handoff.startedAt > COLLISION_SOLID_HANDOFF_DURATION_MS + 100) {
+    if (
+      handoff.startedAt !== null &&
+      now - handoff.startedAt > COLLISION_SOLID_HANDOFF_DURATION_MS + 100
+    ) {
       retireAbsorbedPresentation(handoff)
       activeHandoffs.delete(resultId)
     }
@@ -214,7 +220,9 @@ function syncHandoffs(bodies: BodyState[], now: number) {
 }
 
 function sampleHandoff(handoff: ActiveSolidHandoff, now: number): HandoffSample {
-  const elapsedMs = Math.max(0, now - handoff.startedAt)
+  const elapsedMs = handoff.startedAt === null
+    ? 0
+    : Math.max(0, now - handoff.startedAt)
   const progress = smooth01(elapsedMs / Math.max(1, COLLISION_SOLID_HANDOFF_DURATION_MS))
   const resultPosition = handoff.result.position
   const resultDrift = subtract(resultPosition, handoff.initialResultPosition)
@@ -253,7 +261,10 @@ export function sampleCollisionSolidHandoffRenderFrame(
   const telemetry: Record<string, CollisionSolidHandoffTelemetry> = {}
 
   activeHandoffs.forEach((handoff, resultId) => {
-    if (now - handoff.startedAt >= COLLISION_SOLID_HANDOFF_DURATION_MS) {
+    if (
+      handoff.startedAt !== null &&
+      now - handoff.startedAt >= COLLISION_SOLID_HANDOFF_DURATION_MS
+    ) {
       retireAbsorbedPresentation(handoff)
       activeHandoffs.delete(resultId)
       return
@@ -382,6 +393,13 @@ export function renderCollisionSolidHandoffFrame(
 ) {
   if (activeHandoffs.size === 0 && retiredPresentationSeeds.size === 0) return null
 
+  // The handoff becomes visible only when renderer meshes are actually sampled.
+  // Anchor elapsed time here so a delayed first frame cannot turn routing delay
+  // into an apparent body->remnant position jump.
+  activeHandoffs.forEach((handoff) => {
+    if (handoff.startedAt === null) handoff.startedAt = now
+  })
+
   const frame = sampleCollisionSolidHandoffRenderFrame(now)
   const overridesBySeed = new Map<string, {
     bodyId: string
@@ -418,7 +436,10 @@ export function getCollisionSolidHandoffRenderBodies(bodies: BodyState[]) {
 
   const rendered = bodies.map((body) => {
     const handoff = activeHandoffs.get(body.id)
-    if (!handoff || now - handoff.startedAt > COLLISION_SOLID_HANDOFF_DURATION_MS) return body
+    if (
+      !handoff ||
+      (handoff.startedAt !== null && now - handoff.startedAt > COLLISION_SOLID_HANDOFF_DURATION_MS)
+    ) return body
     const sample = sampleHandoff(handoff, now)
     return {
       ...body,
@@ -429,7 +450,10 @@ export function getCollisionSolidHandoffRenderBodies(bodies: BodyState[]) {
   const renderedIds = new Set(rendered.map((body) => body.id))
 
   activeHandoffs.forEach((handoff) => {
-    if (now - handoff.startedAt > COLLISION_SOLID_HANDOFF_DURATION_MS) return
+    if (
+      handoff.startedAt !== null &&
+      now - handoff.startedAt > COLLISION_SOLID_HANDOFF_DURATION_MS
+    ) return
     const sample = sampleHandoff(handoff, now)
     sample.absorbed.forEach(({ source, position }) => {
       if (renderedIds.has(source.id)) return

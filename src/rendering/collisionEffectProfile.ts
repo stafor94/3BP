@@ -1,6 +1,10 @@
 import * as THREE from 'three'
 import type { BodyState, EffectVisualKind } from '../types'
-import { getBodyPresentationRadius, MIN_BODY_RENDER_RADIUS } from './bodyPresentationRadius'
+import {
+  getBodyPresentationRadius,
+  MIN_BODY_RENDER_RADIUS,
+  MIN_FRAGMENT_RENDER_RADIUS,
+} from './bodyPresentationRadius'
 
 export type CollisionEffectProfile = {
   kind: EffectVisualKind
@@ -64,30 +68,6 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     // Synthetic overlap flashes build toward contact. Physical stellar flashes
     // start at the impact peak. Solid-body flashes stay compact and broad so an
     // impact reads as a local burst instead of a white beam across the survivor.
-    const syntheticBuild = syntheticStellar ? smooth01(progress / 0.72) : 0
-    const rise = syntheticStellar
-      ? 0.14 + syntheticBuild * 0.86
-      : physicalStellar
-        ? 1
-        : 0.56 + 0.44 * smooth01(progress / 0.055)
-    const peakHoldProgress = physicalStellar ? 0.1 : 0.16
-    const postPeakProgress = clamp(
-      (progress - peakHoldProgress) / Math.max(1 - peakHoldProgress, 1e-6),
-      0,
-      1,
-    )
-    const decay = syntheticStellar
-      ? 1
-      : progress <= peakHoldProgress
-        ? 1
-        : Math.pow(1 - postPeakProgress, physicalStellar ? 3.55 : 3.2)
-    const outcomeBrightnessBoost = physicalStellar
-      ? stellarOutcome === 'merge'
-        ? 1.1
-        : stellarOutcome === 'partialDisruption'
-          ? 1.05
-          : 1
-      : 1
     const rawStretch = visual?.stretch ?? (physicalStellar ? 2.75 : 2.55)
     const rawWidth = visual?.widthScale ?? (physicalStellar ? 0.48 : 0.42)
     const legacySolidFlashRadius = clamp(body.radius * 0.32, 0.038, 0.082)
@@ -99,16 +79,46 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       : Math.min(legacySolidFlashRadius, sourcePresentationRadius * 0.98)
     // The physics contact-flash width is still useful presentation metadata:
     // <= 0.33 corresponds to the same sufficiently head-on range that suppresses
-    // directional sparks. Keep this renderer-only so collision staging/physics do
-    // not gain another C-track branch.
+    // directional spark shape. Keep this renderer-only so collision staging/physics
+    // do not gain another C-track branch.
     const smallHeadOnSolidFlash = !stellar &&
       visual?.sourceMaxRadius !== undefined &&
       Math.abs(visual.sourceMaxRadius) <= SMALL_HEAD_ON_CONTACT_FLASH_SOURCE_RADIUS_MAX &&
       rawWidth <= SMALL_HEAD_ON_CONTACT_FLASH_WIDTH_MAX
+    // Tiny head-on collisions spend much longer in wall-clock observation than
+    // in simulation time. Let the compact impact flash finish early enough that
+    // the real mass-bearing ejecta can become the visible owner of the event.
+    const contactProgress = smallHeadOnSolidFlash
+      ? clamp(age / Math.max(duration * 0.25, 1e-6), 0, 1)
+      : progress
+    const syntheticBuild = syntheticStellar ? smooth01(contactProgress / 0.72) : 0
+    const rise = syntheticStellar
+      ? 0.14 + syntheticBuild * 0.86
+      : physicalStellar
+        ? 1
+        : 0.56 + 0.44 * smooth01(contactProgress / 0.055)
+    const peakHoldProgress = physicalStellar ? 0.1 : 0.16
+    const postPeakProgress = clamp(
+      (contactProgress - peakHoldProgress) / Math.max(1 - peakHoldProgress, 1e-6),
+      0,
+      1,
+    )
+    const decay = syntheticStellar
+      ? 1
+      : contactProgress <= peakHoldProgress
+        ? 1
+        : Math.pow(1 - postPeakProgress, physicalStellar ? 3.55 : 3.2)
+    const outcomeBrightnessBoost = physicalStellar
+      ? stellarOutcome === 'merge'
+        ? 1.1
+        : stellarOutcome === 'partialDisruption'
+          ? 1.05
+          : 1
+      : 1
 
     return {
       kind,
-      progress,
+      progress: contactProgress,
       fadeAlpha: rise * decay,
       baseOpacity: syntheticStellar
         ? 0.72
@@ -120,7 +130,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       innerGlow: syntheticStellar ? 0.48 : physicalStellar ? 0.72 : 0.68,
       outerGlow: syntheticStellar ? 0.18 : physicalStellar ? 0.22 : 0.14,
       visualRadius: syntheticStellar
-        ? clamp(body.radius * (0.76 + progress * 0.14), 0.05, 0.13)
+        ? clamp(body.radius * (0.76 + contactProgress * 0.14), 0.05, 0.13)
         : physicalStellar
           ? clamp(
               body.radius * (stellarOutcome === 'merge' ? 0.88 : stellarOutcome === 'hitAndRun' ? 0.72 : 0.8),
@@ -130,10 +140,14 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           : solidFlashRadius,
       anisotropicStretch: stellar
         ? clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : 3.05)
-        : clamp(rawStretch, 1.18, 1.45),
+        : smallHeadOnSolidFlash
+          ? 1
+          : clamp(rawStretch, 1.18, 1.45),
       widthScale: stellar
         ? clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66)
-        : clamp(rawWidth, 0.86, 1.00),
+        : smallHeadOnSolidFlash
+          ? 1
+          : clamp(rawWidth, 0.86, 1.00),
       // Negative tail is a renderer-local sentinel for compact solid-body masks.
       // -2 selects the radial small/high-head-on burst with no directional ridge;
       // -1 preserves the existing compact directional mask for other collisions.
@@ -151,7 +165,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           ? (visual?.brightness ?? 2.08) * outcomeBrightnessBoost
           : clamp(visual?.brightness ?? 1.28, 0, 1.5),
       turbulence: visual?.turbulence ?? (physicalStellar ? 0.72 : 0.2),
-      cooling: syntheticStellar ? progress * 0.1 : smooth01(progress),
+      cooling: syntheticStellar ? contactProgress * 0.1 : smooth01(contactProgress),
     }
   }
 
@@ -326,10 +340,9 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const hasGeometry = visual?.headOn !== undefined || visual?.grazing !== undefined
   const headOn = hasGeometry ? clamp(visual?.headOn ?? 0, 0, 1) : 0
   const compactSplash = hasGeometry ? smooth01((headOn - 0.62) / 0.3) : 0
-  // Once the impact is nearly head-on, the physical ±tangent ejecta still
-  // exists, but its directional spark silhouette hands visual ownership back to
-  // the contact flash. This prevents two real ejecta bodies from reading as a
-  // bright axial pillar while preserving oblique/grazing directional sparks.
+  // Nearly head-on small-body ejecta now leaves the solver along ±collision normal.
+  // Keep those mass-bearing sparks compact/isotropic so they do not become fake
+  // directional streaks, but do not hide the actual physical ejecta motion.
   const smallNonStellarSpark = hasGeometry &&
     visual?.sourceMaxRadius !== undefined &&
     visual.sourceMaxRadius <= MIN_BODY_RENDER_RADIUS
@@ -338,6 +351,9 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     : hasGeometry
       ? smooth01((headOn - 0.86) / 0.1)
       : 0
+  const visibilityScale = smallNonStellarSpark
+    ? THREE.MathUtils.lerp(1, 0.62, directionalSuppression)
+    : 1 - directionalSuppression
   const visualDuration = hasGeometry
     ? Math.max(0.42, duration * (1 - compactSplash * 0.71))
     : duration
@@ -356,15 +372,18 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const compactTail = hasGeometry
     ? clamp(rawSparkTail * (1 - compactSplash * 0.78), 0.035, 0.22)
     : rawSparkTail
+  const sparkVisualRadius = smallNonStellarSpark && headOn >= 0.86
+    ? clamp(body.radius * 0.72, MIN_FRAGMENT_RENDER_RADIUS, 0.012)
+    : clamp(body.radius * 0.62, 0.01, 0.025)
 
   return {
     kind,
     progress: sparkProgress,
-    fadeAlpha: decay * (1 - directionalSuppression),
+    fadeAlpha: decay * visibilityScale,
     baseOpacity: 0.54 * (1 - compactSplash * 0.12),
     innerGlow: 0.5 * (1 - compactSplash * 0.18),
     outerGlow: 0.08 * (1 - compactSplash * 0.35),
-    visualRadius: clamp(body.radius * 0.62, 0.01, 0.025),
+    visualRadius: sparkVisualRadius,
     anisotropicStretch: THREE.MathUtils.lerp(compactStretch, 1, directionalSuppression),
     widthScale: THREE.MathUtils.lerp(compactWidth, 1, directionalSuppression),
     tailLength: compactTail * (1 - directionalSuppression),

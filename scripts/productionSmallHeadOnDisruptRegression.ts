@@ -13,6 +13,7 @@ import type { BodyState, Vec3 } from '../src/types'
 const A_ID = 'production-small-head-on-a'
 const B_ID = 'production-small-head-on-b'
 const DT = 0.0015
+const MIN_VISIBLE_EJECTA_GAP_RATIO = 0.16
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -71,9 +72,16 @@ resetCollisionSolidHandoffState()
 const initial = makeFixture()
 const initialMass = initial.reduce((sum, body) => sum + body.mass, 0)
 const initialMomentum = momentum(initial)
+const initialCenterVelocity = {
+  x: initialMomentum.x / initialMass,
+  y: initialMomentum.y / initialMass,
+  z: initialMomentum.z / initialMass,
+}
 const physicalContact = initial[0].radius + initial[1].radius
 const presentationContact = getBodyPresentationRadius(initial[0].radius) +
   getBodyPresentationRadius(initial[1].radius)
+const minimumVisibleEjectaGap = Math.max(initial[0].radius, initial[1].radius) *
+  MIN_VISIBLE_EJECTA_GAP_RATIO
 let bodies = initial
 let previousPresentedSeparation: number | null = null
 let lastSources: BodyState[] | null = null
@@ -137,8 +145,54 @@ const sparks = resolved.filter((body) => body.bodyType === 'effect' && body.name
 assert(sparks.length > 0, 'production path must expose the real tiny ejecta as collision sparks')
 assert(sparks.every((spark) => spark.effectVisual?.sourceMaxRadius === 0.0187),
   'production spark must carry source scale for renderer-only ownership routing')
-assert(sparks.every((spark) => getCollisionEffectProfile(spark).fadeAlpha === 0),
-  'small high-head-on tangent sparks must hand presentation ownership to the compact contact burst')
+assert(sparks.every((spark) => getCollisionEffectProfile(spark).fadeAlpha >= 0.6),
+  'small high-head-on physical ejecta must remain visible at their actual solver positions')
+
+const physicalEjectaDirections = sparks.map((spark) => {
+  const relative = {
+    x: spark.velocity.x - initialCenterVelocity.x,
+    y: spark.velocity.y - initialCenterVelocity.y,
+    z: spark.velocity.z - initialCenterVelocity.z,
+  }
+  const speed = length(relative)
+  return {
+    xShare: speed > 1e-12 ? Math.abs(relative.x) / speed : 0,
+    sign: Math.sign(relative.x),
+    relative,
+  }
+})
+assert(
+  physicalEjectaDirections.every(({ xShare }) => xShare >= 0.8),
+  'head-on ejecta physical velocity must be dominated by the collision-normal direction',
+)
+assert(
+  physicalEjectaDirections.some(({ sign }) => sign > 0) &&
+  physicalEjectaDirections.some(({ sign }) => sign < 0),
+  'head-on ejecta must physically leave both sides of the contact region',
+)
+assert(
+  sparks.every((spark) => physicalSolids.every((solid) =>
+    separation(spark, solid) + 1e-9 >=
+      getBodyPresentationRadius(solid.radius) + spark.radius + minimumVisibleEjectaGap
+  )),
+  'head-on ejecta must physically spawn outside the visible survivor surface with clearance',
+)
+assert(
+  sparks.every((spark, index) => {
+    const direction = spark.effectVisual?.direction
+    if (!direction) return false
+    const relative = physicalEjectaDirections[index].relative
+    const speed = Math.max(length(relative), 1e-12)
+    const directionLength = Math.max(length(direction), 1e-12)
+    const alignment = (
+      direction.x * relative.x +
+      direction.y * relative.y +
+      direction.z * relative.z
+    ) / (speed * directionLength)
+    return alignment > 0.999
+  }),
+  'spark presentation direction must match the actual physical ejecta velocity',
+)
 
 const finalMass = resolved.reduce((sum, body) => sum + body.mass, 0)
 const finalMomentum = momentum(resolved)
@@ -154,6 +208,8 @@ console.log(JSON.stringify({
   remnantId: remnant.id,
   physicalContact,
   presentationContact,
+  minimumVisibleEjectaGap,
   transitionOutcomes: transitions.map((transition) => transition.outcome),
   sparkCount: sparks.length,
+  ejectaNormalShares: physicalEjectaDirections.map(({ xShare }) => xShare),
 }))
