@@ -220,6 +220,10 @@ def capture_run(
     else:
         require(bool(first_response.get('enabled')), f'{scenario} Stage 4 response was not enabled')
         require(bool(first_response.get('eligible')), f'{scenario} Stage 4 response was not physically eligible')
+        require(
+            float(first_response.get('radiusRatio', 0)) >= 0.2,
+            f'{scenario} Stage 4 used a staged/shrunken impactor radius',
+        )
         require(float(first_response.get('recoilSpeed', 0)) > 0, f'{scenario} survivor has no measured physical recoil')
         require(float(first_response.get('compression', 0)) > 0, f'{scenario} Stage 4 has no contact compression')
         settled = telemetry['t1000'] or telemetry['t1500']
