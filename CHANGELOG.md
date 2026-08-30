@@ -6,6 +6,19 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.20.5] - 2026-08-31
+
+### Fixed
+- 비대칭 비항성 충돌 뒤 surviving body가 실제 충돌 반동과 접촉 geometry에 맞는 국소 압축·전단 실루엣 반응을 짧게 표시하도록 해, 충돌 직후 완전한 구체로 즉시 복귀하던 인상을 줄였습니다.
+- penetration/absorption staging으로 이미 축소된 impactor 반지름을 Stage 4 충돌 강도로 오인하지 않도록 pre-staging mass/radius를 보존하고, recoil 계산에는 마지막 pre-impact velocity를 사용하도록 했습니다.
+- collision source cache가 staging 중 mass transfer를 intrinsic source mass로 덮어써 1:1 merge를 비대칭 충돌처럼 오분류할 수 있던 경로를 제거하고, 최종 collision result는 다음 충돌을 위한 새 baseline으로 재베이스합니다.
+
+### Added
+- Stage 3/Stage 4 production-renderer A/B regression을 추가해 representative grazing, head-on, oblique 조건에서 실제 recoil, full-size impactor scale, contact-local compression/shear, head-on↔grazing ordering 및 850ms settle을 검증합니다.
+
+### Unchanged
+- Stage 1–3 physics solver, 질량·선형 운동량, collision classification, ejecta 방향·속력, camera/flash/lighting/particle profile은 변경하지 않습니다.
+
 ## [0.20.4] - 2026-08-30
 
 ### Fixed
@@ -273,7 +286,7 @@
 - 흡수 충돌에서 피흡수체가 접촉면 근처에서 빠르게 작아지며 사라지고 생존 remnant가 같은 순간 최종 크기로 튀어, 실제로 질량이 넘어가기보다 한 천체가 교체되는 것처럼 보이던 전환을 자연스럽게 연결했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
+- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial-mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
 
 ## [0.19.9] - 2026-08-27
 
@@ -285,7 +298,7 @@
 - 모든 collision effect kind가 일반 천체 renderer에서 제외되면서 실제 remnant와 물리 fragment는 그대로 유지되고 원본 simulation state를 변경하지 않는지 검증하는 render-routing 회귀 체크를 추가했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 조건, collision prediction, 50% initial mass tracking rule, tracking lineage semantics, remnant presentation, trail 정책, camera/tracking/collision camera 로직은 변경하지 않았습니다.
+- collision physics, merge/disruption 조건, collision prediction, 50% initial-mass tracking rule, tracking lineage semantics, remnant presentation, trail 정책, camera/tracking/collision camera 로직은 변경하지 않았습니다.
 
 ## [0.19.8] - 2026-08-27
 
