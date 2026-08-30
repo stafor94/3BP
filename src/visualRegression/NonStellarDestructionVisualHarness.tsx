@@ -116,6 +116,30 @@ function cloneFrame(bodies: BodyState[]) {
   }))
 }
 
+function physicsSnapshot(bodies: BodyState[]) {
+  return cloneFrame(bodies).map((body) => ({
+    id: body.id,
+    bodyType: body.bodyType ?? null,
+    name: body.name,
+    mass: body.mass,
+    radius: body.radius,
+    position: body.position,
+    velocity: body.velocity,
+    age: body.age ?? null,
+    lifetime: body.lifetime ?? null,
+    collisionLineageIds: body.collisionLineageIds ?? null,
+    effectVisual: body.effectVisual
+      ? {
+          kind: body.effectVisual.kind,
+          direction: body.effectVisual.direction,
+          normal: body.effectVisual.normal ?? null,
+          headOn: body.effectVisual.headOn ?? null,
+          grazing: body.effectVisual.grazing ?? null,
+        }
+      : null,
+  }))
+}
+
 function hasPhysicalCollisionResult(bodies: BodyState[]) {
   const lineageRemnant = bodies.some((body) =>
     body.bodyType !== 'effect' && body.bodyType !== 'fragment' &&
@@ -177,6 +201,7 @@ declare global {
     __startNonStellarDestructionVisual?: () => void
     __resetNonStellarDestructionVisual?: () => void
     __seekNonStellarDestructionVisual?: (secondsAfterImpact: number) => void
+    __getNonStellarDestructionPhysicsSnapshot?: () => ReturnType<typeof physicsSnapshot>
     __nonStellarDestructionVisualStage?: string
     __nonStellarDestructionVisualTime?: number
   }
@@ -215,10 +240,12 @@ export function NonStellarDestructionVisualHarness() {
       window.__nonStellarDestructionVisualTime = seek.postImpactTime
       setRunning(false)
     }
+    window.__getNonStellarDestructionPhysicsSnapshot = () => physicsSnapshot(bodiesRef.current)
     return () => {
       delete window.__startNonStellarDestructionVisual
       delete window.__resetNonStellarDestructionVisual
       delete window.__seekNonStellarDestructionVisual
+      delete window.__getNonStellarDestructionPhysicsSnapshot
       delete window.__nonStellarDestructionVisualStage
       delete window.__nonStellarDestructionVisualTime
       delete document.body.dataset.visualStage
