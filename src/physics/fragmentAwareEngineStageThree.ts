@@ -234,19 +234,20 @@ function getDirectionalEjectaVelocity(
   geometry: EjectaGeometry,
   collisionCenterVelocity: Vec3,
   rankFraction: number,
-  index: number,
 ) {
   const relativeVelocity = subtract(body.velocity, collisionCenterVelocity)
   const speed = length(relativeVelocity)
   if (speed <= EPSILON) return { ...body.velocity }
 
+  // Very head-on collisions already have a tested, conservation-aware two-sided
+  // normal ejection pattern from the core solver. Stage 3 must not rewrite that
+  // established physical response; it only repairs contact-side spawn clearance.
+  if (geometry.headOn > 0.82) return { ...body.velocity }
+
   const rawPlane = normalize(
     projectToPlane(relativeVelocity, geometry.outwardNormal),
     geometry.forwardTangent,
   )
-  const useHeadOnFan = geometry.headOn > 0.72 && geometry.grazing < 0.45
-  const fanSign = useHeadOnFan && index % 2 === 1 ? -1 : 1
-  const preferredTangent = scale(geometry.forwardTangent, fanSign)
 
   // Large fragments stay coherent with the impactor's tangential motion. Smaller
   // debris keeps progressively more of the solver's seeded angular variation,
@@ -258,10 +259,10 @@ function getDirectionalEjectaVelocity(
   )
   const planeDirection = normalize(
     add(
-      scale(preferredTangent, coherence),
+      scale(geometry.forwardTangent, coherence),
       scale(rawPlane, 1 - coherence),
     ),
-    preferredTangent,
+    geometry.forwardTangent,
   )
   const outwardWeight = clamp(
     0.34 + geometry.headOn * 0.36 + rankFraction * 0.08,
@@ -325,7 +326,6 @@ function shapeDirectionalCollisionEjecta(
       geometry,
       collisionCenterVelocity,
       rankFraction,
-      index,
     )
     const relativeDirection = normalize(
       subtract(velocity, collisionCenterVelocity),
