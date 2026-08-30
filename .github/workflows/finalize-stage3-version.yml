@@ -24,36 +24,37 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-
           package_path = Path('package.json')
           package = json.loads(package_path.read_text(encoding='utf-8'))
           if package['version'] not in {'0.20.3', '0.20.4'}:
               raise SystemExit(f"unexpected package version: {package['version']}")
           package['version'] = '0.20.4'
           package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-
           changelog_path = Path('CHANGELOG.md')
           changelog = changelog_path.read_text(encoding='utf-8')
           if '## [0.20.4] - 2026-08-30' not in changelog:
               marker = '## [0.20.3] - 2026-08-30'
               if marker not in changelog:
                   raise SystemExit('0.20.3 changelog marker not found')
-              entry = '''## [0.20.4] - 2026-08-30
-
-### Fixed
-- 파괴성 비항성 oblique/grazing 충돌에서 extreme absorption 후처리 뒤 fresh physical ejecta가 결과 천체 내부나 표면에 붙어 시작하던 경로를 보정해, 실제 collision interface에서 결과 천체 표시 표면 바깥으로 생성되도록 했습니다.
-- 큰 ejecta가 충돌체의 접선 진행 성분을 잃고 접촉점 주변에 정체되던 경우, 기존 solver가 할당한 COM-relative 속력 예산 안에서 outward contact normal과 impactor tangent를 조합해 충돌체 물질의 방향 계보가 이어지도록 했습니다.
-
-### Changed
-- 파편 크기 순으로 큰 ejecta는 impactor tangential motion을 더 강하게 유지하고 작은 debris는 기존 결정적 분산을 더 많이 유지하는 비대칭 fan/cone 분포를 적용합니다.
-- 방향 회전으로 생기는 represented momentum 차이는 surviving solids 전체 질량에 분산 보정하며, 질량·속력 예산·seed 기반 deterministic behavior는 그대로 유지합니다.
-
-### Added
-- Stage 2 executable baseline과 representative grazing / near-head-on / oblique 정량 regression 및 동일 production renderer A/B capture를 추가해 spawn clearance, macro tangent alignment, outward motion, mass/momentum conservation, deterministic replay를 검증합니다.
-
-### Unchanged
-- Stage 1 material/macro-fragment continuity, Stage 2 penetration limiter, strongly head-on two-sided ejecta/flash 계약, gentle merge handoff, survivor recoil/spin 및 flash/lighting/VFX polish는 유지합니다.
-'''
+              lines = [
+                  '## [0.20.4] - 2026-08-30',
+                  '',
+                  '### Fixed',
+                  '- 파괴성 비항성 oblique/grazing 충돌에서 extreme absorption 후처리 뒤 fresh physical ejecta가 결과 천체 내부나 표면에 붙어 시작하던 경로를 보정해, 실제 collision interface에서 결과 천체 표시 표면 바깥으로 생성되도록 했습니다.',
+                  '- 큰 ejecta가 충돌체의 접선 진행 성분을 잃고 접촉점 주변에 정체되던 경우, 기존 solver가 할당한 COM-relative 속력 예산 안에서 outward contact normal과 impactor tangent를 조합해 충돌체 물질의 방향 계보가 이어지도록 했습니다.',
+                  '',
+                  '### Changed',
+                  '- 파편 크기 순으로 큰 ejecta는 impactor tangential motion을 더 강하게 유지하고 작은 debris는 기존 결정적 분산을 더 많이 유지하는 비대칭 fan/cone 분포를 적용합니다.',
+                  '- 방향 회전으로 생기는 represented momentum 차이는 surviving solids 전체 질량에 분산 보정하며, 질량·속력 예산·seed 기반 deterministic behavior는 그대로 유지합니다.',
+                  '',
+                  '### Added',
+                  '- Stage 2 executable baseline과 representative grazing / near-head-on / oblique 정량 regression 및 동일 production renderer A/B capture를 추가해 spawn clearance, macro tangent alignment, outward motion, mass/momentum conservation, deterministic replay를 검증합니다.',
+                  '',
+                  '### Unchanged',
+                  '- Stage 1 material/macro-fragment continuity, Stage 2 penetration limiter, strongly head-on two-sided ejecta/flash 계약, gentle merge handoff, survivor recoil/spin 및 flash/lighting/VFX polish는 유지합니다.',
+                  '',
+              ]
+              entry = '\n'.join(lines)
               changelog = changelog.replace(marker, entry + '\n' + marker, 1)
               changelog_path.write_text(changelog, encoding='utf-8')
           PY
