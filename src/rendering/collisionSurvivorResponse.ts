@@ -10,7 +10,6 @@ export const SURVIVOR_RESPONSE_MAX_MASS_RATIO = 0.45
 export const SURVIVOR_RESPONSE_MIN_SPEED_RATIO = 0.35
 
 const EPSILON = 1e-12
-const STABLE_SOURCE_RADIUS_TOLERANCE = 0.995
 const BODY_VERTEX_MARKER = `    vObjectNormal = objectNormal;
     vec4 worldPosition = modelMatrix * vec4(revealPosition, 1.0);`
 
@@ -119,16 +118,27 @@ function isStableResponseSource(body: BodyState) {
   return body.bodyType !== 'star' && body.bodyType !== 'effect' && body.bodyType !== 'fragment'
 }
 
-function updateStableSourceCache(bodies: BodyState[]) {
+function updateStableSourceCache(
+  bodies: BodyState[],
+  rebasedResultIds: Set<string>,
+) {
   bodies.forEach((body) => {
     if (!isStableResponseSource(body)) return
     const cached = stableSourcesById.get(body.id)
-    // Stage 2 intentionally shrinks an absorbed body during penetration staging.
-    // Keep the last essentially-full-size contact state instead of allowing that
-    // staging radius to masquerade as the physical impactor size for Stage 4.
-    if (!cached || body.radius >= cached.radius * STABLE_SOURCE_RADIUS_TOLERANCE) {
+    if (!cached || rebasedResultIds.has(body.id)) {
       stableSourcesById.set(body.id, cloneBody(body))
+      return
     }
+
+    // Collision staging may collapse/transfer visible material before the final
+    // physical result appears. Keep the pre-staging intrinsic mass and radius so
+    // Stage 4 measures the real impactor scale, but refresh kinematics every step
+    // so recoil remains result.velocity - immediately-pre-impact velocity rather
+    // than an accumulated velocity delta from an older frame.
+    const latestKinematics = cloneBody(body)
+    latestKinematics.mass = cached.mass
+    latestKinematics.radius = cached.radius
+    stableSourcesById.set(body.id, latestKinematics)
   })
 }
 
@@ -358,7 +368,10 @@ export function syncCollisionSurvivorResponseState(
   stableSourcesById.forEach((_body, bodyId) => {
     if (!activeIds.has(bodyId)) stableSourcesById.delete(bodyId)
   })
-  updateStableSourceCache(bodies)
+  // Capture active response inputs first, then rebase a retained result id to
+  // its new post-collision body. This prevents old pre-merge mass/radius from
+  // leaking into a later, unrelated collision that happens to retain the id.
+  updateStableSourceCache(bodies, new Set(resultIds))
 
   currentBodiesById = new Map(bodies.map((body) => [body.id, body]))
   currentBodiesBySeed = new Map(
