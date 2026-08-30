@@ -109,6 +109,7 @@ def capture_run(
         'visual-regression': 'non-stellar-destruction',
         'ejecta-scenario': scenario,
         'ejecta-baseline': baseline,
+        'survivor-response-baseline': 'stage3',
     })
     driver.get(f'{BASE_URL}?{query}')
     WebDriverWait(driver, 15, poll_frequency=0.05).until(
@@ -130,7 +131,8 @@ def capture_run(
     require(harness.get_attribute('data-physics-source') == expected_source, 'physics source mismatch')
 
     # Use the same production renderer/camera and the same real-time playback path
-    # for both stages. The clock begins at the first physical destruction frame.
+    # for both stages. Stage 4 survivor geometry is explicitly disabled here so
+    # the historical Stage 2 -> Stage 3 ejecta baseline remains executable.
     time.sleep(0.35)
     trigger(driver)
     harness = driver.find_element(By.CSS_SELECTOR, '[data-visual-regression="non-stellar-destruction"]')

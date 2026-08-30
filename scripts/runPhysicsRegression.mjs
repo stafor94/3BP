@@ -33,6 +33,7 @@ const checks = [
   { source: 'productionSmallHeadOnDisruptRegression.ts', output: 'productionSmallHeadOnDisruptRegression.mjs' },
   { source: 'collisionEjectaDeterminismRegression.ts', output: 'collisionEjectaDeterminismRegression.mjs' },
   { source: 'collisionEjectaDirectionalityRegression.ts', output: 'collisionEjectaDirectionalityRegression.mjs' },
+  { source: 'collisionSurvivorResponseRegression.ts', output: 'collisionSurvivorResponseRegression.mjs' },
   { source: 'trackingRegression.ts', output: 'trackingRegression.mjs' },
   { source: 'collisionCameraTrackingHandoffRegression.ts', output: 'collisionCameraTrackingHandoffRegression.mjs' },
   { source: 'collisionWatchTimingRegression.ts', output: 'collisionWatchTimingRegression.mjs' },

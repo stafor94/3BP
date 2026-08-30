@@ -97,6 +97,25 @@ function makeInitialBodies(scenario: VisualScenario): BodyState[] {
   ]
 }
 
+function cloneFrame(bodies: BodyState[]) {
+  return bodies.map((body) => ({
+    ...body,
+    position: { ...body.position },
+    velocity: { ...body.velocity },
+    collisionLineageIds: body.collisionLineageIds ? [...body.collisionLineageIds] : undefined,
+    trackingContinuationIds: body.trackingContinuationIds
+      ? [...body.trackingContinuationIds]
+      : undefined,
+    effectVisual: body.effectVisual
+      ? {
+          ...body.effectVisual,
+          direction: { ...body.effectVisual.direction },
+          normal: body.effectVisual.normal ? { ...body.effectVisual.normal } : undefined,
+        }
+      : undefined,
+  }))
+}
+
 function hasPhysicalCollisionResult(bodies: BodyState[]) {
   const lineageRemnant = bodies.some((body) =>
     body.bodyType !== 'effect' && body.bodyType !== 'fragment' &&
@@ -109,7 +128,7 @@ function hasPhysicalCollisionResult(bodies: BodyState[]) {
   return lineageRemnant || physicalDebris
 }
 
-function runToPostImpactTime(
+function runToRelativeImpactTime(
   scenario: VisualScenario,
   stepper: PhysicsStepper,
   secondsAfterImpact: number,
@@ -117,16 +136,31 @@ function runToPostImpactTime(
   let frame = makeInitialBodies(scenario)
   let absoluteTime = 0
   let resolved = false
+  const history: Array<{ frame: BodyState[]; absoluteTime: number }> = [
+    { frame: cloneFrame(frame), absoluteTime },
+  ]
 
   for (let step = 0; step < 5000; step += 1) {
     frame = stepper(frame, PHYSICS_DT)
     absoluteTime += PHYSICS_DT
+    history.push({ frame: cloneFrame(frame), absoluteTime })
     if (hasPhysicalCollisionResult(frame)) {
       resolved = true
       break
     }
   }
   if (!resolved) throw new Error(`visual scenario ${scenario} did not resolve`)
+
+  if (secondsAfterImpact < 0) {
+    const stepsBack = Math.max(1, Math.round(Math.abs(secondsAfterImpact) / PHYSICS_DT))
+    const index = Math.max(0, history.length - 1 - stepsBack)
+    const snapshot = history[index]
+    return {
+      frame: snapshot.frame,
+      absoluteTime: snapshot.absoluteTime,
+      postImpactTime: -((history.length - 1 - index) * PHYSICS_DT),
+    }
+  }
 
   let postImpactTime = 0
   while (postImpactTime + PHYSICS_DT <= secondsAfterImpact + SEEK_EPSILON) {
@@ -170,10 +204,10 @@ export function NonStellarDestructionVisualHarness() {
     }
     window.__seekNonStellarDestructionVisual = (secondsAfterImpact: number) => {
       resetCollisionSolidHandoffState()
-      const seek = runToPostImpactTime(
+      const seek = runToRelativeImpactTime(
         scenario,
         stepper,
-        Math.max(0, secondsAfterImpact),
+        secondsAfterImpact,
       )
       bodiesRef.current = seek.frame
       setBodies(seek.frame)

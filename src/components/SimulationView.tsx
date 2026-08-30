@@ -6,6 +6,10 @@ import {
 } from '../rendering/collisionMacroFragmentContinuity'
 import { getCelestialBodyRenderBodies } from '../rendering/collisionEffectRouting'
 import {
+  installCollisionSurvivorResponse,
+  syncCollisionSurvivorResponseState,
+} from '../rendering/collisionSurvivorResponse'
+import {
   installCollisionVisualContinuity,
   syncCollisionVisualContinuityState,
 } from '../rendering/collisionVisualContinuity'
@@ -167,6 +171,7 @@ export function SimulationView({
   syncStellarRemnantPresentationState(bodies, simulationTime)
   syncLiveCollisionVfxState(bodies)
   syncCollisionVisualContinuityState(bodies)
+  syncCollisionSurvivorResponseState(bodies, simulationTime)
 
   useEffect(() => {
     const host = hostRef.current
@@ -175,9 +180,11 @@ export function SimulationView({
     // Install after body lighting so the remnant hook composes with the real
     // body material callback without changing physical radius or lighting state.
     installStellarRemnantPresentation()
-    // Install last so collision VFX keeps owning its existing draw-path bridge.
     installLiveCollisionVfxBridge()
     installCollisionVisualContinuity()
+    // Stage 4 composes last so its contact-local geometry sees the established
+    // Stage 1-3 body/VFX/remnant shader path without replacing any of it.
+    installCollisionSurvivorResponse()
     syncBodyLightingState(getLightingSyncBodies(
       liveBodiesRef.current,
       renderStateRef.current.bodies,
@@ -188,6 +195,10 @@ export function SimulationView({
     )
     syncLiveCollisionVfxState(liveBodiesRef.current)
     syncCollisionVisualContinuityState(liveBodiesRef.current)
+    syncCollisionSurvivorResponseState(
+      liveBodiesRef.current,
+      renderStateRef.current.simulationTime,
+    )
     const isProductionCameraHandoffRegression = new URLSearchParams(window.location.search)
       .get('visual-regression') === 'production-camera-handoff'
     let previousWriter: SimulationCameraTelemetry['cameraWriteSource'] | null = null
