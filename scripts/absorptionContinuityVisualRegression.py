@@ -23,6 +23,7 @@ URL = os.environ.get(
 )
 CAPTURE_STEPS = [0, 8, 12, 15, 16]
 INITIAL_IMPACTOR_RADIUS = 0.0187
+MAX_NORMALIZED_PENETRATION = 0.18
 
 
 def require(condition: bool, message: str) -> None:
@@ -87,6 +88,9 @@ def read_diagnostics(driver: webdriver.Chrome) -> dict[str, float | int | str]:
     return {
         'impactor_radius': float(root.get_attribute('data-impactor-radius') or 0),
         'primary_radius': float(root.get_attribute('data-primary-radius') or 0),
+        'source_separation': float(root.get_attribute('data-source-separation') or 0),
+        'penetration_depth': float(root.get_attribute('data-penetration-depth') or 0),
+        'normalized_penetration': float(root.get_attribute('data-normalized-penetration') or 0),
         'remnant_id': root.get_attribute('data-remnant-id') or '',
         'mass_effect_count': int(root.get_attribute('data-mass-effect-count') or 0),
         'solid_fragment_count': int(root.get_attribute('data-solid-fragment-count') or 0),
@@ -314,6 +318,13 @@ def main() -> None:
             f'absorbed body must be nearly collapsed before replacement: step15 radius={radius15:.6f}',
         )
         require(
+            all(
+                float(diagnostics[step]['normalized_penetration']) <= MAX_NORMALIZED_PENETRATION + 0.002
+                for step in (8, 12, 15)
+            ),
+            'absorption staging must shrink near the contact surface without exceeding the normalized penetration cap',
+        )
+        require(
             float(diagnostics[16]['impactor_radius']) == 0,
             'physical result step must replace the absorbed source after the visible collapse',
         )
@@ -339,16 +350,10 @@ def main() -> None:
             'baseline impactor is not visibly detectable in its local browser ROI',
         )
         require(
-            impactor_counts[8] < impactor_counts[0] * 0.90,
-            'browser capture must begin reducing the visible impactor before handoff',
-        )
-        require(
-            impactor_counts[12] < impactor_counts[0] * 0.65,
-            'browser capture must continue reducing the visible impactor during absorption',
-        )
-        require(
-            impactor_counts[15] < impactor_counts[0] * 0.45,
-            'browser capture must show the small body mostly sunk/collapsed before replacement',
+            impactor_counts[8] >= impactor_counts[0] * 0.55 and
+            impactor_counts[12] >= impactor_counts[0] * 0.35 and
+            impactor_counts[15] >= impactor_counts[0] * 0.20,
+            'surface-local absorption staging lost the source silhouette before the physical handoff',
         )
         require(
             result_pop_fraction <= 0.01,
