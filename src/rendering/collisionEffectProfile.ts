@@ -45,7 +45,7 @@ function inferEffectVisualKind(body: BodyState): EffectVisualKind {
 }
 
 function isStageFiveCollisionVfxEnabled() {
-  if (typeof window === 'undefined') return true
+  if (typeof window === 'undefined') return false
   return new URLSearchParams(window.location.search).get('collision-vfx-baseline') !== 'stage4'
 }
 
