@@ -6,6 +6,18 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.20.3] - 2026-08-30
+
+### Fixed
+- 비항성 충돌의 접촉 후 absorption staging에서 축소 중인 충돌체가 상대 천체 중심 방향으로 과도하게 침강하던 상태를 제한해, 완전한 구체에 가까운 충돌체가 상대 천체 내부 깊숙이 삼켜지거나 관통하는 것처럼 보이던 penetration을 줄였습니다.
+- post-solver solid handoff의 absorbed source가 remnant 중심까지 이동하지 않고 접촉면 근처의 제한된 inward travel 안에서 연속적으로 축소·소멸하도록 해, penetration 감소 과정에서 bounce나 순간적인 outward teleport 없이 기존 fragment/remnant 전환으로 이어지도록 했습니다.
+
+### Added
+- 1단계 상태를 동일 fixture의 baseline으로 직접 실행하는 low/current/high-speed normalized penetration regression과 Chromium A/B capture를 추가해 peak penetration, mass/momentum conservation, result continuity를 함께 검증합니다.
+
+### Unchanged
+- swept first-contact core solver와 collision classification, ejecta 방향·속도·확산, 질량·운동량 보존 계약, 1단계 macro-fragment continuity, survivor recoil/spin, flash/VFX profile 및 particle count는 유지합니다.
+
 ## [0.20.2] - 2026-08-30
 
 ### Fixed
@@ -743,7 +755,7 @@
 
 ### Changed
 - 자동 충돌 관찰은 예측 충돌 약 3 시뮬레이션초 전에 한 번만 주 천체를 선택하고 초기 카메라 구도를 잡도록 변경했습니다.
-- 충돌 관찰 카메라는 진입 시 계산한 배율과 시점을 유지한 채 질량이 큰 주 천체만 따라가며, 두 천체 사이가 가까워져도 충돌 직전까지 추가 확대하지 않도록 변경했습니다.
+- 충돌 관찰 카메라는 진입 시 계산한 배율과 시점을 유지한 채 질량이 큰 주 천체만 따라가며, 두 천체 사이가 가까워져도 충돌 직전까지 추가 확대하지 않도록 했습니다.
 - 3초 전 카메라 진입과 감속 시점을 분리해 기존처럼 충돌 약 0.6 시뮬레이션초 전부터 0.1×, 마지막 0.06 시뮬레이션초는 0.03×를 적용하도록 했습니다.
 - 충돌 관찰 도중 사용자가 추적 레일이나 제어 패널에서 다른 천체를 선택하면 해당 충돌에 대한 자동 카메라 우선권을 즉시 해제하고 사용자가 선택한 천체를 계속 추적하도록 했습니다.
 
