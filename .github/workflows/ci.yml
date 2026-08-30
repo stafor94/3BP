@@ -60,6 +60,8 @@ jobs:
         run: python scripts/productionCameraHandoffVisualRegression.py
       - name: Non-stellar destruction browser visual regression
         run: python scripts/nonStellarDestructionVisualRegression.py
+      - name: Collision ejecta Stage2/Stage3 browser A/B regression
+        run: python scripts/collisionEjectaVisualRegression.py
       - name: Small head-on collision artifact browser visual regression
         run: python scripts/smallHeadOnCollisionArtifactVisualRegression.py
       - name: Collision merge solid handoff browser visual regression
@@ -130,6 +132,14 @@ jobs:
         with:
           name: non-stellar-destruction-visual-regression
           path: non-stellar-destruction-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision ejecta Stage2/Stage3 A/B captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-ejecta-stage3-visual-regression
+          path: collision-ejecta-stage3-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload small head-on collision artifact captures
