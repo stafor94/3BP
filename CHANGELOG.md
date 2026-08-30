@@ -6,6 +6,20 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.20.6] - 2026-08-31
+
+### Fixed
+- 비항성 충돌의 contact flash를 실제 contact geometry와 기존 충돌 heat/severity 메타데이터에 따라 더 작고 짧게 표시해, impact 직후 additive white-hot footprint가 source·macro fragment·survivor surface response를 과도하게 가리던 현상을 줄였습니다.
+- head-on은 compact burst를 유지하고 grazing/oblique는 실제 tangent 방향의 짧은 scrape-like 비대칭만 허용하도록 flash stretch를 제한해 기존 세로 pillar/laser-like artifact가 재발하지 않도록 했습니다.
+- mass-bearing `Collision spark`의 물리 궤적은 그대로 두고 renderer-only glow·footprint·tail·visible lifetime을 severity에 맞춰 낮춰 실제 macro fragment/ejecta가 secondary spark보다 먼저 읽히도록 정리했습니다.
+
+### Added
+- 동일 production physics state를 사용하는 Stage 4/Stage 5 collision VFX A/B regression과 대표 grazing, near-head-on, oblique, gentle merge의 T0~T+1.0s 고밀도 캡처 및 flash footprint/luminance 진단을 추가했습니다.
+- A/B harness가 Stage 4/Stage 5에서 body position·velocity·mass·radius와 physical ejecta state가 동일한지 직접 비교할 수 있도록 test-only physics snapshot telemetry를 추가했습니다.
+
+### Unchanged
+- Stage 1 material continuity, Stage 2 penetration, Stage 3 ejecta velocity/direction/momentum, Stage 4 survivor response source, collision solver/classification, stellar collision VFX, camera, post-processing, particle/effect body count는 변경하지 않습니다.
+
 ## [0.20.5] - 2026-08-31
 
 ### Fixed
@@ -311,7 +325,7 @@
 - moving target의 정지/등속/가속, 1x/3x, 빠른 remnant를 검증하고 CI/Pages에서 mobile 3x 및 desktop 1x artifact를 생성하도록 회귀 범위를 확장했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 조건, collision prediction, tracking source identity와 50% initial-mass rule, VFX, trail 생성·수명·보존 정책은 변경하지 않았습니다.
+- collision physics, merge/disruption 조건, collision prediction, tracking source identity와 50% mass rule, VFX, trail 생성·수명·보존 정책은 변경하지 않았습니다.
 
 ## [0.19.7] - 2026-08-27
 
@@ -993,8 +1007,6 @@
 
 ### Added
 - 태블릿에서 사이드 패널을 접은 상태에서도 시작/정지 등 핵심 기능을 사용할 수 있는 컴팩트 퀵 컨트롤을 추가했습니다.
-
-## [0.15.7] - 2026-08-25
 
 ### Fixed
 - 모바일 기기 회전 후 뷰포트가 비정상적으로 확대되는 문제를 수정했습니다.
