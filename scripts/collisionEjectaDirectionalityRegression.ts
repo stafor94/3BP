@@ -202,6 +202,8 @@ function snapshot(frame: BodyState[]) {
     .sort((a, b) => a.idPattern.localeCompare(b.idPattern))
 }
 
+// Stage 3 intentionally reshapes destructive oblique/grazing ejecta only.
+// Near-head-on remains a control that must be byte-for-byte equivalent to Stage 2 physics.
 const scenarios: Scenario[] = [
   {
     name: 'representative-grazing',
