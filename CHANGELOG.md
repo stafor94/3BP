@@ -191,7 +191,7 @@
 - preserved-ID merge에서 secondary lineage를 가진 mass-bearing ejecta가 존재해도 surviving result association을 먼저 적용해 secondary가 `disrupted`로 잘못 분류되고 disruption solid chunk handoff가 생성되던 문제를 제거했습니다.
 
 ### Added
-- preserved-ID normal merge, mass-bearing ejecta 동반 merge, pure fragmentation, ordinary unchanged body, 기존 new-ID merge를 직접 검증하고 preserved merge에서 disruption chunk가 생성되지 않는지 확인하는 collision visual ownership regression을 추가했습니다.
+- preserved-ID normal merge, mass-bearing ejecta 동반 merge, pure fragmentation, ordinary unchanged body, 기존 new-ID merge를 직접 검증하고 preserved merge에서 disruption chunk가 생성되지 않는지 확인하는 회귀 체크를 추가했습니다.
 
 ### Unchanged
 - collision physics/판정식/질량/반지름/속도, `getCollisionContactDistance`, `minRenderRadius`, camera/trail, stellar collision VFX, contact flash, ejecta 방향, remnant deformation 및 collision lifecycle timing은 변경하지 않았습니다.
@@ -325,7 +325,7 @@
 - moving target의 정지/등속/가속, 1x/3x, 빠른 remnant를 검증하고 CI/Pages에서 mobile 3x 및 desktop 1x artifact를 생성하도록 회귀 범위를 확장했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 조건, collision prediction, tracking source identity와 50% mass rule, VFX, trail 생성·수명·보존 정책은 변경하지 않았습니다.
+- collision physics, merge/disruption 조건, collision prediction, tracking source identity와 50% initial-mass rule, VFX, trail 생성·수명·보존 정책은 변경하지 않았습니다.
 
 ## [0.19.7] - 2026-08-27
 
@@ -469,7 +469,7 @@
 ## [0.18.9] - 2026-08-26
 
 ### Changed
-- 항성의 물리 광도를 화면 밝기에 로그 압축해 적용하고 photosphere·inner glow·outer halo를 분리해, 고광도 항성도 고유 색을 유지하면서 밝기 차이가 읽히도록 렌더링을 조정했습니다.
+- 항성의 물리 광도를 화면 밝기에 로그 압축해 적용하고 photosphere·inner glow·outer halo를 분리해, 고광도 항성도 고유 색을 유지하면서 밝기 차이가 읽히도록 조정했습니다.
 - 항성 충돌 VFX를 긴 lens-flare/spike 중심 표현에서 충돌 기하·속도·질량비·outcome을 반영하는 비대칭 plasma ejecta와 팽창 shock shell 중심 표현으로 재설계했습니다.
 - 충돌 후 합체·부분 파괴·hit-and-run 잔여 항성이 즉시 완전한 구형으로 보이지 않고 충돌 방향의 비대칭 변형에서 일정 시간 자연스럽게 안정화되도록 remnant relaxation을 추가했습니다.
 
@@ -613,7 +613,7 @@
 ## [0.17.20] - 2026-08-25
 
 ### Added
-- 일반 추적이 원본 ID 생존 여부만 확인하는지, 흡수·파괴 후 합체 후손·파편·무관한 천체로 자동 승계되지 않는지 검증하는 추적 회귀 체크를 추가했습니다.
+- 일반 추적이 원본 ID 생존 여부만 확인하는지, 흡수·파괴 후 합체 후손·파편·무관한 천체로 자동 승계되지 않는지 검증하는 추적 회귀 테스트를 추가했습니다.
 
 ### Changed
 - 일반 천체 추적은 선택 당시 천체의 정확한 ID가 계속 생존하는 동안에만 유지하도록 변경했습니다.
@@ -1007,6 +1007,8 @@
 
 ### Added
 - 태블릿에서 사이드 패널을 접은 상태에서도 시작/정지 등 핵심 기능을 사용할 수 있는 컴팩트 퀵 컨트롤을 추가했습니다.
+
+## [0.15.7] - 2026-08-25
 
 ### Fixed
 - 모바일 기기 회전 후 뷰포트가 비정상적으로 확대되는 문제를 수정했습니다.
