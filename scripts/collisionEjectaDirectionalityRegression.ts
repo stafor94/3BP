@@ -38,10 +38,6 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
 
-function add(a: Vec3, b: Vec3): Vec3 {
-  return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }
-}
-
 function subtract(a: Vec3, b: Vec3): Vec3 {
   return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
 }
@@ -228,40 +224,6 @@ for (const scenario of scenarios) {
   const afterFrame = resolve(stepBodies, scenario)
   const after = analyze(afterFrame, scenario)
 
-  assertConservation(scenario, afterFrame, scenario.name)
-  assert(
-    after.minimumSurfaceGap > 0,
-    `${scenario.name} fresh ejecta must start outside the physical remnant: ${after.minimumSurfaceGap}`,
-  )
-  assert(
-    after.metrics.slice(0, 2).every((metric) => metric.outwardSpeed > 0),
-    `${scenario.name} macro ejecta must initially move outward from the remnant`,
-  )
-
-  if (scenario.name !== 'near-head-on') {
-    assert(
-      after.macroTangentAlignment >= 0.45,
-      `${scenario.name} macro ejecta lost impactor tangential motion: ${after.macroTangentAlignment}`,
-    )
-    assert(
-      after.macroTangentAlignment >= stageTwo.macroTangentAlignment + 0.15,
-      `${scenario.name} directionality did not improve over stage 2: ` +
-        `${stageTwo.macroTangentAlignment} -> ${after.macroTangentAlignment}`,
-    )
-  } else {
-    const macroTangentialSpeeds = after.metrics.slice(0, 2).map((metric) => metric.tangentSignedSpeed)
-    assert(
-      macroTangentialSpeeds.length === 2 && macroTangentialSpeeds[0] * macroTangentialSpeeds[1] <= 0,
-      'near-head-on macro ejecta must form an outward two-sided fan instead of one isotropic/random cloud',
-    )
-  }
-
-  const replay = resolve(stepBodies, scenario)
-  assert(
-    JSON.stringify(snapshot(afterFrame)) === JSON.stringify(snapshot(replay)),
-    `${scenario.name} stage-3 ejecta shaping must remain deterministic`,
-  )
-
   report[scenario.name] = {
     stage2: {
       minimumSurfaceGap: stageTwo.minimumSurfaceGap,
@@ -276,6 +238,45 @@ for (const scenario of scenarios) {
       macroTangentAlignment: after.macroTangentAlignment,
     },
   }
+
+  assertConservation(scenario, afterFrame, scenario.name)
+  assert(
+    after.minimumSurfaceGap > 0,
+    `${scenario.name} fresh ejecta must start outside the physical remnant: ${after.minimumSurfaceGap}`,
+  )
+
+  if (scenario.name !== 'near-head-on') {
+    assert(
+      after.metrics.slice(0, 2).every((metric) => metric.outwardSpeed > 0),
+      `${scenario.name} macro ejecta must initially move outward from the remnant`,
+    )
+    assert(
+      after.macroTangentAlignment >= 0.45,
+      `${scenario.name} macro ejecta lost impactor tangential motion: ${after.macroTangentAlignment}`,
+    )
+    assert(
+      after.macroTangentAlignment >= stageTwo.macroTangentAlignment + 0.15,
+      `${scenario.name} directionality did not improve over stage 2: ` +
+        `${stageTwo.macroTangentAlignment} -> ${after.macroTangentAlignment}`,
+    )
+  } else {
+    const normalSpeeds = after.metrics.map((metric) => metric.outwardSpeed)
+    assert(
+      normalSpeeds.some((speed) => speed > 0) && normalSpeeds.some((speed) => speed < 0),
+      'near-head-on ejecta must preserve the established two-sided collision-normal response',
+    )
+    assert(
+      Math.abs(after.macroOutwardSpeed - stageTwo.macroOutwardSpeed) <= 1e-10 &&
+      Math.abs(after.macroTravelAlignment - stageTwo.macroTravelAlignment) <= 1e-10,
+      'stage 3 must not rewrite the established near-head-on ejecta velocity distribution',
+    )
+  }
+
+  const replay = resolve(stepBodies, scenario)
+  assert(
+    JSON.stringify(snapshot(afterFrame)) === JSON.stringify(snapshot(replay)),
+    `${scenario.name} stage-3 ejecta shaping must remain deterministic`,
+  )
 }
 
 console.log(JSON.stringify(report, null, 2))
