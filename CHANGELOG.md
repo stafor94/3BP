@@ -6,6 +6,18 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.20.2] - 2026-08-30
+
+### Fixed
+- 작은 high-head-on 비항성 2→1 충돌에서 mass-bearing `Collision spark` ejecta가 effect 전용 렌더 경로에만 남아 원본 충돌체가 통째로 흡수된 것처럼 보이던 시각적 단절을 수정했습니다.
+- persistent physical fragment가 없는 경우 실제 ejecta의 반지름·위치·속도를 그대로 상속한 최대 2개의 massless renderer-only irregular macro fragment를 표시해 source → debris → remnant 계보를 연결했습니다.
+
+### Added
+- macro fragment proxy가 물리 상태를 변경하거나 질량을 중복하지 않고 실제 ejecta pose를 상속하며, persistent fragment/hit-and-run 경로를 침범하지 않는 regression을 추가했습니다.
+
+### Unchanged
+- collision solver/classification, 질량·운동량, ejecta 물리 방향·속도·확산, penetration, recoil/rotation, flash/VFX profile, particle count는 변경하지 않았습니다.
+
 ## [0.20.1] - 2026-08-30
 
 ### Fixed
