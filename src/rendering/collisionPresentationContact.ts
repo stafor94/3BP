@@ -1,4 +1,5 @@
 import { getEffectiveBodyType } from '../bodyTypes'
+import { getPostImpactMotionPresentationOffset } from '../physics/fragmentAwareEngineStageTwo'
 import type { BodyState, Vec3 } from '../types'
 import { getBodyPresentationRadius } from './bodyPresentationRadius'
 
@@ -42,6 +43,19 @@ function isApproaching(a: BodyState, b: BodyState) {
   }
   return delta.x * relativeVelocity.x + delta.y * relativeVelocity.y +
     delta.z * relativeVelocity.z < 0
+}
+
+function withPostImpactMotionOffset(body: BodyState): BodyState {
+  const offset = getPostImpactMotionPresentationOffset(body)
+  if (!offset) return body
+  return {
+    ...body,
+    position: {
+      x: body.position.x + offset.x,
+      y: body.position.y + offset.y,
+      z: body.position.z + offset.z,
+    },
+  }
 }
 
 function presentedPair(a: BodyState, b: BodyState, separation: number): [BodyState, BodyState] {
@@ -88,12 +102,13 @@ function presentedPair(a: BodyState, b: BodyState, separation: number): [BodySta
  * array as the next solver input.
  */
 export function getCollisionPresentationContactBodies(bodies: BodyState[]) {
-  const byId = new Map(bodies.map((body) => [body.id, body]))
+  const motionBodies = bodies.map(withPostImpactMotionOffset)
+  const byId = new Map(motionBodies.map((body) => [body.id, body]))
   for (const [pairKey, contact] of activeContacts) {
     if (!byId.has(contact.aId) || !byId.has(contact.bId)) activeContacts.delete(pairKey)
   }
 
-  const solids = bodies.filter(isPresentationSolid)
+  const solids = motionBodies.filter(isPresentationSolid)
   for (let i = 0; i < solids.length; i += 1) {
     for (let j = i + 1; j < solids.length; j += 1) {
       const a = solids[i]
@@ -115,7 +130,7 @@ export function getCollisionPresentationContactBodies(bodies: BodyState[]) {
     }
   }
 
-  const rendered = new Map(bodies.map((body) => [body.id, body]))
+  const rendered = new Map(motionBodies.map((body) => [body.id, body]))
   for (const contact of activeContacts.values()) {
     const a = byId.get(contact.aId)
     const b = byId.get(contact.bId)
@@ -146,7 +161,7 @@ export function getCollisionPresentationContactBodies(bodies: BodyState[]) {
     rendered.set(a.id, presentedA)
     rendered.set(b.id, presentedB)
   }
-  return bodies.map((body) => rendered.get(body.id) ?? body)
+  return motionBodies.map((body) => rendered.get(body.id) ?? body)
 }
 
 export function resetCollisionPresentationContactState() {
