@@ -11,7 +11,6 @@ import {
 
 export const COLLISION_SOLID_HANDOFF_DURATION_MS = COLLISION_REMNANT_FORMATION_START_MS
 const ABSORBED_HANDOFF_MAX_INWARD_TRAVEL_RATIO = 0.28
-const ABSORBED_CONTACT_RETREAT_RATIO = 0.2
 
 type AbsorbedSolidHandoff = {
   source: BodyState
@@ -145,10 +144,6 @@ function add(a: Vec3, b: Vec3): Vec3 {
 
 function subtract(a: Vec3, b: Vec3): Vec3 {
   return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
-}
-
-function scaleVector(value: Vec3, scale: number): Vec3 {
-  return { x: value.x * scale, y: value.y * scale, z: value.z * scale }
 }
 
 function lerpVec3(a: Vec3, b: Vec3, t: number): Vec3 {
@@ -331,13 +326,9 @@ function sampleHandoff(handoff: ActiveSolidHandoff, now: number): HandoffSample 
         source.radius,
         progress,
       )
-      const contactRetreat = scaleVector(
-        contactNormal,
-        -startRadius * (1 - absorbedProgress.contactAxisScale) * ABSORBED_CONTACT_RETREAT_RATIO,
-      )
       return {
         source,
-        position: add(inwardPosition, contactRetreat),
+        position: inwardPosition,
         radius: startRadius * absorbedProgress.radiusScale,
         startRadius,
         opacity: absorbedProgress.opacity,
