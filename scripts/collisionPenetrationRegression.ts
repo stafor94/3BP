@@ -4,6 +4,10 @@ import {
   stepBodies,
 } from '../src/physics/fragmentAwareEngine'
 import { stepBodies as stepPhaseOneBodies } from '../src/physics/fragmentAwareEngineCore'
+import {
+  getCollisionPresentationContactBodies,
+  resetCollisionPresentationContactState,
+} from '../src/rendering/collisionPresentationContact'
 import type { BodyState, Vec3 } from '../src/types'
 
 const DT = 0.0015
@@ -100,12 +104,14 @@ function getNormalizedPenetration(bodies: BodyState[]) {
 }
 
 function run(stepper: Stepper, speedScale: number): RunMetrics {
+  resetCollisionPresentationContactState()
   const initial = makeFixture(speedScale)
   let bodies = initial
+  let renderedBodies = getCollisionPresentationContactBodies(bodies)
   let peakNormalizedPenetration = 0
   let peakIntactNormalizedPenetration = 0
   const impactorDirection = normalize(subtract(initial[1].velocity, initial[0].velocity))
-  let previousRelativePosition = getRelativePosition(bodies)
+  let previousRelativePosition = getRelativePosition(renderedBodies)
   const projectedBridgeSteps: number[] = []
 
   for (let step = 0; step <= 24; step += 1) {
@@ -121,7 +127,8 @@ function run(stepper: Stepper, speedScale: number): RunMetrics {
     }
     if (step < 24) {
       const nextBodies = stepper(bodies, DT)
-      const nextRelativePosition = getRelativePosition(nextBodies)
+      const nextRenderedBodies = getCollisionPresentationContactBodies(nextBodies)
+      const nextRelativePosition = getRelativePosition(nextRenderedBodies)
       if (previousRelativePosition && nextRelativePosition) {
         projectedBridgeSteps.push(dot(
           subtract(nextRelativePosition, previousRelativePosition),
@@ -130,6 +137,7 @@ function run(stepper: Stepper, speedScale: number): RunMetrics {
       }
       previousRelativePosition = nextRelativePosition
       bodies = nextBodies
+      renderedBodies = nextRenderedBodies
     }
   }
 
@@ -186,19 +194,19 @@ for (const speedScale of speedScales) {
   )
   assert(
     after.projectedBridgeTravel >= INITIAL_IMPACTOR_RADIUS * 0.35,
-    `${label} post-impact bridge lost incoming directional travel: ${after.projectedBridgeTravel}`,
+    `${label} rendered post-impact bridge lost incoming directional travel: ${after.projectedBridgeTravel}`,
   )
   assert(
     after.projectedBridgeTravel >= phaseOne.projectedBridgeTravel + INITIAL_IMPACTOR_RADIUS * 0.2,
-    `${label} continuity guard did not materially improve bridge travel: ${phaseOne.projectedBridgeTravel} -> ${after.projectedBridgeTravel}`,
+    `${label} continuity guard did not materially improve rendered bridge travel: ${phaseOne.projectedBridgeTravel} -> ${after.projectedBridgeTravel}`,
   )
   assert(
     after.lateProjectedBridgeStep > INITIAL_IMPACTOR_RADIUS * 0.0004,
-    `${label} impactor motion plateaued before solver handoff: ${after.lateProjectedBridgeStep}`,
+    `${label} rendered impactor motion plateaued before solver handoff: ${after.lateProjectedBridgeStep}`,
   )
   assert(
     after.earlyProjectedBridgeStep >= after.lateProjectedBridgeStep * 1.5,
-    `${label} bridge motion did not progressively damp: ${after.earlyProjectedBridgeStep} -> ${after.lateProjectedBridgeStep}`,
+    `${label} rendered bridge motion did not progressively damp: ${after.earlyProjectedBridgeStep} -> ${after.lateProjectedBridgeStep}`,
   )
 
   if (speedScale <= 1) {
