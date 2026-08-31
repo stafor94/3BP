@@ -1,4 +1,5 @@
 import { getEffectiveBodyType } from '../bodyTypes'
+import { getCollisionContactDistance } from '../physics/collisionContact'
 import { getPostImpactMotionPresentationOffset } from '../physics/fragmentAwareEngineStageTwo'
 import type { BodyState, Vec3 } from '../types'
 import { getBodyPresentationRadius } from './bodyPresentationRadius'
@@ -7,6 +8,9 @@ const MAX_PRESENTATION_OVERLAP_RATIO = 0.14
 const PRESENTATION_RADIUS_EPSILON = 1e-9
 const PRE_TRANSITION_ABSORPTION_PROGRESS_SCALE = 0.72
 const PRE_TRANSITION_ABSORPTION_PROGRESS_MAX = 0.42
+const EXTREME_MASS_RATIO_ABSORPTION_MAX_RATIO = 0.02
+const EXTREME_MASS_RATIO_ABSORPTION_MAX_SPEED_RATIO = 1.05
+const TRACKING_G = 1
 
 type CollisionPreTransitionAbsorptionPresentation = {
   contactNormal: Vec3
@@ -24,6 +28,7 @@ type ContactBridge = {
   radiusA: number
   radiusB: number
   normalAToB: Vec3
+  absorptionPresentation: boolean
   released: boolean
 }
 
@@ -69,6 +74,31 @@ function isApproaching(a: BodyState, b: BodyState) {
   }
   return delta.x * relativeVelocity.x + delta.y * relativeVelocity.y +
     delta.z * relativeVelocity.z < 0
+}
+
+function isExtremeMassRatioLowEnergyAbsorption(a: BodyState, b: BodyState) {
+  const typeA = getEffectiveBodyType(a)
+  const typeB = getEffectiveBodyType(b)
+  const hasPlanet = typeA === 'planet' || typeB === 'planet'
+  const hasMoon = typeA === 'moon' || typeB === 'moon'
+  if (!hasPlanet || !hasMoon || typeA === typeB) return false
+
+  const massRatio = Math.min(a.mass, b.mass) / Math.max(a.mass, b.mass, 1e-9)
+  const relativeSpeed = Math.hypot(
+    b.velocity.x - a.velocity.x,
+    b.velocity.y - a.velocity.y,
+    b.velocity.z - a.velocity.z,
+  )
+  const contactDistance = Math.max(getCollisionContactDistance(a, b), 1e-6)
+  const escapeSpeed = Math.sqrt(
+    Math.max(0, (2 * TRACKING_G * (a.mass + b.mass)) / contactDistance),
+  )
+  const speedRatio = relativeSpeed / Math.max(escapeSpeed, 1e-6)
+
+  // Mirror the existing core absorption classifier only to scope this visual
+  // sidecar. No solver outcome or body state is changed here.
+  return massRatio < EXTREME_MASS_RATIO_ABSORPTION_MAX_RATIO &&
+    speedRatio <= EXTREME_MASS_RATIO_ABSORPTION_MAX_SPEED_RATIO
 }
 
 function withPostImpactMotionOffset(body: BodyState): BodyState {
@@ -192,6 +222,7 @@ export function getCollisionPresentationContactBodies(bodies: BodyState[]) {
               z: b.velocity.z - a.velocity.z,
             },
           ),
+          absorptionPresentation: isExtremeMassRatioLowEnergyAbsorption(a, b),
           released: false,
         })
       }
@@ -218,7 +249,7 @@ export function getCollisionPresentationContactBodies(bodies: BodyState[]) {
     // presentation curve is capped before topology so enough colored residual
     // remains for the existing collision flash/VFX readability contract.
     if (contact.released) {
-      if (shrinkA > 0 || shrinkB > 0) {
+      if (contact.absorptionPresentation && (shrinkA > 0 || shrinkB > 0)) {
         const absorbA = shrinkA > shrinkB + PRESENTATION_RADIUS_EPSILON ||
           (Math.abs(shrinkA - shrinkB) <= PRESENTATION_RADIUS_EPSILON && a.mass < b.mass)
         const source = absorbA ? a : b
