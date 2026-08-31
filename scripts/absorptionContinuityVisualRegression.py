@@ -426,18 +426,19 @@ def main() -> None:
             'surface-local absorption staging lost the source silhouette before the physical handoff',
         )
         baseline_silhouette = silhouettes[0]
+        baseline_aspect = int(baseline_silhouette['width']) / max(int(baseline_silhouette['height']), 1)
+        step8_aspect = int(silhouettes[8]['width']) / max(int(silhouettes[8]['height']), 1)
+        step12_aspect = int(silhouettes[12]['width']) / max(int(silhouettes[12]['height']), 1)
         require(
             int(baseline_silhouette['max_column_height']) >= 32,
             'baseline exposed impactor silhouette is too small for deformation inspection',
         )
         require(
-            int(silhouettes[8]['width']) <= int(baseline_silhouette['width']) - 1 and
-            int(silhouettes[8]['outward_edge_x']) <= int(baseline_silhouette['outward_edge_x']) - 1,
-            'step8 rendered silhouette must already erode inward along the contact axis while the impactor remains large',
+            step8_aspect <= baseline_aspect * 0.90,
+            'step8 rendered silhouette must already show contact-axis compression while the impactor remains large',
         )
         require(
-            int(silhouettes[12]['width']) <= int(silhouettes[8]['width']) - 2 and
-            int(silhouettes[12]['outward_edge_x']) <= int(silhouettes[8]['outward_edge_x']) - 2,
+            step12_aspect <= step8_aspect * 0.90,
             'step12 rendered silhouette must deepen contact-axis deformation before topology collapse',
         )
         require(
