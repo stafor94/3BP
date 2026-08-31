@@ -1,0 +1,33 @@
+name: PR 106 Ready Bridge
+
+on:
+  push:
+    branches:
+      - fix/collision-quality-followup
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  ready:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/collision-quality-followup
+          fetch-depth: 0
+
+      - name: Mark PR ready for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr ready 106 --repo stafor94/3BP
+
+      - name: Remove temporary bridge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pr106-ready-bridge.yml
+          git commit -m "ci: remove temporary PR ready bridge"
+          git push origin HEAD:fix/collision-quality-followup
