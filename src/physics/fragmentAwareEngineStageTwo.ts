@@ -29,6 +29,7 @@ type PostImpactMotionState = {
 }
 
 const postImpactMotionByFrame = new WeakMap<BodyState[], PostImpactMotionState>()
+const postImpactMotionOffsetByBody = new WeakMap<BodyState, Vec3>()
 
 function isCorrectableSolid(body: BodyState) {
   return body.bodyType !== 'effect' &&
@@ -154,7 +155,7 @@ function getPostImpactRelativeDisplacement(state: PostImpactMotionState) {
 
   // Integrate a linearly damped velocity over the existing impact bridge. The
   // derivative starts in the incoming direction and reaches zero continuously at
-  // the bridge end, rather than pinning the source solids to center-of-mass drift.
+  // the bridge end, instead of visually pinning both sources to pair COM drift.
   const displacementProgress = 1 - (1 - progress) * (1 - progress)
   const integratedVelocityScale = POST_IMPACT_MOTION_SIM_DURATION * 0.5
   const normalSpeed = dot(state.relativeVelocity, state.normal)
@@ -177,7 +178,7 @@ function getPostImpactRelativeDisplacement(state: PostImpactMotionState) {
   return scale(finalRelativeDisplacement, displacementProgress)
 }
 
-function applyPostImpactMotionContinuity(
+function registerPostImpactMotionContinuity(
   input: BodyState[],
   stepped: BodyState[],
   dt: number,
@@ -197,12 +198,18 @@ function applyPostImpactMotionContinuity(
   const weightA = state.massB / totalMass
   const weightB = state.massA / totalMass
 
-  // Split the presentation displacement around the pair COM. This changes only
-  // the short-lived bridge positions; velocities and the core solver's retained
-  // source frame remain untouched and still own the physical outcome.
-  bodyA.position = subtract(bodyA.position, scale(relativeDisplacement, weightA))
-  bodyB.position = add(bodyB.position, scale(relativeDisplacement, weightB))
+  // Keep the solver state exactly where Stage 2 previously left it. The offsets
+  // are keyed to the returned BodyState objects and consumed only by the renderer,
+  // so Stage 3 ejecta geometry and the eventual physical solver handoff never see
+  // presentation motion as collision input.
+  postImpactMotionOffsetByBody.set(bodyA, scale(relativeDisplacement, -weightA))
+  postImpactMotionOffsetByBody.set(bodyB, scale(relativeDisplacement, weightB))
   postImpactMotionByFrame.set(stepped, state)
+}
+
+export function getPostImpactMotionPresentationOffset(body: BodyState): Vec3 | null {
+  const offset = postImpactMotionOffsetByBody.get(body)
+  return offset ? { ...offset } : null
 }
 
 function limitPairPenetration(a: BodyState, b: BodyState) {
@@ -258,11 +265,9 @@ function limitNonStellarPenetration(bodies: BodyState[]) {
 export function stepBodies(input: BodyState[], dt: number): BodyState[] {
   const next = stepFragmentAwareBodies(input, dt)
 
-  // The core transition tracker keys the returned array by identity. Mutate only
-  // positions in-place so its phase-1 collision/fragment continuity state stays
-  // attached to the exact frame chain and the eventual solver handoff still uses
-  // its own contact-time frame rather than this presentation correction.
-  applyPostImpactMotionContinuity(input, next, dt)
+  // Keep the Stage 2 physical/presentation-penetration baseline unchanged, then
+  // attach the additional incoming-motion continuity as renderer-only sidecar data.
   limitNonStellarPenetration(next)
+  registerPostImpactMotionContinuity(input, next, dt)
   return next
 }
