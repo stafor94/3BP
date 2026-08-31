@@ -6,6 +6,18 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.20.7] - 2026-08-31
+
+### Fixed
+- 비항성 충돌의 staged contact/impact bridge에서 작은 충돌체의 충돌 전 접선 운동이 화면상 거의 사라져 `충돌 → 정지 → 갑작스러운 제거`처럼 보이던 현상을 수정했습니다.
+- 기존 0.024초 impact bridge 동안 충돌 전 상대 접선 운동을 renderer-only offset으로 보존하고 점진적으로 감속해, 물리 결과와 기존 solid handoff로 넘어가기 전까지 진행 방향의 연속성이 유지되도록 했습니다.
+
+### Added
+- Janus/Luna 규모의 비대칭 충돌에서 post-impact rendered travel, 후반 비정지, 점진적 감속을 검증하는 collision penetration/motion regression을 추가했습니다.
+
+### Unchanged
+- collision solver의 velocity/mass/radius/outcome, 기존 penetration cap, impact bridge duration, physical removal/solid-handoff lifetime, Stage 3 ejecta, Stage 4/5 VFX, flash/particle/crater/camera는 변경하지 않습니다.
+
 ## [0.20.6] - 2026-08-31
 
 ### Fixed
