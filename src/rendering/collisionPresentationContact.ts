@@ -5,6 +5,8 @@ import { getBodyPresentationRadius } from './bodyPresentationRadius'
 
 const MAX_PRESENTATION_OVERLAP_RATIO = 0.14
 const PRESENTATION_RADIUS_EPSILON = 1e-9
+const PRE_TRANSITION_ABSORPTION_PROGRESS_SCALE = 0.72
+const PRE_TRANSITION_ABSORPTION_PROGRESS_MAX = 0.42
 
 type CollisionPreTransitionAbsorptionPresentation = {
   contactNormal: Vec3
@@ -125,6 +127,13 @@ function getShrinkProgress(radius: number, startRadius: number) {
   return Math.min(1, Math.max(0, 1 - radius / startRadius))
 }
 
+function getPreTransitionAbsorptionPresentationProgress(absorptionProgress: number) {
+  return Math.min(
+    PRE_TRANSITION_ABSORPTION_PROGRESS_MAX,
+    Math.max(0, absorptionProgress) * PRE_TRANSITION_ABSORPTION_PROGRESS_SCALE,
+  )
+}
+
 function withAbsorptionPresentation(
   body: BodyState,
   contactNormal: Vec3,
@@ -205,13 +214,17 @@ export function getCollisionPresentationContactBodies(bodies: BodyState[]) {
     // the physical 2->1 topology change. Keep that physical radius and the
     // phase-1 post-impact position untouched, but expose the existing shrink
     // progress plus the original contact normal to the renderer so contact-side
-    // deformation can begin while the source is still visibly large.
+    // deformation can begin while the source is still visibly large. The
+    // presentation curve is capped before topology so enough colored residual
+    // remains for the existing collision flash/VFX readability contract.
     if (contact.released) {
       if (shrinkA > 0 || shrinkB > 0) {
         const absorbA = shrinkA > shrinkB + PRESENTATION_RADIUS_EPSILON ||
           (Math.abs(shrinkA - shrinkB) <= PRESENTATION_RADIUS_EPSILON && a.mass < b.mass)
         const source = absorbA ? a : b
-        const absorptionProgress = absorbA ? shrinkA : shrinkB
+        const absorptionProgress = getPreTransitionAbsorptionPresentationProgress(
+          absorbA ? shrinkA : shrinkB,
+        )
         const contactNormal = absorbA
           ? contact.normalAToB
           : {
