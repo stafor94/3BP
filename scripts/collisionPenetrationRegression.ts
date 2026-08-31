@@ -4,7 +4,7 @@ import {
   stepBodies,
 } from '../src/physics/fragmentAwareEngine'
 import { stepBodies as stepPhaseOneBodies } from '../src/physics/fragmentAwareEngineCore'
-import type { BodyState } from '../src/types'
+import type { BodyState, Vec3 } from '../src/types'
 
 const DT = 0.0015
 const PRIMARY_ID = 'penetration-primary'
@@ -16,6 +16,10 @@ type Stepper = (input: BodyState[], dt: number) => BodyState[]
 type RunMetrics = {
   peakNormalizedPenetration: number
   peakIntactNormalizedPenetration: number
+  projectedBridgeTravel: number
+  earlyProjectedBridgeStep: number
+  lateProjectedBridgeStep: number
+  bridgeStepCount: number
   finalBodies: BodyState[]
 }
 
@@ -51,6 +55,33 @@ function makeFixture(speedScale: number): BodyState[] {
   return [primary, impactor]
 }
 
+function subtract(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
+}
+
+function dot(a: Vec3, b: Vec3) {
+  return a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+function normalize(value: Vec3): Vec3 {
+  const length = Math.hypot(value.x, value.y, value.z)
+  return length > 1e-12
+    ? { x: value.x / length, y: value.y / length, z: value.z / length }
+    : { x: 1, y: 0, z: 0 }
+}
+
+function average(values: number[]) {
+  if (values.length === 0) return 0
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function getRelativePosition(bodies: BodyState[]) {
+  const primary = bodies.find((body) => body.id === PRIMARY_ID)
+  const impactor = bodies.find((body) => body.id === IMPACTOR_ID)
+  if (!primary || !impactor) return null
+  return subtract(impactor.position, primary.position)
+}
+
 function getNormalizedPenetration(bodies: BodyState[]) {
   const primary = bodies.find((body) => body.id === PRIMARY_ID)
   const impactor = bodies.find((body) => body.id === IMPACTOR_ID)
@@ -69,9 +100,13 @@ function getNormalizedPenetration(bodies: BodyState[]) {
 }
 
 function run(stepper: Stepper, speedScale: number): RunMetrics {
-  let bodies = makeFixture(speedScale)
+  const initial = makeFixture(speedScale)
+  let bodies = initial
   let peakNormalizedPenetration = 0
   let peakIntactNormalizedPenetration = 0
+  const impactorDirection = normalize(subtract(initial[1].velocity, initial[0].velocity))
+  let previousRelativePosition = getRelativePosition(bodies)
+  const projectedBridgeSteps: number[] = []
 
   for (let step = 0; step <= 24; step += 1) {
     const metric = getNormalizedPenetration(bodies)
@@ -84,12 +119,30 @@ function run(stepper: Stepper, speedScale: number): RunMetrics {
         )
       }
     }
-    if (step < 24) bodies = stepper(bodies, DT)
+    if (step < 24) {
+      const nextBodies = stepper(bodies, DT)
+      const nextRelativePosition = getRelativePosition(nextBodies)
+      if (previousRelativePosition && nextRelativePosition) {
+        projectedBridgeSteps.push(dot(
+          subtract(nextRelativePosition, previousRelativePosition),
+          impactorDirection,
+        ))
+      }
+      previousRelativePosition = nextRelativePosition
+      bodies = nextBodies
+    }
   }
+
+  const earlyWindow = projectedBridgeSteps.slice(0, Math.min(4, projectedBridgeSteps.length))
+  const lateWindow = projectedBridgeSteps.slice(-Math.min(3, projectedBridgeSteps.length))
 
   return {
     peakNormalizedPenetration,
     peakIntactNormalizedPenetration,
+    projectedBridgeTravel: projectedBridgeSteps.reduce((sum, value) => sum + value, 0),
+    earlyProjectedBridgeStep: average(earlyWindow),
+    lateProjectedBridgeStep: average(lateWindow),
+    bridgeStepCount: projectedBridgeSteps.length,
     finalBodies: bodies,
   }
 }
@@ -127,6 +180,27 @@ for (const speedScale of speedScales) {
   )
   assertConservation(makeFixture(speedScale), after.finalBodies, `${label} guarded collision`)
 
+  assert(
+    after.bridgeStepCount >= 10,
+    `${label} fixture no longer exposes a measurable staged impact bridge`,
+  )
+  assert(
+    after.projectedBridgeTravel >= INITIAL_IMPACTOR_RADIUS * 0.35,
+    `${label} post-impact bridge lost incoming directional travel: ${after.projectedBridgeTravel}`,
+  )
+  assert(
+    after.projectedBridgeTravel >= phaseOne.projectedBridgeTravel + INITIAL_IMPACTOR_RADIUS * 0.2,
+    `${label} continuity guard did not materially improve bridge travel: ${phaseOne.projectedBridgeTravel} -> ${after.projectedBridgeTravel}`,
+  )
+  assert(
+    after.lateProjectedBridgeStep > INITIAL_IMPACTOR_RADIUS * 0.0004,
+    `${label} impactor motion plateaued before solver handoff: ${after.lateProjectedBridgeStep}`,
+  )
+  assert(
+    after.earlyProjectedBridgeStep >= after.lateProjectedBridgeStep * 1.5,
+    `${label} bridge motion did not progressively damp: ${after.earlyProjectedBridgeStep} -> ${after.lateProjectedBridgeStep}`,
+  )
+
   if (speedScale <= 1) {
     assert(
       phaseOne.peakIntactNormalizedPenetration >= 0.45,
@@ -145,10 +219,15 @@ for (const speedScale of speedScales) {
   report[label] = {
     phaseOnePeakNormalizedPenetration: phaseOne.peakNormalizedPenetration,
     phaseOnePeakIntactNormalizedPenetration: phaseOne.peakIntactNormalizedPenetration,
+    phaseOneProjectedBridgeTravel: phaseOne.projectedBridgeTravel,
     afterPeakNormalizedPenetration: after.peakNormalizedPenetration,
     afterPeakIntactNormalizedPenetration: after.peakIntactNormalizedPenetration,
+    afterProjectedBridgeTravel: after.projectedBridgeTravel,
+    afterEarlyProjectedBridgeStep: after.earlyProjectedBridgeStep,
+    afterLateProjectedBridgeStep: after.lateProjectedBridgeStep,
+    afterBridgeStepCount: after.bridgeStepCount,
   }
 }
 
 console.log(JSON.stringify(report, null, 2))
-console.log('collision penetration regression checks passed')
+console.log('collision penetration and post-impact motion regression checks passed')
