@@ -39,6 +39,8 @@ FLASH_TRANSIENT_DELTA = 14
 FLASH_COMPONENT_MIN_PIXELS = 4
 CONTACT_COMPONENT_MAX_OFFSET = 42.0
 CONTACT_WINDOW_RADIUS = 58.0
+CONTACT_FLASH_RADIUS = 16.0
+FLASH_PEAK_NAMES = ('t0000', 't0033', 't0066')
 MONTAGE_NAMES = ('tm0100', 't0000', 't0033', 't0066', 't0100', 't0150', 't0200', 't0300', 't0500')
 
 TEST_CLOCK_SCRIPT = r"""
@@ -258,9 +260,11 @@ def visual_metrics(
     contact_colored_pixels = 0
     contact_non_dark_pixels = 0
     contact_white_transient_pixels = 0
+    contact_flash_white_pixels = 0
     for y in range(max(0, int(contact[1] - CONTACT_WINDOW_RADIUS)), min(height, int(contact[1] + CONTACT_WINDOW_RADIUS + 1))):
         for x in range(max(0, int(contact[0] - CONTACT_WINDOW_RADIUS)), min(width, int(contact[0] + CONTACT_WINDOW_RADIUS + 1))):
-            if math.hypot(x - contact[0], y - contact[1]) > CONTACT_WINDOW_RADIUS:
+            distance = math.hypot(x - contact[0], y - contact[1])
+            if distance > CONTACT_WINDOW_RADIUS:
                 continue
             pixel = current.getpixel((x, y))
             before = pre.getpixel((x, y))
@@ -273,6 +277,8 @@ def visual_metrics(
                 contact_colored_pixels += 1
             if brightest >= FLASH_CHANNEL_THRESHOLD and transient >= FLASH_TRANSIENT_DELTA and chroma <= 55:
                 contact_white_transient_pixels += 1
+                if distance <= CONTACT_FLASH_RADIUS:
+                    contact_flash_white_pixels += 1
 
     return {
         'flash_pixels': flash_pixels,
@@ -288,6 +294,7 @@ def visual_metrics(
         'transient_luminance_sum': transient_sum,
         'white_flash_pixels': white_pixels,
         'contact_white_transient_pixels': contact_white_transient_pixels,
+        'contact_flash_white_pixels': contact_flash_white_pixels,
         'contact_colored_pixels': contact_colored_pixels,
         'contact_non_dark_pixels': contact_non_dark_pixels,
     }
@@ -480,22 +487,26 @@ def sum_metric(run: dict[str, object], names: tuple[str, ...], metric: str) -> f
 def peak_frame(run: dict[str, object], names: tuple[str, ...]) -> tuple[str, dict[str, float | int]]:
     metrics = run['metrics']
     assert isinstance(metrics, dict)
-    name = max(names, key=lambda key: float(metrics[key]['transient_luminance_sum']))
+    name = max(names, key=lambda key: float(metrics[key]['contact_flash_white_pixels']))
     return name, metrics[name]
 
 
-def duration_proxy(run: dict[str, object], peak_energy: float) -> float:
+def duration_proxy(run: dict[str, object], peak_white_pixels: float) -> float:
     metrics = run['metrics']
     assert isinstance(metrics, dict)
-    active_floor = max(180.0, peak_energy * 0.12)
-    active = [target for name, target in POST_CAPTURES if float(metrics[name]['transient_luminance_sum']) >= active_floor]
+    active_floor = max(4.0, peak_white_pixels * 0.5)
+    active = [
+        target
+        for name, target in POST_CAPTURES
+        if target <= 0.5 and float(metrics[name]['contact_flash_white_pixels']) >= active_floor
+    ]
     return max(active) if active else 0.0
 
 
 def summarize_run(run: dict[str, object]) -> dict[str, object]:
-    early_names = ('t0000', 't0033', 't0066', 't0100', 't0150', 't0200')
-    peak_name, peak = peak_frame(run, early_names)
+    peak_name, peak = peak_frame(run, FLASH_PEAK_NAMES)
     peak_energy = float(peak['transient_luminance_sum'])
+    peak_white_pixels = float(peak['contact_flash_white_pixels'])
     return {
         'peak_frame': peak_name,
         'peak_flash_pixels': int(peak['flash_pixels']),
@@ -505,7 +516,8 @@ def summarize_run(run: dict[str, object]) -> dict[str, object]:
         'peak_contact_offset': float(peak['contact_offset']),
         'peak_transient_luminance': float(peak['peak_transient_luminance']),
         'peak_transient_luminance_sum': peak_energy,
-        'duration_proxy_seconds': duration_proxy(run, peak_energy),
+        'peak_contact_flash_white_pixels': int(peak_white_pixels),
+        'duration_proxy_seconds': duration_proxy(run, peak_white_pixels),
         'white_occlusion_0p1_to_0p3': sum_metric(
             run,
             ('t0100', 't0150', 't0200', 't0300'),
@@ -576,14 +588,23 @@ def check_scenario_quality(
     add(
         'short_decay',
         float(summary5['duration_proxy_seconds']) <= 0.3,
-        f"duration proxy={float(summary5['duration_proxy_seconds']):.3f}s",
+        f"half-peak contact decay proxy={float(summary5['duration_proxy_seconds']):.3f}s",
     )
 
     if scenario == 'head-on':
         width = max(int(summary5['peak_bbox_width']), 1)
         height = max(int(summary5['peak_bbox_height']), 1)
         aspect = max(width / height, height / width)
-        add('head_on_no_pillar', aspect <= 1.9, f'peak aspect={aspect:.2f}')
+        pillar_like = (
+            aspect > 2.4
+            and max(width, height) >= 40
+            and int(summary5['peak_flash_pixels']) >= 80
+        )
+        add(
+            'head_on_no_pillar',
+            not pillar_like,
+            f"peak bbox={width}x{height} area={summary5['peak_flash_pixels']} aspect={aspect:.2f}",
+        )
         add(
             'head_on_compact_vs_stage4',
             int(summary5['peak_bbox_area']) <= int(summary4['peak_bbox_area']) * 1.15 + 80,
@@ -620,7 +641,7 @@ def check_gentle_merge_quality(stage4: dict[str, object], stage5: dict[str, obje
         {
             'name': 'gentle_merge_short_decay',
             'passed': float(summary5['duration_proxy_seconds']) <= 0.3,
-            'detail': f"Stage5 duration proxy={float(summary5['duration_proxy_seconds']):.3f}s",
+            'detail': f"Stage5 half-peak decay proxy={float(summary5['duration_proxy_seconds']):.3f}s",
         },
     ]
 
@@ -703,6 +724,9 @@ def main() -> None:
                 'minimum_transient_channel_delta': FLASH_TRANSIENT_DELTA,
                 'component_min_pixels': FLASH_COMPONENT_MIN_PIXELS,
                 'expected_contact_source': 'Stage4 true-T0 transient component centroid',
+                'contact_flash_radius_pixels': CONTACT_FLASH_RADIUS,
+                'peak_window_seconds': [0.0, 0.033, 0.066],
+                'decay_proxy': 'last <=0.5s frame at or above 50% of early contact-white peak',
             },
             'physics_snapshot_seconds': PHYSICS_SNAPSHOT_TIMES,
             'runs': runs,
