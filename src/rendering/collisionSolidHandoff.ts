@@ -553,7 +553,7 @@ function ensureContactDeformationShader(material: THREE.ShaderMaterial) {
     )
     .replace(
       worldPositionAnchor,
-      `    float collisionContactWeight = smoothstep(0.0, 0.86, max(position.x, 0.0));\n    vec3 collisionDeformedPosition = position;\n    collisionDeformedPosition.x *= mix(1.0, uCollisionContactAxisScale, collisionContactWeight);\n    collisionDeformedPosition.y *= mix(1.0, uCollisionLateralScaleA, collisionContactWeight);\n    collisionDeformedPosition.z *= mix(1.0, uCollisionLateralScaleB, collisionContactWeight);\n    vec4 worldPosition = modelMatrix * vec4(collisionDeformedPosition, 1.0);`,
+      `    float collisionContactWeight = smoothstep(-0.9, 0.3, position.x);\n    vec3 collisionDeformedPosition = position;\n    collisionDeformedPosition.x *= mix(1.0, uCollisionContactAxisScale, collisionContactWeight);\n    collisionDeformedPosition.y *= mix(1.0, uCollisionLateralScaleA, collisionContactWeight);\n    collisionDeformedPosition.z *= mix(1.0, uCollisionLateralScaleB, collisionContactWeight);\n    vec4 worldPosition = modelMatrix * vec4(collisionDeformedPosition, 1.0);`,
     )
   material.needsUpdate = true
   return true
