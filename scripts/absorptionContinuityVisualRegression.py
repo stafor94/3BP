@@ -332,6 +332,11 @@ def main() -> None:
         diagnostics: dict[int, dict[str, float | int | str]] = {}
         for step in CAPTURE_STEPS:
             set_visual_step(driver, step)
+            # Pre-transition absorption keeps the simulation step fixed. Allow a
+            # few production WebGL frames for the contact-deformation material
+            # recompile before sampling the actual rendered silhouette.
+            if step in (8, 12, 15):
+                time.sleep(0.12)
             name = f'{step:02d}-step'
             captures[step] = capture_canvas(driver, name)
             diagnostics[step] = read_diagnostics(driver)
