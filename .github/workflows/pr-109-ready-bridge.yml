@@ -1,0 +1,29 @@
+name: PR 109 Ready Bridge
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ready:
+    if: github.event.pull_request.number == 109 && github.event.pull_request.draft == true && github.head_ref == 'fix/collision-destruction-continuity'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark PR 109 ready for review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR_NODE_ID="$(jq -r '.pull_request.node_id' "$GITHUB_EVENT_PATH")"
+          RESPONSE="$(curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -nc --arg id "$PR_NODE_ID" '{query:"mutation($pullRequestId: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) { pullRequest { number isDraft } } }",variables:{pullRequestId:$id}}')" \
+            https://api.github.com/graphql)"
+          echo "$RESPONSE"
+          jq -e '.errors == null and .data.markPullRequestReadyForReview.pullRequest.number == 109 and .data.markPullRequestReadyForReview.pullRequest.isDraft == false' <<< "$RESPONSE" >/dev/null
