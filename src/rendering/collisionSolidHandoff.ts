@@ -1,7 +1,10 @@
 import * as THREE from 'three'
 import type { BodyState, Vec3 } from '../types'
 import { getBodyPresentationRadius } from './bodyPresentationRadius'
-import { resetCollisionPresentationContactState } from './collisionPresentationContact'
+import {
+  getCollisionPreTransitionAbsorptionPresentation,
+  resetCollisionPresentationContactState,
+} from './collisionPresentationContact'
 import {
   COLLISION_REMNANT_FORMATION_START_MS,
   findCollisionVisualTransitions,
@@ -15,6 +18,7 @@ const ABSORBED_HANDOFF_MAX_INWARD_TRAVEL_RATIO = 0.28
 type AbsorbedSolidHandoff = {
   source: BodyState
   contactNormal: Vec3
+  initialErosionProgress: number
 }
 
 type ActiveSolidHandoff = {
@@ -49,14 +53,17 @@ type HandoffSample = {
   }>
 }
 
-export type CollisionAbsorbedSolidProgress = {
+export type CollisionAbsorbedShapeProgress = {
   erosionProgress: number
-  collapseProgress: number
-  radiusScale: number
-  opacity: number
   contactAxisScale: number
   lateralScaleA: number
   lateralScaleB: number
+}
+
+export type CollisionAbsorbedSolidProgress = CollisionAbsorbedShapeProgress & {
+  collapseProgress: number
+  radiusScale: number
+  opacity: number
 }
 
 export type CollisionSolidHandoffPresentationOverride = {
@@ -70,6 +77,11 @@ export type CollisionSolidHandoffPresentationOverride = {
   contactAxisScale?: number
   lateralScaleA?: number
   lateralScaleB?: number
+}
+
+type CollisionPreTransitionAbsorptionOverride = CollisionAbsorbedShapeProgress & {
+  sourceId: string
+  contactNormal: Vec3
 }
 
 export type CollisionSolidHandoffTelemetry = {
@@ -111,7 +123,9 @@ export type CollisionSolidHandoffRenderFrame = {
 }
 
 const activeHandoffs = new Map<string, ActiveSolidHandoff>()
+const activePreTransitionAbsorptions = new Map<string, CollisionPreTransitionAbsorptionOverride>()
 const retiredPresentationSeeds = new Set<string>()
+const deformedPresentationSeeds = new Set<string>()
 let previousBodies: BodyState[] | null = null
 
 function clamp01(value: number) {
@@ -198,6 +212,25 @@ function blendColor(source: string, target: string, progress: number) {
   return `#${new THREE.Color(source).lerp(new THREE.Color(target), progress).getHexString()}`
 }
 
+function getCollisionAbsorbedShape(erosionProgress: number): CollisionAbsorbedShapeProgress {
+  const erosion = clamp01(erosionProgress)
+  return {
+    erosionProgress: erosion,
+    contactAxisScale: 1 - erosion * 0.58,
+    lateralScaleA: 1 - erosion * 0.18,
+    lateralScaleB: 1 - erosion * 0.30,
+  }
+}
+
+export function getCollisionPreTransitionAbsorbedSolidProgress(
+  absorptionProgress: number,
+): CollisionAbsorbedShapeProgress {
+  // The physical absorption stage already provides a monotonic radius-loss
+  // signal before topology collapse. Bias it toward the start so the contact
+  // face visibly gives way while most of the source silhouette still remains.
+  return getCollisionAbsorbedShape(Math.pow(clamp01(absorptionProgress), 0.55))
+}
+
 export function getCollisionAbsorbedSolidProgress(progress: number): CollisionAbsorbedSolidProgress {
   const normalized = clamp01(progress)
   // Contact-facing deformation starts first. Whole-body collapse is delayed
@@ -208,13 +241,10 @@ export function getCollisionAbsorbedSolidProgress(progress: number): CollisionAb
   const collapseProgress = smooth01((normalized - 0.38) / 0.62)
   const fadeProgress = smooth01((normalized - 0.78) / 0.20)
   return {
-    erosionProgress,
+    ...getCollisionAbsorbedShape(erosionProgress),
     collapseProgress,
     radiusScale: 1 - collapseProgress,
     opacity: 1 - fadeProgress,
-    contactAxisScale: 1 - erosionProgress * 0.58,
-    lateralScaleA: 1 - erosionProgress * 0.18,
-    lateralScaleB: 1 - erosionProgress * 0.30,
   }
 }
 
@@ -253,10 +283,18 @@ function beginHandoffs(previous: BodyState[], current: BodyState[]) {
     activeHandoffs.set(resultId, {
       resultId,
       survivor: cloneBody(survivorTransition.source),
-      absorbed: absorbedTransitions.map((transition) => ({
-        source: cloneBody(transition.source),
-        contactNormal: { ...transition.contactNormal },
-      })),
+      absorbed: absorbedTransitions.map((transition) => {
+        const preTransition = getCollisionPreTransitionAbsorptionPresentation(transition.source)
+        return {
+          source: cloneBody(transition.source),
+          contactNormal: { ...transition.contactNormal },
+          initialErosionProgress: preTransition
+            ? getCollisionPreTransitionAbsorbedSolidProgress(
+              preTransition.absorptionProgress,
+            ).erosionProgress
+            : 0,
+        }
+      }),
       initialResultPosition: { ...result.position },
       result: cloneBody(result),
       // Do not start the visible handoff clock while React is only routing body
@@ -296,6 +334,20 @@ function syncHandoffs(bodies: BodyState[], now: number) {
   previousBodies = bodies.map(cloneBody)
 }
 
+function syncPreTransitionAbsorptions(bodies: BodyState[]) {
+  activePreTransitionAbsorptions.clear()
+  bodies.forEach((body) => {
+    const presentation = getCollisionPreTransitionAbsorptionPresentation(body)
+    if (!presentation || presentation.absorptionProgress <= 0) return
+    const shape = getCollisionPreTransitionAbsorbedSolidProgress(presentation.absorptionProgress)
+    activePreTransitionAbsorptions.set(body.id, {
+      sourceId: body.id,
+      contactNormal: { ...presentation.contactNormal },
+      ...shape,
+    })
+  })
+}
+
 function sampleHandoff(handoff: ActiveSolidHandoff, now: number): HandoffSample {
   const elapsedMs = handoff.startedAt === null
     ? 0
@@ -317,7 +369,7 @@ function sampleHandoff(handoff: ActiveSolidHandoff, now: number): HandoffSample 
     survivorRadius: THREE.MathUtils.lerp(survivorStartRadius, resultRadius, progress),
     resultRadius,
     survivorColor: blendColor(handoff.survivor.color, handoff.result.color, progress),
-    absorbed: handoff.absorbed.map(({ source, contactNormal }) => {
+    absorbed: handoff.absorbed.map(({ source, contactNormal, initialErosionProgress }) => {
       const sourceStart = add(source.position, resultDrift)
       const startRadius = getBodyPresentationRadius(source.radius)
       const inwardPosition = getAbsorbedHandoffPosition(
@@ -326,18 +378,24 @@ function sampleHandoff(handoff: ActiveSolidHandoff, now: number): HandoffSample 
         source.radius,
         progress,
       )
+      const erosionProgress = THREE.MathUtils.lerp(
+        initialErosionProgress,
+        1,
+        absorbedProgress.erosionProgress,
+      )
+      const absorbedShape = getCollisionAbsorbedShape(erosionProgress)
       return {
         source,
         position: inwardPosition,
         radius: startRadius * absorbedProgress.radiusScale,
         startRadius,
         opacity: absorbedProgress.opacity,
-        erosionProgress: absorbedProgress.erosionProgress,
+        erosionProgress,
         collapseProgress: absorbedProgress.collapseProgress,
         contactNormal,
-        contactAxisScale: absorbedProgress.contactAxisScale,
-        lateralScaleA: absorbedProgress.lateralScaleA,
-        lateralScaleB: absorbedProgress.lateralScaleB,
+        contactAxisScale: absorbedShape.contactAxisScale,
+        lateralScaleA: absorbedShape.lateralScaleA,
+        lateralScaleB: absorbedShape.lateralScaleB,
       }
     }),
   }
@@ -475,28 +533,98 @@ function setPresentationVisibility(scene: THREE.Scene, mesh: THREE.Mesh, visible
   })
 }
 
+function ensureContactDeformationShader(material: THREE.ShaderMaterial) {
+  if (!material.uniforms.uCollisionContactAxisScale) {
+    material.uniforms.uCollisionContactAxisScale = { value: 1 }
+    material.uniforms.uCollisionLateralScaleA = { value: 1 }
+    material.uniforms.uCollisionLateralScaleB = { value: 1 }
+  }
+  if (material.vertexShader.includes('uCollisionContactAxisScale')) return true
+
+  const varyingAnchor = '  varying vec3 vObjectNormal;'
+  const worldPositionAnchor = '    vec4 worldPosition = modelMatrix * vec4(position, 1.0);'
+  if (!material.vertexShader.includes(varyingAnchor) || !material.vertexShader.includes(worldPositionAnchor)) {
+    return false
+  }
+  material.vertexShader = material.vertexShader
+    .replace(
+      varyingAnchor,
+      `  uniform float uCollisionContactAxisScale;\n  uniform float uCollisionLateralScaleA;\n  uniform float uCollisionLateralScaleB;\n\n${varyingAnchor}`,
+    )
+    .replace(
+      worldPositionAnchor,
+      `    float collisionContactWeight = smoothstep(0.0, 0.86, max(position.x, 0.0));\n    vec3 collisionDeformedPosition = position;\n    collisionDeformedPosition.x *= mix(1.0, uCollisionContactAxisScale, collisionContactWeight);\n    collisionDeformedPosition.y *= mix(1.0, uCollisionLateralScaleA, collisionContactWeight);\n    collisionDeformedPosition.z *= mix(1.0, uCollisionLateralScaleB, collisionContactWeight);\n    vec4 worldPosition = modelMatrix * vec4(collisionDeformedPosition, 1.0);`,
+    )
+  material.needsUpdate = true
+  return true
+}
+
+function setContactDeformationUniforms(
+  material: THREE.ShaderMaterial,
+  contactAxisScale: number,
+  lateralScaleA: number,
+  lateralScaleB: number,
+) {
+  if (!ensureContactDeformationShader(material)) return false
+  material.uniforms.uCollisionContactAxisScale.value = clamp01(contactAxisScale)
+  material.uniforms.uCollisionLateralScaleA.value = clamp01(lateralScaleA)
+  material.uniforms.uCollisionLateralScaleB.value = clamp01(lateralScaleB)
+  return true
+}
+
+function resetContactDeformation(mesh: THREE.Mesh) {
+  const material = mesh.material instanceof THREE.ShaderMaterial ? mesh.material : null
+  if (!material?.uniforms.uCollisionContactAxisScale) return
+  material.uniforms.uCollisionContactAxisScale.value = 1
+  material.uniforms.uCollisionLateralScaleA.value = 1
+  material.uniforms.uCollisionLateralScaleB.value = 1
+}
+
+function alignContactNormal(mesh: THREE.Mesh, contactNormalValue: Vec3) {
+  const contactNormal = new THREE.Vector3(
+    contactNormalValue.x,
+    contactNormalValue.y,
+    contactNormalValue.z,
+  )
+  if (contactNormal.lengthSq() <= 1e-12) contactNormal.set(1, 0, 0)
+  contactNormal.normalize()
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), contactNormal)
+}
+
+function applyPreTransitionAbsorbedShape(
+  mesh: THREE.Mesh,
+  override: CollisionPreTransitionAbsorptionOverride,
+) {
+  const material = mesh.material instanceof THREE.ShaderMaterial ? mesh.material : null
+  if (!material) return false
+  alignContactNormal(mesh, override.contactNormal)
+  return setContactDeformationUniforms(
+    material,
+    override.contactAxisScale,
+    override.lateralScaleA,
+    override.lateralScaleB,
+  )
+}
+
 function applyAbsorbedShape(
   mesh: THREE.Mesh,
   radius: number,
   override: CollisionSolidHandoffPresentationOverride,
 ) {
+  mesh.scale.setScalar(radius)
   if (override.role !== 'absorbed' || !override.contactNormal) {
-    mesh.scale.setScalar(radius)
-    return
+    resetContactDeformation(mesh)
+    return false
   }
 
-  const contactNormal = new THREE.Vector3(
-    override.contactNormal.x,
-    override.contactNormal.y,
-    override.contactNormal.z,
-  )
-  if (contactNormal.lengthSq() <= 1e-12) contactNormal.set(1, 0, 0)
-  contactNormal.normalize()
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), contactNormal)
-  mesh.scale.set(
-    radius * clamp01(override.contactAxisScale ?? 1),
-    radius * clamp01(override.lateralScaleA ?? 1),
-    radius * clamp01(override.lateralScaleB ?? 1),
+  const material = mesh.material instanceof THREE.ShaderMaterial ? mesh.material : null
+  if (!material) return false
+  alignContactNormal(mesh, override.contactNormal)
+  return setContactDeformationUniforms(
+    material,
+    override.contactAxisScale ?? 1,
+    override.lateralScaleA ?? 1,
+    override.lateralScaleB ?? 1,
   )
 }
 
@@ -508,7 +636,7 @@ function applyOverrideToScene(
   const radius = Math.max(0, override.radius)
   const opacity = clamp01(override.opacity)
   mesh.position.set(override.position.x, override.position.y, override.position.z)
-  applyAbsorbedShape(mesh, radius, override)
+  const deformed = applyAbsorbedShape(mesh, radius, override)
 
   const material = mesh.material instanceof THREE.ShaderMaterial ? mesh.material : null
   if (material) {
@@ -529,6 +657,7 @@ function applyOverrideToScene(
   // physical lookup, so suppress its generic glow here as well instead of
   // introducing a new halo during the handoff.
   setPresentationVisibility(scene, mesh, radius > 1e-6 && opacity > 1e-3)
+  return deformed
 }
 
 export function renderCollisionSolidHandoffFrame(
@@ -536,7 +665,12 @@ export function renderCollisionSolidHandoffFrame(
   renderFrameSequence: number,
   now = performance.now(),
 ) {
-  if (activeHandoffs.size === 0 && retiredPresentationSeeds.size === 0) return null
+  if (
+    activeHandoffs.size === 0 &&
+    activePreTransitionAbsorptions.size === 0 &&
+    retiredPresentationSeeds.size === 0 &&
+    deformedPresentationSeeds.size === 0
+  ) return null
 
   // The handoff becomes visible only when renderer meshes are actually sampled.
   // Anchor elapsed time here so a delayed first frame cannot turn routing delay
@@ -553,8 +687,13 @@ export function renderCollisionSolidHandoffFrame(
   frame.overrides.forEach((override, bodyId) => {
     overridesBySeed.set(seedKey(bodySeed(bodyId)), { bodyId, override })
   })
+  const preTransitionBySeed = new Map<string, CollisionPreTransitionAbsorptionOverride>()
+  activePreTransitionAbsorptions.forEach((override, bodyId) => {
+    preTransitionBySeed.set(seedKey(bodySeed(bodyId)), override)
+  })
 
   const appliedBodyIds = new Set<string>()
+  const deformationSeedsToReset = new Set(deformedPresentationSeeds)
   scene.children.forEach((object) => {
     if (!(object instanceof THREE.Mesh)) return
     const material = object.material
@@ -564,12 +703,29 @@ export function renderCollisionSolidHandoffFrame(
     const key = seedKey(seed)
     const entry = overridesBySeed.get(key)
     if (entry) {
-      applyOverrideToScene(scene, entry.override, object)
+      const deformed = applyOverrideToScene(scene, entry.override, object)
+      if (deformed) {
+        deformedPresentationSeeds.add(key)
+        deformationSeedsToReset.delete(key)
+      }
       appliedBodyIds.add(entry.bodyId)
       return
     }
-    if (retiredPresentationSeeds.has(key)) setPresentationVisibility(scene, object, false)
+    const preTransition = preTransitionBySeed.get(key)
+    if (preTransition) {
+      if (applyPreTransitionAbsorbedShape(object, preTransition)) {
+        deformedPresentationSeeds.add(key)
+        deformationSeedsToReset.delete(key)
+      }
+      return
+    }
+    if (retiredPresentationSeeds.has(key)) {
+      setPresentationVisibility(scene, object, false)
+      return
+    }
+    if (deformationSeedsToReset.has(key)) resetContactDeformation(object)
   })
+  deformationSeedsToReset.forEach((key) => deformedPresentationSeeds.delete(key))
 
   publishCollisionSolidHandoffRenderTelemetry(frame, appliedBodyIds, renderFrameSequence)
   return frame
@@ -578,6 +734,7 @@ export function renderCollisionSolidHandoffFrame(
 export function getCollisionSolidHandoffRenderBodies(bodies: BodyState[]) {
   const now = performance.now()
   syncHandoffs(bodies, now)
+  syncPreTransitionAbsorptions(bodies)
 
   const rendered = bodies.map((body) => {
     const handoff = activeHandoffs.get(body.id)
@@ -618,7 +775,9 @@ export function getCollisionSolidHandoffRenderBodies(bodies: BodyState[]) {
 
 export function resetCollisionSolidHandoffState() {
   activeHandoffs.clear()
+  activePreTransitionAbsorptions.clear()
   retiredPresentationSeeds.clear()
+  deformedPresentationSeeds.clear()
   previousBodies = null
   resetCollisionPresentationContactState()
   if (typeof window !== 'undefined') window.__collisionSolidHandoffMetrics = {}
