@@ -13,7 +13,6 @@ export const MAX_NON_STELLAR_NORMALIZED_PENETRATION = 0.18
 
 const POSITION_EPSILON = 1e-12
 const POST_IMPACT_MOTION_SIM_DURATION = 0.024
-const POST_IMPACT_NORMAL_TRAVEL_RATIO = 0.14
 const POST_IMPACT_TANGENTIAL_TRAVEL_RATIO = 0.6
 
 type PostImpactMotionState = {
@@ -35,10 +34,6 @@ function isCorrectableSolid(body: BodyState) {
   return body.bodyType !== 'effect' &&
     body.bodyType !== 'fragment' &&
     getEffectiveBodyType(body) !== 'star'
-}
-
-function add(a: Vec3, b: Vec3): Vec3 {
-  return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }
 }
 
 function subtract(a: Vec3, b: Vec3): Vec3 {
@@ -153,16 +148,13 @@ function findNewPostImpactMotionState(
 function getPostImpactRelativeDisplacement(state: PostImpactMotionState) {
   const progress = Math.min(1, Math.max(0, state.elapsed / POST_IMPACT_MOTION_SIM_DURATION))
 
-  // Integrate a linearly damped velocity over the existing impact bridge. The
-  // derivative starts in the incoming direction and reaches zero continuously at
-  // the bridge end, instead of visually pinning both sources to pair COM drift.
+  // Integrate a linearly damped carry over the existing impact bridge. Normal
+  // compression/overlap is already owned by the established contact bridge, so
+  // this additional presentation motion preserves only pre-impact tangential
+  // travel instead of double-compressing head-on merges.
   const displacementProgress = 1 - (1 - progress) * (1 - progress)
   const integratedVelocityScale = POST_IMPACT_MOTION_SIM_DURATION * 0.5
   const normalSpeed = dot(state.relativeVelocity, state.normal)
-  const closingNormalTravel = Math.max(
-    -state.minimumPhysicalRadius * POST_IMPACT_NORMAL_TRAVEL_RATIO,
-    Math.min(0, normalSpeed) * integratedVelocityScale,
-  )
   const tangentialVelocity = subtract(
     state.relativeVelocity,
     scale(state.normal, normalSpeed),
@@ -171,11 +163,7 @@ function getPostImpactRelativeDisplacement(state: PostImpactMotionState) {
     scale(tangentialVelocity, integratedVelocityScale),
     state.minimumPresentationRadius * POST_IMPACT_TANGENTIAL_TRAVEL_RATIO,
   )
-  const finalRelativeDisplacement = add(
-    scale(state.normal, closingNormalTravel),
-    tangentialTravel,
-  )
-  return scale(finalRelativeDisplacement, displacementProgress)
+  return scale(tangentialTravel, displacementProgress)
 }
 
 function registerPostImpactMotionContinuity(
