@@ -227,13 +227,24 @@ const RENDER_TUNING = {
 } as const
 
 const bodyVertexShader = `
+  uniform float uCollisionDeformationAxis;
+  uniform float uCollisionDeformationLateralA;
+  uniform float uCollisionDeformationLateralB;
+
   varying vec3 vObjectNormal;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
 
   void main() {
     vObjectNormal = normalize(normal);
-    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+
+    vec3 deformedPosition = position;
+    float contactWeight = smoothstep(-0.9, 0.3, position.x);
+    deformedPosition.x *= mix(1.0, uCollisionDeformationAxis, contactWeight);
+    deformedPosition.y *= mix(1.0, uCollisionDeformationLateralA, contactWeight);
+    deformedPosition.z *= mix(1.0, uCollisionDeformationLateralB, contactWeight);
+
+    vec4 worldPosition = modelMatrix * vec4(deformedPosition, 1.0);
     vWorldPosition = worldPosition.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     gl_Position = projectionMatrix * viewMatrix * worldPosition;
@@ -424,6 +435,9 @@ function createBodyMaterial(id: string, color: string) {
       uDetailStrength: { value: RENDER_TUNING.body.detailMin },
       uRimStrength: { value: RENDER_TUNING.body.rimMax },
       uOpacity: { value: 1 },
+      uCollisionDeformationAxis: { value: 1 },
+      uCollisionDeformationLateralA: { value: 1 },
+      uCollisionDeformationLateralB: { value: 1 },
     },
     vertexShader: bodyVertexShader,
     fragmentShader: bodyFragmentShader,

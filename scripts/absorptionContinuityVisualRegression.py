@@ -220,6 +220,66 @@ def visible_impactor_pixels(
     return count
 
 
+def exposed_impactor_silhouette(
+    path: Path,
+    geometry: tuple[float, float, float],
+) -> dict[str, int]:
+    image = Image.open(path).convert('RGB')
+    center_x, center_y, radius = geometry
+    x0 = max(0, int(math.ceil(center_x + radius * 1.03)))
+    x1 = min(image.width, int(math.ceil(center_x + radius * 1.85)) + 1)
+    y0 = max(0, int(math.floor(center_y - radius * 0.95)))
+    y1 = min(image.height, int(math.ceil(center_y + radius * 0.95)) + 1)
+    occupied: set[tuple[int, int]] = set()
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            r, g, b = image.getpixel((x, y))
+            if (
+                12 <= r <= 80 and
+                r >= g - 1 and
+                g >= b - 2 and
+                r - b <= 20
+            ):
+                occupied.add((x, y))
+
+    components: list[list[tuple[int, int]]] = []
+    while occupied:
+        seed = occupied.pop()
+        queue = deque([seed])
+        points = [seed]
+        while queue:
+            x, y = queue.popleft()
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    candidate = (x + dx, y + dy)
+                    if candidate in occupied:
+                        occupied.remove(candidate)
+                        queue.append(candidate)
+                        points.append(candidate)
+        if len(points) >= 20:
+            components.append(points)
+
+    require(components, f'{path.name}: exposed impactor silhouette is not detectable')
+    points = max(components, key=len)
+    xs = [x for x, _ in points]
+    ys = [y for _, y in points]
+    column_heights: list[int] = []
+    for x in range(min(xs), max(xs) + 1):
+        column_ys = [y for point_x, y in points if point_x == x]
+        if column_ys:
+            column_heights.append(max(column_ys) - min(column_ys) + 1)
+    require(column_heights, f'{path.name}: exposed impactor silhouette has no column samples')
+    return {
+        'area': len(points),
+        'width': max(xs) - min(xs) + 1,
+        'height': max(ys) - min(ys) + 1,
+        'max_column_height': max(column_heights),
+        'outward_edge_x': max(xs),
+    }
+
+
 def annular_changed_fraction(
     before_path: Path,
     after_path: Path,
@@ -272,6 +332,11 @@ def main() -> None:
         diagnostics: dict[int, dict[str, float | int | str]] = {}
         for step in CAPTURE_STEPS:
             set_visual_step(driver, step)
+            # Pre-transition absorption keeps the simulation step fixed. Allow a
+            # few production WebGL frames for the contact-deformation material
+            # recompile before sampling the actual rendered silhouette.
+            if step in (8, 12, 15):
+                time.sleep(0.12)
             name = f'{step:02d}-step'
             captures[step] = capture_canvas(driver, name)
             diagnostics[step] = read_diagnostics(driver)
@@ -280,6 +345,10 @@ def main() -> None:
         impactor_counts = {
             step: visible_impactor_pixels(path, geometry)
             for step, path in captures.items()
+        }
+        silhouettes = {
+            step: exposed_impactor_silhouette(captures[step], geometry)
+            for step in (0, 8, 12, 15)
         }
         time.sleep(0.75)
         post_fade = capture_canvas(driver, '17-post-fade')
@@ -296,6 +365,7 @@ def main() -> None:
                 'radius': geometry[2],
             },
             'visible_impactor_pixels': impactor_counts,
+            'exposed_impactor_silhouette': silhouettes,
             'result_pop_changed_fraction': result_pop_fraction,
             'late_effect_changed_fraction': late_effect_fraction,
         }
@@ -354,6 +424,32 @@ def main() -> None:
             impactor_counts[12] >= impactor_counts[0] * 0.35 and
             impactor_counts[15] >= impactor_counts[0] * 0.20,
             'surface-local absorption staging lost the source silhouette before the physical handoff',
+        )
+        baseline_silhouette = silhouettes[0]
+        baseline_aspect = int(baseline_silhouette['width']) / max(int(baseline_silhouette['height']), 1)
+        step8_aspect = int(silhouettes[8]['width']) / max(int(silhouettes[8]['height']), 1)
+        step12_aspect = int(silhouettes[12]['width']) / max(int(silhouettes[12]['height']), 1)
+        require(
+            int(baseline_silhouette['max_column_height']) >= 32,
+            'baseline exposed impactor silhouette is too small for deformation inspection',
+        )
+        require(
+            step8_aspect <= baseline_aspect * 0.90,
+            'step8 rendered silhouette must already show contact-axis compression while the impactor remains large',
+        )
+        require(
+            step12_aspect <= step8_aspect * 0.90,
+            'step12 rendered silhouette must deepen contact-axis deformation before topology collapse',
+        )
+        require(
+            int(silhouettes[8]['max_column_height']) >= int(baseline_silhouette['max_column_height']) * 0.90 and
+            int(silhouettes[12]['max_column_height']) >= int(baseline_silhouette['max_column_height']) * 0.90,
+            'pre-transition deformation must preserve a tall far-side remainder instead of uniformly shrinking the sphere',
+        )
+        require(
+            int(silhouettes[8]['width']) >= int(baseline_silhouette['width']) * 0.78 and
+            int(silhouettes[12]['width']) >= int(baseline_silhouette['width']) * 0.52,
+            'pre-transition deformation must retain a visible far-side remainder instead of uniformly deleting the sphere',
         )
         require(
             result_pop_fraction <= 0.01,

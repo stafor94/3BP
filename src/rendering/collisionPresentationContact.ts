@@ -1,10 +1,25 @@
 import { getEffectiveBodyType } from '../bodyTypes'
+import { getCollisionContactDistance } from '../physics/collisionContact'
 import { getPostImpactMotionPresentationOffset } from '../physics/fragmentAwareEngineStageTwo'
 import type { BodyState, Vec3 } from '../types'
 import { getBodyPresentationRadius } from './bodyPresentationRadius'
 
 const MAX_PRESENTATION_OVERLAP_RATIO = 0.14
 const PRESENTATION_RADIUS_EPSILON = 1e-9
+const PRE_TRANSITION_ABSORPTION_PROGRESS_SCALE = 0.72
+const PRE_TRANSITION_ABSORPTION_PROGRESS_MAX = 0.42
+const EXTREME_MASS_RATIO_ABSORPTION_MAX_RATIO = 0.02
+const EXTREME_MASS_RATIO_ABSORPTION_MAX_SPEED_RATIO = 1.05
+const TRACKING_G = 1
+
+type CollisionPreTransitionAbsorptionPresentation = {
+  contactNormal: Vec3
+  absorptionProgress: number
+}
+
+type CollisionPresentationContactBody = BodyState & {
+  collisionAbsorptionPresentation?: CollisionPreTransitionAbsorptionPresentation
+}
 
 type ContactBridge = {
   aId: string
@@ -12,6 +27,8 @@ type ContactBridge = {
   separation: number
   radiusA: number
   radiusB: number
+  normalAToB: Vec3
+  absorptionPresentation: boolean
   released: boolean
 }
 
@@ -23,6 +40,20 @@ function key(a: BodyState, b: BodyState) {
 
 function distance(a: Vec3, b: Vec3) {
   return Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)
+}
+
+function normalize(value: Vec3, fallback: Vec3): Vec3 {
+  const length = Math.hypot(value.x, value.y, value.z)
+  if (length > 1e-12) return { x: value.x / length, y: value.y / length, z: value.z / length }
+  const fallbackLength = Math.hypot(fallback.x, fallback.y, fallback.z)
+  if (fallbackLength > 1e-12) {
+    return {
+      x: fallback.x / fallbackLength,
+      y: fallback.y / fallbackLength,
+      z: fallback.z / fallbackLength,
+    }
+  }
+  return { x: 1, y: 0, z: 0 }
 }
 
 function isPresentationSolid(body: BodyState) {
@@ -43,6 +74,31 @@ function isApproaching(a: BodyState, b: BodyState) {
   }
   return delta.x * relativeVelocity.x + delta.y * relativeVelocity.y +
     delta.z * relativeVelocity.z < 0
+}
+
+function isExtremeMassRatioLowEnergyAbsorption(a: BodyState, b: BodyState) {
+  const typeA = getEffectiveBodyType(a)
+  const typeB = getEffectiveBodyType(b)
+  const hasPlanet = typeA === 'planet' || typeB === 'planet'
+  const hasMoon = typeA === 'moon' || typeB === 'moon'
+  if (!hasPlanet || !hasMoon || typeA === typeB) return false
+
+  const massRatio = Math.min(a.mass, b.mass) / Math.max(a.mass, b.mass, 1e-9)
+  const relativeSpeed = Math.hypot(
+    b.velocity.x - a.velocity.x,
+    b.velocity.y - a.velocity.y,
+    b.velocity.z - a.velocity.z,
+  )
+  const contactDistance = Math.max(getCollisionContactDistance(a, b), 1e-6)
+  const escapeSpeed = Math.sqrt(
+    Math.max(0, (2 * TRACKING_G * (a.mass + b.mass)) / contactDistance),
+  )
+  const speedRatio = relativeSpeed / Math.max(escapeSpeed, 1e-6)
+
+  // Mirror the existing core absorption classifier only to scope this visual
+  // sidecar. No solver outcome or body state is changed here.
+  return massRatio < EXTREME_MASS_RATIO_ABSORPTION_MAX_RATIO &&
+    speedRatio <= EXTREME_MASS_RATIO_ABSORPTION_MAX_SPEED_RATIO
 }
 
 function withPostImpactMotionOffset(body: BodyState): BodyState {
@@ -96,6 +152,36 @@ function presentedPair(a: BodyState, b: BodyState, separation: number): [BodySta
   ]
 }
 
+function getShrinkProgress(radius: number, startRadius: number) {
+  if (startRadius <= PRESENTATION_RADIUS_EPSILON) return 0
+  return Math.min(1, Math.max(0, 1 - radius / startRadius))
+}
+
+function getPreTransitionAbsorptionPresentationProgress(absorptionProgress: number) {
+  return Math.min(
+    PRE_TRANSITION_ABSORPTION_PROGRESS_MAX,
+    Math.max(0, absorptionProgress) * PRE_TRANSITION_ABSORPTION_PROGRESS_SCALE,
+  )
+}
+
+function withAbsorptionPresentation(
+  body: BodyState,
+  contactNormal: Vec3,
+  absorptionProgress: number,
+): CollisionPresentationContactBody {
+  return {
+    ...body,
+    collisionAbsorptionPresentation: {
+      contactNormal: { ...contactNormal },
+      absorptionProgress,
+    },
+  }
+}
+
+export function getCollisionPreTransitionAbsorptionPresentation(body: BodyState) {
+  return (body as CollisionPresentationContactBody).collisionAbsorptionPresentation
+}
+
 /**
  * Keeps the rendered contact shell separate from collision physics. The returned
  * clones are consumed only by the renderer; callers retain the untouched body
@@ -124,31 +210,66 @@ export function getCollisionPresentationContactBodies(bodies: BodyState[]) {
           separation: physicalSeparation,
           radiusA: a.radius,
           radiusB: b.radius,
+          normalAToB: normalize(
+            {
+              x: b.position.x - a.position.x,
+              y: b.position.y - a.position.y,
+              z: b.position.z - a.position.z,
+            },
+            {
+              x: b.velocity.x - a.velocity.x,
+              y: b.velocity.y - a.velocity.y,
+              z: b.velocity.z - a.velocity.z,
+            },
+          ),
+          absorptionPresentation: isExtremeMassRatioLowEnergyAbsorption(a, b),
           released: false,
         })
       }
     }
   }
 
-  const rendered = new Map(motionBodies.map((body) => [body.id, body]))
+  const rendered = new Map<string, CollisionPresentationContactBody>(
+    motionBodies.map((body) => [body.id, body]),
+  )
   for (const contact of activeContacts.values()) {
     const a = byId.get(contact.aId)
     const b = byId.get(contact.bId)
     if (!a || !b) continue
 
-    // Some collision staging paths intentionally shrink and sink a source body
-    // before topology handoff (notably extreme-mass-ratio absorption). Once that
-    // explicit presentation animation starts, it must own the render positions;
-    // keeping the contact shell active would pin the shrinking body at its first
-    // contact separation. Retain the released bridge entry only to prevent the
-    // same pair from being re-acquired on the next renderer frame.
-    if (
-      a.radius < contact.radiusA - PRESENTATION_RADIUS_EPSILON ||
-      b.radius < contact.radiusB - PRESENTATION_RADIUS_EPSILON
-    ) {
-      contact.released = true
+    const shrinkA = getShrinkProgress(a.radius, contact.radiusA)
+    const shrinkB = getShrinkProgress(b.radius, contact.radiusB)
+    if (shrinkA > 0 || shrinkB > 0) contact.released = true
+
+    // Extreme-mass-ratio absorption already shrinks the smaller source before
+    // the physical 2->1 topology change. Keep that physical radius and the
+    // phase-1 post-impact position untouched, but expose the existing shrink
+    // progress plus the original contact normal to the renderer so contact-side
+    // deformation can begin while the source is still visibly large. The
+    // presentation curve is capped before topology so enough colored residual
+    // remains for the existing collision flash/VFX readability contract.
+    if (contact.released) {
+      if (contact.absorptionPresentation && (shrinkA > 0 || shrinkB > 0)) {
+        const absorbA = shrinkA > shrinkB + PRESENTATION_RADIUS_EPSILON ||
+          (Math.abs(shrinkA - shrinkB) <= PRESENTATION_RADIUS_EPSILON && a.mass < b.mass)
+        const source = absorbA ? a : b
+        const absorptionProgress = getPreTransitionAbsorptionPresentationProgress(
+          absorbA ? shrinkA : shrinkB,
+        )
+        const contactNormal = absorbA
+          ? contact.normalAToB
+          : {
+            x: -contact.normalAToB.x,
+            y: -contact.normalAToB.y,
+            z: -contact.normalAToB.z,
+          }
+        rendered.set(
+          source.id,
+          withAbsorptionPresentation(source, contactNormal, absorptionProgress),
+        )
+      }
+      continue
     }
-    if (contact.released) continue
 
     const contactDistance = getBodyPresentationRadius(a.radius) + getBodyPresentationRadius(b.radius)
     const minimumSeparation = contactDistance - Math.min(

@@ -273,7 +273,7 @@ def visual_metrics(
             transient = brightest - max(before)
             if brightest >= 24:
                 contact_non_dark_pixels += 1
-            if brightest >= 28 and chroma >= 7:
+            if 28 <= brightest < FLASH_CHANNEL_THRESHOLD and chroma >= 7:
                 contact_colored_pixels += 1
             if brightest >= FLASH_CHANNEL_THRESHOLD and transient >= FLASH_TRANSIENT_DELTA and chroma <= 55:
                 contact_white_transient_pixels += 1

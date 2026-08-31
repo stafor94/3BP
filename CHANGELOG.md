@@ -6,6 +6,18 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.20.8] - 2026-08-31
+
+### Fixed
+- 비항성 2→1 충돌의 solid handoff에서 피흡수체가 균일한 작은 구체로 축소된 뒤 마지막 프레임에 삭제되던 표현을, 접촉축 변형이 먼저 진행되고 후반에 본체 collapse와 fade가 이어지는 순차 전환으로 변경했습니다.
+- 접촉면 변형을 위한 추가 중심 위치 보정을 제거해 v0.20.7의 post-impact motion/solid-handoff 이동 경로를 그대로 유지합니다.
+
+### Added
+- absorbed solid의 contact-axis erosion → body collapse → final fade 순서와 단조 수렴을 검증하는 회귀 체크를 추가했습니다.
+
+### Unchanged
+- collision solver의 mass/velocity/trajectory/outcome, 기존 physical fragment/ejecta 방향·속도, stellar collision, camera, flash 및 Stage 5 VFX는 변경하지 않습니다.
+
 ## [0.20.7] - 2026-08-31
 
 ### Fixed
