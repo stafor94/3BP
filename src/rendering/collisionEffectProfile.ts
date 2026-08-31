@@ -44,6 +44,36 @@ function inferEffectVisualKind(body: BodyState): EffectVisualKind {
   return 'collisionSpark'
 }
 
+function isStageFiveCollisionVfxEnabled() {
+  if (typeof window === 'undefined') return false
+  return new URLSearchParams(window.location.search).get('collision-vfx-baseline') !== 'stage4'
+}
+
+function getNonStellarSeverity(body: BodyState) {
+  const visual = body.effectVisual
+  if (visual?.temperatureBias !== undefined) return clamp(visual.temperatureBias, 0, 1)
+  const brightness = visual?.brightness ?? 1
+  return smooth01((brightness - 0.72) / 0.72)
+}
+
+function getNonStellarContactGeometry(body: BodyState, rawWidth: number) {
+  const visual = body.effectVisual
+  if (visual?.headOn !== undefined || visual?.grazing !== undefined) {
+    const headOn = clamp(visual?.headOn ?? Math.sqrt(Math.max(0, 1 - (visual?.grazing ?? 0) ** 2)), 0, 1)
+    const grazing = clamp(visual?.grazing ?? Math.sqrt(Math.max(0, 1 - headOn * headOn)), 0, 1)
+    return { headOn, grazing }
+  }
+
+  // The existing non-stellar flash metadata narrows width as the collision becomes
+  // more head-on. Reuse that renderer-only signal when explicit geometry metadata
+  // is unavailable rather than re-estimating contact geometry from body positions.
+  const headOn = smooth01((0.43 - rawWidth) / 0.18)
+  return {
+    headOn,
+    grazing: Math.sqrt(Math.max(0, 1 - headOn * headOn)),
+  }
+}
+
 export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfile {
   const kind = inferEffectVisualKind(body)
   const age = Math.max(body.age ?? 0, 0)
@@ -63,6 +93,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const stellar = visual?.stellarCollision === true
   const syntheticStellar = stellar && body.id.startsWith('preview:')
   const physicalStellar = stellar && !syntheticStellar
+  const stageFiveNonStellar = !stellar && isStageFiveCollisionVfxEnabled()
 
   if (kind === 'contactFlash') {
     // Synthetic overlap flashes build toward contact. Physical stellar flashes
@@ -77,6 +108,10 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     const solidFlashRadius = sourcePresentationRadius === undefined
       ? legacySolidFlashRadius
       : Math.min(legacySolidFlashRadius, sourcePresentationRadius * 0.98)
+    const severity = stageFiveNonStellar ? getNonStellarSeverity(body) : 1
+    const contactGeometry = stageFiveNonStellar
+      ? getNonStellarContactGeometry(body, rawWidth)
+      : { headOn: 0, grazing: 0 }
     // The physics contact-flash width is still useful presentation metadata:
     // <= 0.33 corresponds to the same sufficiently head-on range that suppresses
     // directional spark shape. Keep this renderer-only so collision staging/physics
@@ -85,19 +120,25 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       visual?.sourceMaxRadius !== undefined &&
       Math.abs(visual.sourceMaxRadius) <= SMALL_HEAD_ON_CONTACT_FLASH_SOURCE_RADIUS_MAX &&
       rawWidth <= SMALL_HEAD_ON_CONTACT_FLASH_WIDTH_MAX
-    // Tiny head-on collisions spend much longer in wall-clock observation than
-    // in simulation time. Let the compact impact flash finish early enough that
-    // the real mass-bearing ejecta can become the visible owner of the event.
-    const contactProgress = smallHeadOnSolidFlash
-      ? clamp(age / Math.max(duration * 0.25, 1e-6), 0, 1)
-      : progress
+    // Stage 5 makes every solid-body flash a short wall-clock contact cue. Severity
+    // expands the peak modestly, while head-on geometry shortens it so the physical
+    // fragment silhouette becomes the visual owner by ~0.1-0.2 s.
+    const stageFiveDuration = THREE.MathUtils.lerp(0.18, 0.29, severity) *
+      THREE.MathUtils.lerp(1, 0.88, contactGeometry.headOn)
+    const contactProgress = stageFiveNonStellar
+      ? clamp(age / Math.max(stageFiveDuration, 1e-6), 0, 1)
+      : smallHeadOnSolidFlash
+        ? clamp(age / Math.max(duration * 0.25, 1e-6), 0, 1)
+        : progress
     const syntheticBuild = syntheticStellar ? smooth01(contactProgress / 0.72) : 0
     const rise = syntheticStellar
       ? 0.14 + syntheticBuild * 0.86
       : physicalStellar
         ? 1
-        : 0.56 + 0.44 * smooth01(contactProgress / 0.055)
-    const peakHoldProgress = physicalStellar ? 0.1 : 0.16
+        : stageFiveNonStellar
+          ? 0.42 + 0.58 * smooth01(contactProgress / 0.075)
+          : 0.56 + 0.44 * smooth01(contactProgress / 0.055)
+    const peakHoldProgress = physicalStellar ? 0.1 : stageFiveNonStellar ? 0.11 : 0.16
     const postPeakProgress = clamp(
       (contactProgress - peakHoldProgress) / Math.max(1 - peakHoldProgress, 1e-6),
       0,
@@ -107,13 +148,23 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       ? 1
       : contactProgress <= peakHoldProgress
         ? 1
-        : Math.pow(1 - postPeakProgress, physicalStellar ? 3.55 : 3.2)
+        : Math.pow(1 - postPeakProgress, physicalStellar ? 3.55 : stageFiveNonStellar ? 3.65 : 3.2)
     const outcomeBrightnessBoost = physicalStellar
       ? stellarOutcome === 'merge'
         ? 1.1
         : stellarOutcome === 'partialDisruption'
           ? 1.05
           : 1
+      : 1
+    const stageFiveFootprintScale = stageFiveNonStellar
+      ? THREE.MathUtils.lerp(0.60, 0.80, severity) *
+        THREE.MathUtils.lerp(1, 1.05, contactGeometry.grazing)
+      : 1
+    const stageFiveStretch = stageFiveNonStellar
+      ? THREE.MathUtils.lerp(1.03, 1.24, contactGeometry.grazing)
+      : 1
+    const stageFiveWidth = stageFiveNonStellar
+      ? THREE.MathUtils.lerp(0.92, 0.80, contactGeometry.grazing)
       : 1
 
     return {
@@ -126,9 +177,23 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           ? stellarOutcome === 'hitAndRun'
             ? 0.82
             : 0.9
-          : 0.78,
-      innerGlow: syntheticStellar ? 0.48 : physicalStellar ? 0.72 : 0.68,
-      outerGlow: syntheticStellar ? 0.18 : physicalStellar ? 0.22 : 0.14,
+          : stageFiveNonStellar
+            ? THREE.MathUtils.lerp(0.48, 0.64, severity)
+            : 0.78,
+      innerGlow: syntheticStellar
+        ? 0.48
+        : physicalStellar
+          ? 0.72
+          : stageFiveNonStellar
+            ? THREE.MathUtils.lerp(0.36, 0.50, severity)
+            : 0.68,
+      outerGlow: syntheticStellar
+        ? 0.18
+        : physicalStellar
+          ? 0.22
+          : stageFiveNonStellar
+            ? THREE.MathUtils.lerp(0.04, 0.08, severity)
+            : 0.14,
       visualRadius: syntheticStellar
         ? clamp(body.radius * (0.76 + contactProgress * 0.14), 0.05, 0.13)
         : physicalStellar
@@ -137,17 +202,21 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
               0.085,
               0.25,
             )
-          : solidFlashRadius,
+          : solidFlashRadius * stageFiveFootprintScale,
       anisotropicStretch: stellar
         ? clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : 3.05)
-        : smallHeadOnSolidFlash
-          ? 1
-          : clamp(rawStretch, 1.18, 1.45),
+        : stageFiveNonStellar
+          ? smallHeadOnSolidFlash ? 1 : stageFiveStretch
+          : smallHeadOnSolidFlash
+            ? 1
+            : clamp(rawStretch, 1.18, 1.45),
       widthScale: stellar
         ? clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66)
-        : smallHeadOnSolidFlash
-          ? 1
-          : clamp(rawWidth, 0.86, 1.00),
+        : stageFiveNonStellar
+          ? smallHeadOnSolidFlash ? 1 : stageFiveWidth
+          : smallHeadOnSolidFlash
+            ? 1
+            : clamp(rawWidth, 0.86, 1.00),
       // Negative tail is a renderer-local sentinel for compact solid-body masks.
       // -2 selects the radial small/high-head-on burst with no directional ridge;
       // -1 preserves the existing compact directional mask for other collisions.
@@ -158,12 +227,20 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           : -1,
       pulseStrength: stellar
         ? clamp(visual?.pulseStrength ?? (physicalStellar ? 0.055 : 0.16), 0, physicalStellar ? 0.075 : 0.2)
-        : clamp(visual?.pulseStrength ?? 0.07, 0, 0.08),
+        : stageFiveNonStellar
+          ? clamp(visual?.pulseStrength ?? 0.03, 0, 0.035)
+          : clamp(visual?.pulseStrength ?? 0.07, 0, 0.08),
       brightness: syntheticStellar
         ? (visual?.brightness ?? 1.35) * (0.76 + syntheticBuild * 0.24)
         : physicalStellar
           ? (visual?.brightness ?? 2.08) * outcomeBrightnessBoost
-          : clamp(visual?.brightness ?? 1.28, 0, 1.5),
+          : stageFiveNonStellar
+            ? clamp(
+                (visual?.brightness ?? 1.28) * THREE.MathUtils.lerp(0.74, 0.88, severity),
+                0,
+                1.28,
+              )
+            : clamp(visual?.brightness ?? 1.28, 0, 1.5),
       turbulence: visual?.turbulence ?? (physicalStellar ? 0.72 : 0.2),
       cooling: syntheticStellar ? contactProgress * 0.1 : smooth01(contactProgress),
     }
@@ -354,11 +431,18 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const visibilityScale = smallNonStellarSpark
     ? THREE.MathUtils.lerp(1, 0.62, directionalSuppression)
     : 1 - directionalSuppression
-  const visualDuration = hasGeometry
+  const severity = stageFiveNonStellar ? getNonStellarSeverity(body) : 1
+  const stageFourVisualDuration = hasGeometry
     ? Math.max(0.42, duration * (1 - compactSplash * 0.71))
     : duration
+  const visualDuration = stageFiveNonStellar && hasGeometry
+    ? Math.min(
+        stageFourVisualDuration,
+        THREE.MathUtils.lerp(0.30, 0.48, severity) * THREE.MathUtils.lerp(1, 0.82, compactSplash),
+      )
+    : stageFourVisualDuration
   const sparkProgress = clamp(age / visualDuration, 0, 1)
-  const decay = Math.pow(1 - sparkProgress, hasGeometry ? 2.6 : 2.15)
+  const decay = Math.pow(1 - sparkProgress, hasGeometry ? stageFiveNonStellar ? 2.9 : 2.6 : 2.15)
   const rawSparkStretch = clamp(visual?.stretch ?? 1.45, 1.1, 1.55)
   const rawSparkWidth = clamp(visual?.widthScale ?? 0.68, 0.6, 0.82)
   const rawSparkTail = clamp(visual?.tailLength ?? 0.16, 0.08, 0.22)
@@ -375,20 +459,27 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const sparkVisualRadius = smallNonStellarSpark && headOn >= 0.86
     ? clamp(body.radius * 0.72, MIN_FRAGMENT_RENDER_RADIUS, 0.012)
     : clamp(body.radius * 0.62, 0.01, 0.025)
+  const stageFiveSparkScale = stageFiveNonStellar
+    ? THREE.MathUtils.lerp(0.70, 0.86, severity)
+    : 1
 
   return {
     kind,
     progress: sparkProgress,
     fadeAlpha: decay * visibilityScale,
-    baseOpacity: 0.54 * (1 - compactSplash * 0.12),
-    innerGlow: 0.5 * (1 - compactSplash * 0.18),
-    outerGlow: 0.08 * (1 - compactSplash * 0.35),
-    visualRadius: sparkVisualRadius,
+    baseOpacity: 0.54 * (1 - compactSplash * 0.12) *
+      (stageFiveNonStellar ? THREE.MathUtils.lerp(0.62, 0.80, severity) : 1),
+    innerGlow: 0.5 * (1 - compactSplash * 0.18) *
+      (stageFiveNonStellar ? THREE.MathUtils.lerp(0.58, 0.78, severity) : 1),
+    outerGlow: 0.08 * (1 - compactSplash * 0.35) *
+      (stageFiveNonStellar ? THREE.MathUtils.lerp(0.45, 0.68, severity) : 1),
+    visualRadius: sparkVisualRadius * stageFiveSparkScale,
     anisotropicStretch: THREE.MathUtils.lerp(compactStretch, 1, directionalSuppression),
     widthScale: THREE.MathUtils.lerp(compactWidth, 1, directionalSuppression),
-    tailLength: compactTail * (1 - directionalSuppression),
-    pulseStrength: clamp(visual?.pulseStrength ?? 0.035, 0, 0.045),
-    brightness: rawSparkBrightness * (1 - compactSplash * 0.14),
+    tailLength: compactTail * (1 - directionalSuppression) * (stageFiveNonStellar ? 0.82 : 1),
+    pulseStrength: clamp(visual?.pulseStrength ?? 0.035, 0, stageFiveNonStellar ? 0.03 : 0.045),
+    brightness: rawSparkBrightness * (1 - compactSplash * 0.14) *
+      (stageFiveNonStellar ? THREE.MathUtils.lerp(0.72, 0.90, severity) : 1),
     turbulence: visual?.turbulence ?? 0.3,
     cooling: smooth01(sparkProgress),
   }

@@ -6,6 +6,73 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.20.6] - 2026-08-31
+
+### Fixed
+- 비항성 충돌의 contact flash를 실제 contact geometry와 기존 충돌 heat/severity 메타데이터에 따라 더 작고 짧게 표시해, impact 직후 additive white-hot footprint가 source·macro fragment·survivor surface response를 과도하게 가리던 현상을 줄였습니다.
+- head-on은 compact burst를 유지하고 grazing/oblique는 실제 tangent 방향의 짧은 scrape-like 비대칭만 허용하도록 flash stretch를 제한해 기존 세로 pillar/laser-like artifact가 재발하지 않도록 했습니다.
+- mass-bearing `Collision spark`의 물리 궤적은 그대로 두고 renderer-only glow·footprint·tail·visible lifetime을 severity에 맞춰 낮춰 실제 macro fragment/ejecta가 secondary spark보다 먼저 읽히도록 정리했습니다.
+
+### Added
+- 동일 production physics state를 사용하는 Stage 4/Stage 5 collision VFX A/B regression과 대표 grazing, near-head-on, oblique, gentle merge의 T0~T+1.0s 고밀도 캡처 및 flash footprint/luminance 진단을 추가했습니다.
+- A/B harness가 Stage 4/Stage 5에서 body position·velocity·mass·radius와 physical ejecta state가 동일한지 직접 비교할 수 있도록 test-only physics snapshot telemetry를 추가했습니다.
+
+### Unchanged
+- Stage 1 material continuity, Stage 2 penetration, Stage 3 ejecta velocity/direction/momentum, Stage 4 survivor response source, collision solver/classification, stellar collision VFX, camera, post-processing, particle/effect body count는 변경하지 않습니다.
+
+## [0.20.5] - 2026-08-31
+
+### Fixed
+- 비대칭 비항성 충돌 뒤 surviving body가 실제 충돌 반동과 접촉 geometry에 맞는 국소 압축·전단 실루엣 반응을 짧게 표시하도록 해, 충돌 직후 완전한 구체로 즉시 복귀하던 인상을 줄였습니다.
+- penetration/absorption staging으로 이미 축소된 impactor 반지름을 Stage 4 충돌 강도로 오인하지 않도록 pre-staging mass/radius를 보존하고, recoil 계산에는 마지막 pre-impact velocity를 사용하도록 했습니다.
+- collision source cache가 staging 중 mass transfer를 intrinsic source mass로 덮어써 1:1 merge를 비대칭 충돌처럼 오분류할 수 있던 경로를 제거하고, 최종 collision result는 다음 충돌을 위한 새 baseline으로 재베이스합니다.
+
+### Added
+- Stage 3/Stage 4 production-renderer A/B regression을 추가해 representative grazing, head-on, oblique 조건에서 실제 recoil, full-size impactor scale, contact-local compression/shear, head-on↔grazing ordering 및 850ms settle을 검증합니다.
+
+### Unchanged
+- Stage 1–3 physics solver, 질량·선형 운동량, collision classification, ejecta 방향·속력, camera/flash/lighting/particle profile은 변경하지 않습니다.
+
+## [0.20.4] - 2026-08-30
+
+### Fixed
+- 파괴성 비항성 oblique/grazing 충돌에서 extreme absorption 후처리 뒤 fresh physical ejecta가 결과 천체 내부나 표면에 붙어 시작하던 경로를 보정해, 실제 collision interface에서 결과 천체 표시 표면 바깥으로 생성되도록 했습니다.
+- 큰 ejecta가 충돌체의 접선 진행 성분을 잃고 접촉점 주변에 정체되던 경우, 기존 solver가 할당한 COM-relative 속력 예산 안에서 outward contact normal과 impactor tangent를 조합해 충돌체 물질의 방향 계보가 이어지도록 했습니다.
+
+### Changed
+- 파편 크기 순으로 큰 ejecta는 impactor tangential motion을 더 강하게 유지하고 작은 debris는 기존 결정적 분산을 더 많이 유지하는 비대칭 fan/cone 분포를 적용합니다.
+- 방향 회전으로 생기는 represented momentum 차이는 surviving solids 전체 질량에 분산 보정하며, 질량·속력 예산·seed 기반 deterministic behavior는 그대로 유지합니다.
+
+### Added
+- Stage 2 executable baseline과 representative grazing / near-head-on / oblique 정량 regression 및 동일 production renderer A/B capture를 추가해 spawn clearance, macro tangent alignment, outward motion, mass/momentum conservation, deterministic replay를 검증합니다.
+
+### Unchanged
+- Stage 1 material/macro-fragment continuity, Stage 2 penetration limiter, strongly head-on two-sided ejecta/flash 계약, gentle merge handoff, survivor recoil/spin 및 flash/lighting/VFX polish는 유지합니다.
+
+## [0.20.3] - 2026-08-30
+
+### Fixed
+- 비항성 충돌의 접촉 후 absorption staging에서 축소 중인 충돌체가 상대 천체 중심 방향으로 과도하게 침강하던 상태를 제한해, 완전한 구체에 가까운 충돌체가 상대 천체 내부 깊숙이 삼켜지거나 관통하는 것처럼 보이던 penetration을 줄였습니다.
+- post-solver solid handoff의 absorbed source가 remnant 중심까지 이동하지 않고 접촉면 근처의 제한된 inward travel 안에서 연속적으로 축소·소멸하도록 해, penetration 감소 과정에서 bounce나 순간적인 outward teleport 없이 기존 fragment/remnant 전환으로 이어지도록 했습니다.
+
+### Added
+- 1단계 상태를 동일 fixture의 baseline으로 직접 실행하는 low/current/high-speed normalized penetration regression과 Chromium A/B capture를 추가해 peak penetration, mass/momentum conservation, result continuity를 함께 검증합니다.
+
+### Unchanged
+- swept first-contact core solver와 collision classification, ejecta 방향·속도·확산, 질량·운동량 보존 계약, 1단계 macro-fragment continuity, survivor recoil/spin, flash/VFX profile 및 particle count는 유지합니다.
+
+## [0.20.2] - 2026-08-30
+
+### Fixed
+- 작은 high-head-on 비항성 2→1 충돌에서 mass-bearing `Collision spark` ejecta가 effect 전용 렌더 경로에만 남아 원본 충돌체가 통째로 흡수된 것처럼 보이던 시각적 단절을 수정했습니다.
+- persistent physical fragment가 없는 경우 실제 ejecta의 반지름·위치·속도를 그대로 상속한 최대 2개의 massless renderer-only irregular macro fragment를 표시해 source → debris → remnant 계보를 연결했습니다.
+
+### Added
+- macro fragment proxy가 물리 상태를 변경하거나 질량을 중복하지 않고 실제 ejecta pose를 상속하며, persistent fragment/hit-and-run 경로를 침범하지 않는 regression을 추가했습니다.
+
+### Unchanged
+- collision solver/classification, 질량·운동량, ejecta 물리 방향·속도·확산, penetration, recoil/rotation, flash/VFX profile, particle count는 변경하지 않았습니다.
+
 ## [0.20.1] - 2026-08-30
 
 ### Fixed

@@ -2,6 +2,7 @@
 import type { BodyState } from '../types'
 import { getCollisionPresentationContactBodies } from './collisionPresentationContact'
 import { applyCollisionFragmentVisualMotion } from './fragmentVisualMotion'
+import { appendCollisionMacroFragmentRenderBodies } from './collisionMacroFragmentContinuity'
 import { getCollisionSolidHandoffRenderBodies } from './collisionSolidHandoff'
 
 /**
@@ -17,6 +18,10 @@ import { getCollisionSolidHandoffRenderBodies } from './collisionSolidHandoff'
  * simulation positions, velocities, momentum, or collision decisions. The
  * collision solid handoff may add presentation-only source silhouettes after a
  * physical 2->1 merge; those never re-enter the simulation/physics body array.
+ *
+ * If a collapsed 2->1 collision represents all ejecta mass as short-lived effect
+ * bodies, the continuity layer promotes the largest real mass-bearing ejecta to
+ * massless irregular fragment render proxies at the exact physical ejecta pose.
  */
 export function getCelestialBodyRenderBodies(bodies: BodyState[]) {
   const solidRenderBodies = getCollisionSolidHandoffRenderBodies(
@@ -24,5 +29,6 @@ export function getCelestialBodyRenderBodies(bodies: BodyState[]) {
       bodies.filter((body) => body.bodyType !== 'effect'),
     ),
   )
-  return applyCollisionFragmentVisualMotion(solidRenderBodies, bodies)
+  const fragmentMotionBodies = applyCollisionFragmentVisualMotion(solidRenderBodies, bodies)
+  return appendCollisionMacroFragmentRenderBodies(fragmentMotionBodies, bodies)
 }

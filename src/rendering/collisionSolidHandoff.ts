@@ -10,6 +10,7 @@ import {
 } from './collisionVisualOutcome'
 
 export const COLLISION_SOLID_HANDOFF_DURATION_MS = COLLISION_REMNANT_FORMATION_START_MS
+const ABSORBED_HANDOFF_MAX_INWARD_TRAVEL_RATIO = 0.28
 
 type ActiveSolidHandoff = {
   resultId: string
@@ -119,6 +120,33 @@ function lerpVec3(a: Vec3, b: Vec3, t: number): Vec3 {
     x: THREE.MathUtils.lerp(a.x, b.x, t),
     y: THREE.MathUtils.lerp(a.y, b.y, t),
     z: THREE.MathUtils.lerp(a.z, b.z, t),
+  }
+}
+
+function getAbsorbedHandoffPosition(
+  sourceStart: Vec3,
+  resultPosition: Vec3,
+  sourceRadius: number,
+  progress: number,
+) {
+  const towardResult = subtract(resultPosition, sourceStart)
+  const distanceToResult = Math.hypot(towardResult.x, towardResult.y, towardResult.z)
+  if (distanceToResult <= 1e-12) return { ...sourceStart }
+
+  // Phase-1 continuity keeps the absorbed source visible while the remnant takes
+  // ownership. Do not use that continuity window to drag an intact-looking solid
+  // all the way to the remnant center. Its inward travel is normalized to its own
+  // physical radius and advances smoothly with the same collapse progress.
+  const maximumTravel = Math.min(
+    distanceToResult,
+    Math.max(sourceRadius, 0) * ABSORBED_HANDOFF_MAX_INWARD_TRAVEL_RATIO,
+  )
+  const travel = maximumTravel * progress
+  const scale = travel / distanceToResult
+  return {
+    x: sourceStart.x + towardResult.x * scale,
+    y: sourceStart.y + towardResult.y * scale,
+    z: sourceStart.z + towardResult.z * scale,
   }
 }
 
@@ -245,7 +273,12 @@ function sampleHandoff(handoff: ActiveSolidHandoff, now: number): HandoffSample 
       const startRadius = getBodyPresentationRadius(source.radius)
       return {
         source,
-        position: lerpVec3(sourceStart, resultPosition, progress),
+        position: getAbsorbedHandoffPosition(
+          sourceStart,
+          resultPosition,
+          source.radius,
+          progress,
+        ),
         radius: startRadius * (1 - progress),
         startRadius,
         opacity: absorbedOpacity,
