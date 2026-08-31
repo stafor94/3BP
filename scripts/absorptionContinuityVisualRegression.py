@@ -431,14 +431,19 @@ def main() -> None:
             'baseline exposed impactor silhouette is too small for deformation inspection',
         )
         require(
-            int(silhouettes[8]['max_column_height']) <=
-                int(baseline_silhouette['max_column_height']) - 1,
-            'step8 rendered silhouette must already show contact-side compression while the impactor remains large',
+            int(silhouettes[8]['width']) <= int(baseline_silhouette['width']) - 1 and
+            int(silhouettes[8]['outward_edge_x']) <= int(baseline_silhouette['outward_edge_x']) - 1,
+            'step8 rendered silhouette must already erode inward along the contact axis while the impactor remains large',
         )
         require(
-            int(silhouettes[12]['max_column_height']) <=
-                int(baseline_silhouette['max_column_height']) - 2,
-            'step12 rendered silhouette must deepen deformation before topology collapse',
+            int(silhouettes[12]['width']) <= int(silhouettes[8]['width']) - 2 and
+            int(silhouettes[12]['outward_edge_x']) <= int(silhouettes[8]['outward_edge_x']) - 2,
+            'step12 rendered silhouette must deepen contact-axis deformation before topology collapse',
+        )
+        require(
+            int(silhouettes[8]['max_column_height']) >= int(baseline_silhouette['max_column_height']) * 0.90 and
+            int(silhouettes[12]['max_column_height']) >= int(baseline_silhouette['max_column_height']) * 0.90,
+            'pre-transition deformation must preserve a tall far-side remainder instead of uniformly shrinking the sphere',
         )
         require(
             int(silhouettes[8]['width']) >= int(baseline_silhouette['width']) * 0.78 and
