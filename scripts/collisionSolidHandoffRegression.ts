@@ -65,12 +65,13 @@ function findRemnant(bodies: BodyState[]) {
 
 resetCollisionSolidHandoffState()
 let physical = makeInitialBodies()
-getCelestialBodyRenderBodies(physical)
+let previousRendered = getCelestialBodyRenderBodies(physical)
 let previousSeparation = separation(physical[0], physical[1])
 let resolved = false
 
 for (let step = 1; step <= 24; step += 1) {
   const previous = physical
+  const renderedBeforeStep = previousRendered
   physical = stepBodies(physical, DT)
   const sourceA = physical.find((body) => body.id === SOURCE_A_ID)
   const sourceB = physical.find((body) => body.id === SOURCE_B_ID)
@@ -82,13 +83,13 @@ for (let step = 1; step <= 24; step += 1) {
       `staging separation rewound outward at step ${step}: ${previousSeparation} -> ${currentSeparation}`,
     )
     previousSeparation = currentSeparation
-    getCelestialBodyRenderBodies(physical)
+    previousRendered = getCelestialBodyRenderBodies(physical)
     continue
   }
 
   const remnant = findRemnant(physical)
   if (!remnant) {
-    getCelestialBodyRenderBodies(physical)
+    previousRendered = getCelestialBodyRenderBodies(physical)
     continue
   }
 
@@ -97,6 +98,11 @@ for (let step = 1; step <= 24; step += 1) {
   const survivor = transitions.find((transition) => transition.outcome === 'merged-survivor')?.source
   const absorbed = transitions.find((transition) => transition.outcome === 'absorbed')?.source
   assert(survivor && absorbed, 'merge result must classify one survivor and one absorbed source')
+  const renderedSurvivorBeforeHandoff = renderedBeforeStep.find((body) => body.id === survivor.id)
+  assert(
+    renderedSurvivorBeforeHandoff,
+    'last pre-handoff rendered frame must contain the surviving source solid',
+  )
 
   const rendered = getCelestialBodyRenderBodies(physical)
   assert(JSON.stringify(physical) === physicalSnapshot, 'presentation routing must not mutate physical bodies')
@@ -110,11 +116,12 @@ for (let step = 1; step <= 24; step += 1) {
     'presentation-only absorbed source must be excluded from physical descendant/tracking eligibility',
   )
   assert(
-    distance(renderedRemnant.position, survivor.position) < 1e-3,
-    'first remnant presentation position must inherit the last survivor staging position',
+    distance(renderedRemnant.position, renderedSurvivorBeforeHandoff.position) < 1e-9,
+    'first remnant presentation position must inherit the last rendered survivor staging position',
   )
   assert(
-    distance(renderedRemnant.position, remnant.position) <= distance(survivor.position, remnant.position) + 1e-12,
+    distance(renderedRemnant.position, remnant.position) <=
+      distance(renderedSurvivorBeforeHandoff.position, remnant.position) + 1e-12,
     'remnant presentation must move toward, never beyond, the actual physical remnant',
   )
   assert(
