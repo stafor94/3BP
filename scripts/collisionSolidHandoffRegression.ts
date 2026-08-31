@@ -2,7 +2,10 @@ import { bodyCarriesCollisionLineage } from '../src/collisionIdentity'
 import { resolveBodyDescendant } from '../src/collisionWatch'
 import { stepBodies } from '../src/physics/fragmentAwareEngine'
 import { getCelestialBodyRenderBodies } from '../src/rendering/collisionEffectRouting'
-import { resetCollisionSolidHandoffState } from '../src/rendering/collisionSolidHandoff'
+import {
+  getCollisionAbsorbedSolidProgress,
+  resetCollisionSolidHandoffState,
+} from '../src/rendering/collisionSolidHandoff'
 import { findCollisionVisualTransitions } from '../src/rendering/collisionVisualOutcome'
 import type { BodyState } from '../src/types'
 
@@ -63,6 +66,54 @@ function findRemnant(bodies: BodyState[]) {
   )
 }
 
+function testSequentialAbsorbedSolidBreakup() {
+  const initial = getCollisionAbsorbedSolidProgress(0)
+  const early = getCollisionAbsorbedSolidProgress(0.25)
+  const middle = getCollisionAbsorbedSolidProgress(0.55)
+  const late = getCollisionAbsorbedSolidProgress(0.85)
+  const retired = getCollisionAbsorbedSolidProgress(0.98)
+
+  assert(initial.erosionProgress === 0, 'absorbed solid must begin with an intact contact face')
+  assert(initial.radiusScale === 1, 'absorbed solid must begin at its existing presentation size')
+  assert(initial.opacity === 1, 'absorbed solid must begin fully opaque')
+  assert(
+    early.erosionProgress > 0.1 && early.collapseProgress === 0,
+    'contact-side breakup must begin before whole-body collapse',
+  )
+  assert(
+    early.contactAxisScale < early.lateralScaleB && early.lateralScaleB < early.lateralScaleA,
+    'early breakup must deform the contact axis more strongly than the lateral silhouette',
+  )
+  assert(
+    middle.erosionProgress > 0.5 && middle.radiusScale > 0.75 && middle.opacity === 1,
+    'mid handoff must show substantial contact-side damage before global shrink/fade dominates',
+  )
+  assert(
+    late.erosionProgress > 0.9 && late.radiusScale < 0.18 && late.opacity > 0,
+    'late handoff must leave only a heavily deformed collapsing remainder before retirement',
+  )
+  assert(
+    retired.opacity <= 1e-9 && retired.radiusScale < 0.01,
+    'the final presentation must become effectively invisible before the handoff object is deleted',
+  )
+  const stages = [initial, early, middle, late, retired]
+  for (let index = 0; index < stages.length - 1; index += 1) {
+    assert(
+      stages[index + 1].erosionProgress + 1e-9 >= stages[index].erosionProgress,
+      'contact-side breakup progress must be monotonic',
+    )
+    assert(
+      stages[index + 1].radiusScale <= stages[index].radiusScale + 1e-9,
+      'absorbed remainder scale must collapse monotonically',
+    )
+    assert(
+      stages[index + 1].opacity <= stages[index].opacity + 1e-9,
+      'absorbed remainder opacity must not recover during retirement',
+    )
+  }
+}
+
+testSequentialAbsorbedSolidBreakup()
 resetCollisionSolidHandoffState()
 let physical = makeInitialBodies()
 let previousRendered = getCelestialBodyRenderBodies(physical)
