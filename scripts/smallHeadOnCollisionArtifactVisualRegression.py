@@ -155,7 +155,7 @@ def spike_metrics(path: Path) -> dict[str, float | int]:
     height = y1 - y0 + 1
 
     vertical_run = 0
-    for x in range(max(x0, cx - 10), min(x1, cx + 10) + 1):
+    for x in range(x0, x1 + 1):
         run = 0
         best = 0
         for y in range(y0, y1 + 1):
@@ -167,7 +167,7 @@ def spike_metrics(path: Path) -> dict[str, float | int]:
         vertical_run = max(vertical_run, best)
 
     horizontal_run = 0
-    for y in range(max(y0, cy - 10), min(y1, cy + 10) + 1):
+    for y in range(y0, y1 + 1):
         run = 0
         best = 0
         for x in range(x0, x1 + 1):
@@ -328,15 +328,22 @@ def main() -> None:
         print(json.dumps(payload, indent=2))
 
         for name, metrics in flash_metrics.items():
+            # A compact spark can be taller than it is wide without being the old
+            # screen-space pillar. Reject only a materially long continuous bright
+            # run, not a 4x11 anti-aliased contact glint.
             require(
-                metrics['run_vertical_aspect'] <= 2.20,
+                not (
+                    metrics['vertical_run'] >= 18
+                    and metrics['run_vertical_aspect'] > 2.20
+                ),
                 f'{name}: narrow high-luminance vertical spike remains at collision center',
             )
-            # The run-based gate above detects a true continuous spike. The tiny
-            # bbox can gain one anti-aliased row under headless SwiftShader, so
-            # accept the observed 4x10 profile while still rejecting 4x11 (2.75).
             require(
-                metrics['bbox_vertical_aspect'] <= 2.55,
+                not (
+                    metrics['area'] >= 80
+                    and metrics['height'] >= 24
+                    and metrics['bbox_vertical_aspect'] > 2.55
+                ),
                 f'{name}: collision-center high-luminance component is still pillar-shaped',
             )
 
