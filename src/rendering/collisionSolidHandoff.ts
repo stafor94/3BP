@@ -534,12 +534,12 @@ function setPresentationVisibility(scene: THREE.Scene, mesh: THREE.Mesh, visible
 }
 
 function ensureContactDeformationShader(material: THREE.ShaderMaterial) {
-  if (!material.uniforms.uCollisionContactAxisScale) {
-    material.uniforms.uCollisionContactAxisScale = { value: 1 }
-    material.uniforms.uCollisionLateralScaleA = { value: 1 }
-    material.uniforms.uCollisionLateralScaleB = { value: 1 }
+  if (!material.uniforms.uCollisionDeformationAxis) {
+    material.uniforms.uCollisionDeformationAxis = { value: 1 }
+    material.uniforms.uCollisionDeformationLateralA = { value: 1 }
+    material.uniforms.uCollisionDeformationLateralB = { value: 1 }
   }
-  if (material.vertexShader.includes('uCollisionContactAxisScale')) return true
+  if (material.vertexShader.includes('uCollisionDeformationAxis')) return true
 
   const varyingAnchor = '  varying vec3 vObjectNormal;'
   const worldPositionAnchor = '    vec4 worldPosition = modelMatrix * vec4(position, 1.0);'
@@ -549,11 +549,11 @@ function ensureContactDeformationShader(material: THREE.ShaderMaterial) {
   material.vertexShader = material.vertexShader
     .replace(
       varyingAnchor,
-      `  uniform float uCollisionContactAxisScale;\n  uniform float uCollisionLateralScaleA;\n  uniform float uCollisionLateralScaleB;\n\n${varyingAnchor}`,
+      `  uniform float uCollisionDeformationAxis;\n  uniform float uCollisionDeformationLateralA;\n  uniform float uCollisionDeformationLateralB;\n\n${varyingAnchor}`,
     )
     .replace(
       worldPositionAnchor,
-      `    float collisionContactWeight = smoothstep(-0.9, 0.3, position.x);\n    vec3 collisionDeformedPosition = position;\n    collisionDeformedPosition.x *= mix(1.0, uCollisionContactAxisScale, collisionContactWeight);\n    collisionDeformedPosition.y *= mix(1.0, uCollisionLateralScaleA, collisionContactWeight);\n    collisionDeformedPosition.z *= mix(1.0, uCollisionLateralScaleB, collisionContactWeight);\n    vec4 worldPosition = modelMatrix * vec4(collisionDeformedPosition, 1.0);`,
+      `    float collisionContactWeight = smoothstep(-0.9, 0.3, position.x);\n    vec3 collisionDeformedPosition = position;\n    collisionDeformedPosition.x *= mix(1.0, uCollisionDeformationAxis, collisionContactWeight);\n    collisionDeformedPosition.y *= mix(1.0, uCollisionDeformationLateralA, collisionContactWeight);\n    collisionDeformedPosition.z *= mix(1.0, uCollisionDeformationLateralB, collisionContactWeight);\n    vec4 worldPosition = modelMatrix * vec4(collisionDeformedPosition, 1.0);`,
     )
   material.needsUpdate = true
   return true
@@ -566,18 +566,18 @@ function setContactDeformationUniforms(
   lateralScaleB: number,
 ) {
   if (!ensureContactDeformationShader(material)) return false
-  material.uniforms.uCollisionContactAxisScale.value = clamp01(contactAxisScale)
-  material.uniforms.uCollisionLateralScaleA.value = clamp01(lateralScaleA)
-  material.uniforms.uCollisionLateralScaleB.value = clamp01(lateralScaleB)
+  material.uniforms.uCollisionDeformationAxis.value = clamp01(contactAxisScale)
+  material.uniforms.uCollisionDeformationLateralA.value = clamp01(lateralScaleA)
+  material.uniforms.uCollisionDeformationLateralB.value = clamp01(lateralScaleB)
   return true
 }
 
 function resetContactDeformation(mesh: THREE.Mesh) {
   const material = mesh.material instanceof THREE.ShaderMaterial ? mesh.material : null
-  if (!material?.uniforms.uCollisionContactAxisScale) return
-  material.uniforms.uCollisionContactAxisScale.value = 1
-  material.uniforms.uCollisionLateralScaleA.value = 1
-  material.uniforms.uCollisionLateralScaleB.value = 1
+  if (!material?.uniforms.uCollisionDeformationAxis) return
+  material.uniforms.uCollisionDeformationAxis.value = 1
+  material.uniforms.uCollisionDeformationLateralA.value = 1
+  material.uniforms.uCollisionDeformationLateralB.value = 1
 }
 
 function alignContactNormal(mesh: THREE.Mesh, contactNormalValue: Vec3) {
