@@ -19,6 +19,7 @@ import {
 } from './bodyPresentationRadius'
 import { renderCollisionSolidHandoffFrame } from './collisionSolidHandoff'
 import { createFragmentGeometry } from './fragmentGeometry'
+import { createSpaceBackdrop, createSpaceStarLayer } from './spaceBackground'
 import {
   getTrackingHandoffProgress,
   isCollisionCameraJustReleased,
@@ -169,13 +170,6 @@ type VisualBody = {
   trailSizes: Float32Array
   trailRibbon: TrailRibbon
   points: TrailPoint[]
-}
-
-type StarLayer = {
-  points: THREE.Points
-  geometry: THREE.BufferGeometry
-  material: THREE.PointsMaterial
-  follow: number
 }
 
 type TrailCurveSample = TrailPoint
@@ -811,63 +805,48 @@ export function createSimulationRenderer(
     RENDER_TUNING.body.sphereHeightSegments,
   )
   const sharedGlowTexture = createBodyGlowTexture()
-
-  const createStarLayer = (
-    count: number,
-    minRadius: number,
-    maxRadius: number,
-    size: number,
-    opacity: number,
-    minBrightness: number,
-    maxBrightness: number,
-    follow: number,
-  ): StarLayer => {
-    const geometry = new THREE.BufferGeometry()
-    const positions = new Float32Array(count * 3)
-    const colors = new Float32Array(count * 3)
-    const white = new THREE.Color('#f8fbff')
-    const paleBlue = new THREE.Color('#b9d5ff')
-    const starColor = new THREE.Color()
-
-    for (let index = 0; index < positions.length; index += 3) {
-      const radius = minRadius + Math.random() * (maxRadius - minRadius)
-      const theta = Math.random() * Math.PI * 2
-      const phi = Math.acos(2 * Math.random() - 1)
-      positions[index] = radius * Math.sin(phi) * Math.cos(theta)
-      positions[index + 1] = radius * Math.sin(phi) * Math.sin(theta)
-      positions[index + 2] = radius * Math.cos(phi)
-
-      const colorMix = Math.random()
-      const brightness = minBrightness + Math.random() * (maxBrightness - minBrightness)
-      starColor.copy(white).lerp(paleBlue, colorMix).multiplyScalar(brightness)
-      colors[index] = starColor.r
-      colors[index + 1] = starColor.g
-      colors[index + 2] = starColor.b
-    }
-
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-    const material = new THREE.PointsMaterial({
-      size,
-      sizeAttenuation: false,
-      vertexColors: true,
-      transparent: true,
-      opacity,
-      depthWrite: false,
-      fog: false,
-      toneMapped: false,
-    })
-    const points = new THREE.Points(geometry, material)
-    points.position.copy(camera.position)
-    points.frustumCulled = false
-    scene.add(points)
-    return { points, geometry, material, follow }
-  }
+  const spaceBackdrop = createSpaceBackdrop(scene, camera)
 
   const starLayers = [
-    createStarLayer(600, 62, 180, 1.575, 1.0, 0.78, 0.96, 0.05),
-    createStarLayer(300, 38, 108, 2.025, 1.0, 0.86, 1.0, 0.08),
-    createStarLayer(100, 22, 64, 2.625, 1.0, 0.92, 1.0, 0.12),
+    createSpaceStarLayer({
+      scene,
+      camera,
+      count: 640,
+      minRadius: 68,
+      maxRadius: 190,
+      size: 1.05,
+      opacity: 0.72,
+      minBrightness: 0.28,
+      maxBrightness: 0.72,
+      follow: 0.025,
+      seed: 0x2f6e2b1,
+    }),
+    createSpaceStarLayer({
+      scene,
+      camera,
+      count: 280,
+      minRadius: 44,
+      maxRadius: 126,
+      size: 1.55,
+      opacity: 0.82,
+      minBrightness: 0.42,
+      maxBrightness: 0.86,
+      follow: 0.045,
+      seed: 0x6ac1d3f,
+    }),
+    createSpaceStarLayer({
+      scene,
+      camera,
+      count: 80,
+      minRadius: 26,
+      maxRadius: 74,
+      size: 2.2,
+      opacity: 0.94,
+      minBrightness: 0.58,
+      maxBrightness: 1.0,
+      follow: 0.065,
+      seed: 0x9b47c81,
+    }),
   ]
 
   const visuals = new Map<string, VisualBody>()
@@ -1852,6 +1831,7 @@ export function createSimulationRenderer(
       )
     }
     renderCollisionSolidHandoffFrame(scene, renderFrameSequence)
+    spaceBackdrop.update(camera.position)
     renderer.render(scene, camera)
   }
 
@@ -1867,6 +1847,7 @@ export function createSimulationRenderer(
       layer.geometry.dispose()
       layer.material.dispose()
     })
+    spaceBackdrop.dispose()
     sharedBodyGeometry.dispose()
     sharedGlowTexture.dispose()
     renderer.dispose()
