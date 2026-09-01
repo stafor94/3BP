@@ -18,6 +18,7 @@ URL = os.environ.get(
     'http://127.0.0.1:4173/3BP/',
 )
 VIEWPORTS = ((500, 701), (390, 844), (320, 700))
+EXPECTED_VERSION = json.loads(Path('package.json').read_text(encoding='utf-8'))['version']
 
 
 def require(condition: bool, message: str) -> None:
@@ -104,8 +105,8 @@ def main() -> None:
             require(version['left'] >= 0 and version['right'] <= width, f'{label}: version is clipped horizontally')
             require(version['height'] >= 8, f'{label}: version became unreadably short')
             require(
-                driver.find_element(By.CSS_SELECTOR, '.screen-app-version').text.strip().startswith('v0.20.9'),
-                f'{label}: expected v0.20.9 version label',
+                driver.find_element(By.CSS_SELECTOR, '.screen-app-version').text.strip() == f'v{EXPECTED_VERSION}',
+                f'{label}: rendered version does not match package.json',
             )
 
             screenshot = OUTPUT_DIR / f'top-overlay-{label}.png'
