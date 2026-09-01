@@ -39,8 +39,8 @@ const NEBULA_RED_CENTER = new THREE.Vector3(0.16, 0.52, -0.84).normalize()
 const STAR_TEMPERATURES = [
   { color: new THREE.Color('#c7d9ff'), weight: 0.14 },
   { color: new THREE.Color('#f2f4ef'), weight: 0.60 },
-  { color: new THREE.Color('#efdcc2'), weight: 0.21 },
-  { color: new THREE.Color('#d8b4aa'), weight: 0.05 },
+  { color: new THREE.Color('#eadfca'), weight: 0.21 },
+  { color: new THREE.Color('#c8bdb9'), weight: 0.05 },
 ] as const
 
 function createSeededRandom(seed: number) {
