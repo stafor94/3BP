@@ -160,11 +160,6 @@ def frame_difference(a: Path, b: Path) -> float:
     return sum(ImageStat.Stat(diff).mean) / 3.0
 
 
-def image_energy(path: Path) -> int:
-    image = Image.open(path).convert('RGB')
-    return sum(1 for pixel in image.getdata() if max(pixel) >= 45)
-
-
 def trigger(driver: webdriver.Chrome) -> None:
     driver.execute_async_script(
         """
@@ -243,6 +238,10 @@ def main() -> None:
                 f'{name}: early disruption particle handoff lost too much visible material',
             )
 
+        primary_collision_component_pixels = {
+            name: len(components[0]) if components else 0
+            for name, components in tracking_components.items()
+        }
         motion_radii = {
             name: math.dist(impact_center, centroid(tracking_components[name][0])) / max(impact_radius, 1.0)
             for name, _target in CAPTURES
@@ -266,18 +265,17 @@ def main() -> None:
             for name, path in captures.items()
             if name != 'impact'
         }
-        energies = {name: image_energy(path) for name, path in captures.items()}
 
         payload = {
             'capture_targets_seconds': {'impact': 0.0, **{name: target for name, target in CAPTURES}},
             'impact_equivalent_radius_px': impact_radius,
             'motion_source_radii': motion_radii,
             'tracking_warm_pixels': tracking_warm_pixels,
+            'primary_collision_component_pixels': primary_collision_component_pixels,
             'original_collision_site_occupancy': occupancy,
             'full_brightness_disc_equivalent_ratio_to_final': full_disc_ratio,
             'full_brightness_source_sized_component_count': full_disc_counts,
             'whole_frame_difference': differences,
-            'non_dark_pixels': energies,
         }
         (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
         print(json.dumps(payload, indent=2))
@@ -301,8 +299,12 @@ def main() -> None:
         require(full_disc_counts['07-1880ms'] <= 1, 'multiple source-sized full-brightness components remain at 1880ms')
         require(full_disc_counts['08-2200ms'] <= 1, 'multiple source-sized full-brightness components remain at 2200ms')
 
-        for name, energy in energies.items():
-            require(energy >= 400, f'{name} capture is unexpectedly empty')
+        # Keep the existing 400-pixel visibility floor, but apply it to the
+        # segmented foreground collision component rather than the whole frame.
+        # This preserves the disruption readability gate without counting stars or
+        # other background pixels as collision material.
+        for name, pixels in primary_collision_component_pixels.items():
+            require(pixels >= 400, f'{name}: foreground collision component is unexpectedly small')
         require(differences['03-520ms'] >= 0.10, '520ms handoff stage must differ visibly from impact')
         require(differences['04-700ms'] >= 0.12, '700ms ejecta stage must advance beyond impact')
         require(differences['05-1050ms'] >= 0.12, '1050ms structural handoff must remain visible')
