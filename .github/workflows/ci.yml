@@ -80,6 +80,8 @@ jobs:
         run: python scripts/collisionContinuityVisualRegression.py
       - name: Mobile actual disruption browser visual regression
         run: python scripts/mobileDisruptionVisualRegression.py
+      - name: Mobile top overlay browser visual regression
+        run: python scripts/mobileTopOverlayVisualRegression.py
       - name: Upload stellar collision visual captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -214,5 +216,13 @@ jobs:
         with:
           name: actual-disruption-mobile-visual-regression
           path: actual-disruption-mobile-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload mobile top overlay visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-top-overlay-visual-regression
+          path: mobile-top-overlay-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
