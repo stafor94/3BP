@@ -32,6 +32,11 @@ def make_driver() -> webdriver.Chrome:
     options.add_argument('--window-size=700,900')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--ignore-gpu-blocklist')
+    options.add_argument('--enable-webgl')
+    options.add_argument('--enable-unsafe-swiftshader')
+    options.add_argument('--use-gl=angle')
+    options.add_argument('--use-angle=swiftshader')
     options.add_argument('--hide-scrollbars')
     chrome_binary = (
         shutil.which('google-chrome')
