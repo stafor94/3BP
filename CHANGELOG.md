@@ -6,6 +6,24 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.21.0] - 2026-09-02
+
+### Added
+- 매우 희미한 은하수 띠와 dark dust lane, 낮은 채도·밝기의 국소 성운을 512×256 정적 equirectangular sky texture로 추가했습니다.
+- 카메라 translation에는 사실상 무한원처럼 따라오고 rotation에는 고정된 우주 방향을 유지하는 camera-centered sky sphere를 추가했습니다.
+
+### Changed
+- 기존 1,000개 star field 수는 유지하면서 크기·밝기·색온도 편차와 galactic-plane/대규모 density variation을 적용했습니다.
+- 대부분의 별을 더 작고 어둡게 조정하고 일부 밝은 별만 남겨 천체와 collision VFX보다 낮은 시각 우선순위를 유지하도록 했습니다.
+- 기존 star field의 페이지 로드별 미세한 layout variation은 유지하되 각 레이어 내부 생성은 seed 기반으로 구성했습니다.
+
+### Performance
+- 은하수/성운 procedural 계산은 renderer 초기화 시 한 번만 수행하며, frame loop에는 sky sphere의 camera position 동기화와 1 draw call만 추가합니다.
+- star count를 늘리지 않고 volumetric ray marching, animated background, per-frame noise sampling, mipmap 생성을 사용하지 않습니다.
+
+### Unchanged
+- physics/solver/collision, mass/radius/velocity/trajectory, celestial body shader, collision/destruction VFX 동작은 변경하지 않습니다.
+
 ## [0.20.9] - 2026-09-01
 
 ### Fixed
