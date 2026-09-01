@@ -160,6 +160,12 @@ def frame_difference(a: Path, b: Path) -> float:
     return sum(ImageStat.Stat(diff).mean) / 3.0
 
 
+def image_energy(path: Path) -> int:
+    """Whole-frame brightness helper retained for mobile viewport coverage gates."""
+    image = Image.open(path).convert('RGB')
+    return sum(1 for pixel in image.getdata() if max(pixel) >= 45)
+
+
 def trigger(driver: webdriver.Chrome) -> None:
     driver.execute_async_script(
         """
