@@ -29,6 +29,7 @@ type SpaceBackdrop = {
 const SPACE_TEXTURE_WIDTH = 512
 const SPACE_TEXTURE_HEIGHT = 256
 const SPACE_SKY_RADIUS = 240
+const STAR_LAYOUT_SESSION_SALT = Math.floor(Math.random() * 0xffffffff) >>> 0
 
 const GALACTIC_NORMAL = new THREE.Vector3(0.26, 0.83, 0.49).normalize()
 const NEBULA_BLUE_CENTER = new THREE.Vector3(-0.72, 0.24, 0.65).normalize()
@@ -43,7 +44,7 @@ const STAR_TEMPERATURES = [
 ] as const
 
 function createSeededRandom(seed: number) {
-  let state = seed >>> 0
+  let state = (seed ^ STAR_LAYOUT_SESSION_SALT) >>> 0
   return () => {
     state += 0x6d2b79f5
     let value = state
