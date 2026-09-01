@@ -6,6 +6,18 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.20.9] - 2026-09-01
+
+### Fixed
+- 좁은 모바일 화면에서 좌측 실행 상태·배속·경과시간 배지와 화면 중앙 버전 배지가 같은 상단 행을 차지해 서로 겹치고 시간이 가려지던 문제를 수정했습니다.
+- 620px 이하에서는 버전 표시를 기존 상단 컨트롤 행 바로 위의 컴팩트 라벨로 분리해 실행 상태/시간 및 우측 언어 컨트롤과 겹치지 않도록 했습니다.
+
+### Added
+- 500px, 390px, 320px 모바일 production viewport에서 상단 실행 배지·버전·언어 컨트롤의 실제 DOM 경계가 교차하지 않고 버전이 화면 안에 유지되는지 검증하는 브라우저 시각 회귀를 추가했습니다.
+
+### Unchanged
+- simulation physics, tracking/camera 동작, collision solver/penetration/ejecta/post-impact motion/survivor response/absorption/solid handoff/Stage 5 VFX/stellar collision은 변경하지 않습니다.
+
 ## [0.20.8] - 2026-08-31
 
 ### Fixed
