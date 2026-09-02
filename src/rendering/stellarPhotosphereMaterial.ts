@@ -106,9 +106,9 @@ export const stellarPhotosphereFragmentShader = `
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
 
-  const float STELLAR_CONVECTION_FREQUENCY = 3.2;
-  const float STELLAR_GRANULE_FREQUENCY = 10.5;
-  const float STELLAR_FINE_FREQUENCY = 26.0;
+  const float STELLAR_CONVECTION_FREQUENCY = 2.7;
+  const float STELLAR_GRANULE_FREQUENCY = 7.2;
+  const float STELLAR_FINE_FREQUENCY = 21.0;
 
   float hash31(vec3 p) {
     p = fract(p * 0.1031);
@@ -155,7 +155,7 @@ export const stellarPhotosphereFragmentShader = `
         for (int x = -1; x <= 1; x++) {
           vec3 neighbor = vec3(float(x), float(y), float(z));
           vec3 cell = lattice + neighbor;
-          vec3 jitter = 0.12 + hash33(cell + seedOffset) * 0.76;
+          vec3 jitter = 0.10 + hash33(cell + seedOffset) * 0.80;
           vec3 delta = neighbor + jitter - local;
           float distanceSq = dot(delta, delta);
           float heat = hash31(cell + seedOffset * 1.73 + vec3(7.31, -3.17, 5.83));
@@ -183,9 +183,9 @@ export const stellarPhotosphereFragmentShader = `
 
   float drawIntergranularLane(vec4 cellular) {
     float boundaryDistance = max(cellular.y - cellular.x, 0.0);
-    float lane = 1.0 - smoothstep(0.012, 0.070, boundaryDistance);
+    float lane = 1.0 - smoothstep(0.014, 0.090, boundaryDistance);
     float mergeAffinity = 1.0 - smoothstep(0.055, 0.24, abs(cellular.z - cellular.w));
-    return lane * mix(1.0, 0.70, mergeAffinity);
+    return lane * mix(1.0, 0.65, mergeAffinity);
   }
 
   float drawStellarGranulation(vec3 objectNormal) {
@@ -200,7 +200,7 @@ export const stellarPhotosphereFragmentShader = `
       sin(slowTime * 0.73),
       cos(slowTime * 0.61),
       sin(slowTime * 0.47 + 1.7)
-    ) * 0.10;
+    ) * 0.09;
     float convection = valueNoise(
       objectNormal * STELLAR_CONVECTION_FREQUENCY +
       seedOffset * 0.41 +
@@ -212,8 +212,8 @@ export const stellarPhotosphereFragmentShader = `
       seedOffset * 1.19 + vec3(11.7, -4.3, 6.9)
     );
     float boundaryDistance = max(cellular.y - cellular.x, 0.0);
-    float granuleInterior = smoothstep(0.030, 0.165, boundaryDistance);
-    float granuleCenter = 1.0 - smoothstep(0.30, 0.72, cellular.x);
+    float granuleInterior = smoothstep(0.032, 0.18, boundaryDistance);
+    float granuleCenter = 1.0 - smoothstep(0.30, 0.74, cellular.x);
     float intergranularLane = drawIntergranularLane(cellular);
     float cellThermalBias = cellular.z - 0.5;
     float cellPulse = 0.5 + 0.5 * sin(
@@ -226,28 +226,28 @@ export const stellarPhotosphereFragmentShader = `
       sin(slowTime * 0.37 + 0.4),
       sin(slowTime * 0.31 + 2.1),
       cos(slowTime * 0.29 - 0.8)
-    ) * 0.06;
+    ) * 0.05;
     float fineBreakup = valueNoise(
       objectNormal * STELLAR_FINE_FREQUENCY -
       seedOffset * 0.57 +
       fineWobble
     );
 
-    float convectionVariation = (convection - 0.5) * 0.04;
+    float convectionVariation = (convection - 0.5) * 0.035;
     float granuleVariation =
-      (granuleInterior - 0.58) * 0.070 +
-      granuleCenter * 0.018 +
-      cellThermalBias * 0.012 -
-      intergranularLane * 0.065;
-    float fineVariation = (fineBreakup - 0.5) * 0.012;
-    float temporalVariation = (cellPulse - 0.5) * granuleInterior * 0.007;
+      (granuleInterior - 0.56) * 0.064 +
+      granuleCenter * 0.016 +
+      cellThermalBias * 0.010 -
+      intergranularLane * 0.070;
+    float fineVariation = (fineBreakup - 0.5) * 0.008;
+    float temporalVariation = (cellPulse - 0.5) * granuleInterior * 0.006;
     float variation =
       convectionVariation +
       granuleVariation +
       fineVariation +
       temporalVariation;
 
-    return clamp(1.0 + variation * uDetailStrength, 0.84, 1.14);
+    return clamp(1.0 + variation * uDetailStrength, 0.84, 1.13);
   }
 
   float drawStellarEmission(vec3 worldNormal, vec3 viewDirection) {
@@ -283,7 +283,7 @@ export const stellarPhotosphereFragmentShader = `
     float emission = drawStellarEmission(normalWorld, viewDirection);
     float intensity = min((emission * granulation + rim * 0.45) * uEmissionStrength, 1.22);
     vec3 stellarColor = toneMapStellarHuePreserving(uIdentityColor * intensity);
-    float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.065, 0.050);
+    float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.070, 0.047);
     float stellarSurfaceModulation = 1.0 + granulationContrast;
     float limb = max(dot(normalWorld, viewDirection), 0.0);
     float whiteHotCore = pow(limb, 14.0) * uWhiteHotMix;
