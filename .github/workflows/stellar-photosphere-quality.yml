@@ -13,6 +13,7 @@ on:
       - 'scripts/stellarCellularPhotosphereVisualRegression.py'
       - 'scripts/stellarGranulationLodVisualRegression.py'
       - 'scripts/stellarGranulationLodScreenSizeAudit.py'
+      - 'scripts/stellarLimbVisualRegression.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
@@ -58,6 +59,10 @@ jobs:
         run: python scripts/stellarGranulationLodVisualRegression.py
       - name: Verify distinct mobile screen sizes and zoom coverage
         run: python scripts/stellarGranulationLodScreenSizeAudit.py
+      - name: Pass 4 stellar limb and edge mobile A/B regression
+        env:
+          STELLAR_LIMB_BASELINE_REF: 284d113e82523f90ae5ca92444f0eab0bbb98b26
+        run: python scripts/stellarLimbVisualRegression.py
       - name: Upload stellar photosphere A/B captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,5 +77,13 @@ jobs:
         with:
           name: stellar-granulation-screen-space-lod
           path: stellar-granulation-lod-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload stellar limb mobile A/B captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-limb-pass4-mobile-ab
+          path: stellar-limb-artifacts
           if-no-files-found: warn
           retention-days: 7
