@@ -6,6 +6,21 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.4] - 2026-09-02
+
+### Changed
+- v0.24.3의 20,000개 background + 1,000개 foreground dense starfield를 그대로 유지하면서 star vertex color를 `neutral`, `blue-white`, `warm-white`, `pale-yellow`, `soft-orange`, `red-orange`의 6개 저채도 temperature class로 확장했습니다.
+- 기존 brightness sampling exponent 2.60을 이용해 faint/medium/bright 구간별 color weight를 다르게 적용합니다. 전체 기대 분포는 약 neutral 58.8%, blue-white 19.5%, warm-white 13.6%, pale-yellow 5.2%, soft-orange 2.4%, red-orange 0.6%이며, 밝은 별일수록 warm/yellow/orange 계열을 조금 더 발견할 수 있게 했습니다.
+- color tint 강도는 brightness와 point size에 함께 연동해 작은 background star는 거의 흰색으로 유지하고, 중간/밝은 foreground star에서만 온도 차이가 조금 더 읽히도록 했습니다. shared 24×24 point texture와 `THREE.PointsMaterial`은 그대로 유지해 별이 컬러 particle처럼 보이지 않도록 했습니다.
+- 색상 선택은 밝기 샘플 뒤에 기존부터 존재하던 RNG draw 1회를 그대로 사용하고 picker 내부에 추가 random 호출을 만들지 않아 star position/brightness RNG sequence를 변경하지 않습니다. 기존 session-level layout variation도 유지합니다.
+
+### Verification
+- space background regression에 6개 temperature class, faint/medium/bright weight 합, brightness exponent를 반영한 기대 분포 범위, low-saturation palette, brightness/size tint 연계 및 no-extra-RNG 계약을 추가했습니다.
+- visual A/B baseline을 v0.24.3 main (`38637551e8ef53bccafb64540a76502a40397b45`)으로 고정하고 mobile 390×844 / desktop 1280×800, 기존 5개 viewpoint에서 density/visibility와 color diversity를 직접 비교하도록 CI를 갱신했습니다.
+
+### Unchanged
+- dense/fine background count 10,000/10,000, foreground 1,000, 각 layer의 size/opacity/min/max brightness, sky base RGB 5/7/13, Milky Way/haze/distant galaxy, foreground 천체, physics/solver/collision, camera, trails, VFX, UI/controls는 변경하지 않습니다.
+
 ## [0.24.3] - 2026-09-02
 
 ### Changed
@@ -160,7 +175,7 @@
 ## [0.20.8] - 2026-08-31
 
 ### Fixed
-- 비항성 2→1 충돌의 solid handoff에서 피흡수체가 균일한 작은 구체로 축소된 뒤 마지막 프레임에 삭제되던 표현을, 접촉축 변형이 먼저 진행되고 후반에 본체 collapse와 fade가 이어지는 순차 전환으로 변경했습니다.
+- 비항성 충돌의 solid handoff에서 피흡수체가 균일한 작은 구체로 축소된 뒤 마지막 프레임에 삭제되던 표현을, 접촉축 변형이 먼저 진행되고 후반에 본체 collapse와 fade가 이어지는 순차 전환으로 변경했습니다.
 - 접촉면 변형을 위한 추가 중심 위치 보정을 제거해 v0.20.7의 post-impact motion/solid-handoff 이동 경로를 그대로 유지합니다.
 
 ### Added
@@ -206,7 +221,7 @@
 - Stage 3/Stage 4 production-renderer A/B regression을 추가해 representative grazing, head-on, oblique 조건에서 실제 recoil, full-size impactor scale, contact-local compression/shear, head-on↔grazing ordering 및 850ms settle을 검증합니다.
 
 ### Unchanged
-- Stage 1–3 physics solver, 질량·선형 운동량, collision classification, ejecta 방향·속력, camera/flash/lighting/particle profile은 변경하지 않습니다.
+- Stage 1–3 physics solver, 질량·선형 운동량, collision classification, ejecta 방향·속력, camera/flash/lighting/particle profile은 변경하지 않았습니다.
 
 ## [0.20.4] - 2026-08-30
 
@@ -254,7 +269,7 @@
 - 비항성 충돌의 실제 mass-bearing ejecta가 surviving solid 표면에 붙거나 뭉쳐 보이지 않도록 실제 생성 위치와 방출 방향을 collision geometry 기준으로 조정했습니다.
 - ejecta momentum 변화량을 survivor/remnant의 실제 velocity에 보정해 represented linear momentum conservation을 유지했습니다.
 - post-solver solid handoff timing을 첫 실제 renderer frame 기준으로 시작해 source → remnant/absorbed 전환의 첫 visible-frame jump를 줄였습니다.
-- 작은 high-head-on 충돌에서 physical spark가 과도한 표시 크기로 뭉치거나 세로 기둥처럼 보이지 않도록 fragment-scale presentation을 적용했습니다.
+- 작은 high-head-on collision의 실제 mass-bearing tiny ejecta에는 fragment-scale presentation을 적용해 과도한 표시 크기와 세로 기둥 같은 뭉침을 줄였습니다.
 
 ### Changed
 - non-stellar destruction browser regression을 synthetic fragment fixture 대신 실제 `fragmentAwareEngine.stepBodies()` 기반 production solver fixture로 전환했습니다.
@@ -339,7 +354,7 @@
 
 ### Changed
 - physics는 non-stellar flash에 가장 큰 source physical radius와 spark에 head-on/grazing geometry를 presentation metadata로만 전달하고, renderer가 `getBodyPresentationRadius()`를 사용해 source-relative flash footprint와 head-on compact splash shape/visible decay를 계산하도록 분리했습니다.
-- head-on spark의 mesh stretch·tail reach·glow·visible opacity decay를 줄이고 width를 넓혔으며, grazing spark의 기존 directional envelope는 유지했습니다.
+- head-on spark의 mesh stretch·tail reach·glow·visible opacity decay를 줄이고 width를 넓혔으며, grazing spark의 기존 directional envelope는 유지합니다.
 
 ### Added
 - 실제 `fragmentAwareEngine.stepBodies()`의 small moon-moon merge와 small+normal, normal+normal, stellar control을 사용해 body-relative flash footprint, mass-bearing spark의 physical direction/lifetime 불변, geometry-aware visual decay를 검증하는 non-stellar collision VFX regression을 추가했습니다.
@@ -427,7 +442,7 @@
 - non-stellar destruction browser artifact를 IMPACT, early/mid FRACTURE, TRANSFER, REMNANT_SETTLE 시점으로 세분화해 solid breakup과 기존 source-sized ghost 방지 조건을 함께 검사하도록 했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 판정, collision prediction, mass/ejecta 및 실제 physical fragment 결과, 50% initial-mass tracking rule, tracking lineage semantics, collision/tracking camera, trail 정책, stellar collision VFX, absorption/merge visual 의미 및 일반 UI는 변경하지 않았습니다.
+- collision physics, merge/disruption 판정 threshold, collision prediction, mass/ejecta 및 실제 physical fragment 결과, 50% initial-mass tracking rule, tracking lineage semantics, collision/tracking camera, trail 정책, stellar collision VFX, absorption/merge visual 의미 및 일반 UI는 변경하지 않았습니다.
 
 ## [0.19.12] - 2026-08-28
 
@@ -475,7 +490,7 @@
 - 흡수 충돌에서 피흡수체가 접촉면 근처에서 빠르게 작아지며 사라지고 생존 remnant가 같은 순간 최종 크기로 튀어, 실제로 질량이 넘어가기보다 한 천체가 교체되는 것처럼 보이던 전환을 자연스럽게 연결했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
+- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명·보존 정책 및 camera transform/tracking 로직은 변경하지 않았습니다.
 
 ## [0.19.9] - 2026-08-27
 
@@ -526,7 +541,7 @@
 ## [0.19.5] - 2026-08-27
 
 ### Fixed
-- 충돌 관찰 카메라가 종료될 때 `trackedBodyId`가 동일해 일반 tracking의 selection change가 발생하지 않고, collision camera의 마지막 거리/방향이 남은 채 focus settle이 재시작되지 않던 문제를 수정했습니다.
+- collision camera가 종료될 때 `trackedBodyId`가 동일해 일반 tracking의 selection change가 발생하지 않고, collision camera의 마지막 거리/방향이 남은 채 focus settle이 재시작되지 않던 문제를 수정했습니다.
 - collision camera의 `focused → released` 전이를 별도 camera-mode handoff로 감지해 기존 tracking selection·baseline·50% mass rule을 건드리지 않고 같은 tracking focus 초기화 경로에서 view direction과 auto-distance settle을 다시 시작하도록 했습니다.
 - collision camera 종료 프레임에 default composition을 거치거나 카메라를 순간이동하지 않고, 현재 카메라 위치에서 기존 tracking transition으로 유효 continuation을 계속 화면 중앙에 유지하도록 했습니다.
 
@@ -826,7 +841,7 @@
 - 항성 ejecta의 방향을 단순 랜덤 산란 대신 충돌 `normal`, `tangent`, `relativeVelocity`, `headOn`, `grazing`, `speedRatio`와 질량비를 조합해 결정하도록 했습니다.
 - 스치는 충돌은 한쪽 접선 방향의 길고 찢어진 분출을 우세하게 하고, 정면 충돌은 충돌면을 따라 짧고 두꺼운 분출이 나오도록 분기했습니다.
 - 항성 충돌마다 2~4개의 큰 플라즈마 클럼프와 더 작은 ejecta를 섞고, 충돌 속도와 기하에 따라 수명·속도·길이·꼬리·난류를 다르게 적용하도록 했습니다.
-- 질량 차가 큰 항성 충돌은 작은 항성의 색과 운동 방향이 ejecta에 더 강하게 반영되도록 해 작은 쪽 물질이 뜯겨 나가는 편향을 강화했습니다.
+- 질량 차이가 큰 항성 충돌은 작은 항성의 색과 운동 방향이 ejecta에 더 강하게 반영되도록 해 작은 쪽 물질이 뜯겨 나가는 편향을 강화했습니다.
 - 플라즈마 색을 백색/청백색 고온 코어, 혼합된 항성색 중간층, 냉각되며 옅게 적색화·탈채되는 외곽층으로 분리하고 선형이 아닌 감쇠 곡선을 적용했습니다.
 - 효과 수는 기존 동적 천체 상한 28개 안에서 contact flash 슬롯까지 예약하도록 제한하고, effect plane geometry를 공유해 렌더링 부하 증가를 제한했습니다.
 
@@ -1176,12 +1191,15 @@
 - 충돌 예측·경고에 충돌 예정 천체의 종류를 표시하도록 했습니다.
 
 ### Changed
-- 충돌 관찰 시 추적 카메라를 더 가까이 당겨 충돌 천체와 장면을 크게 볼 수 있도록 조정했습니다.
+- 충돌 관찰 시 추적 카메라를 더 가까이 당겨 충돌 천체와 장면을 크게 볼 수 있도록 했습니다.
 - 충돌 대상 종류의 시각적 구분을 강화했습니다.
 ## [0.15.8] - 2026-08-25
 
 ### Added
 - 태블릿에서 사이드 패널을 접은 상태에서도 시작/정지 등 핵심 기능을 사용할 수 있는 컴팩트 퀵 컨트롤을 추가했습니다.
+
+### Changed
+- 태블릿용 패널 제어 스타일을 별도 로드해 데스크톱·모바일 레이아웃과 분리했습니다.
 
 ## [0.15.7] - 2026-08-25
 
