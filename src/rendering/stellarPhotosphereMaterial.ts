@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { getEffectiveBodyType } from '../bodyTypes'
 import {
   getStellarComputedProperties,
   getStellarDisplayColorFromBody,
@@ -275,9 +276,9 @@ export function updateStellarPhotosphereMaterial(
 }
 
 function inheritMergedStellarEvolution(body: BodyState, previousBodies: BodyState[]) {
-  if (body.bodyType !== 'star' || body.stellarEvolutionStage !== undefined) return body
+  if (getEffectiveBodyType(body) !== 'star' || body.stellarEvolutionStage !== undefined) return body
 
-  const previousStars = previousBodies.filter((candidate) => candidate.bodyType === 'star')
+  const previousStars = previousBodies.filter((candidate) => getEffectiveBodyType(candidate) === 'star')
   const sameBody = previousStars.find((candidate) => candidate.id === body.id)
   let source = sameBody
 
