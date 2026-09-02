@@ -31,6 +31,10 @@ const spaceBaseBlue = readNumericConstant('SPACE_BASE_BLUE')
 const spaceTextureWidth = readNumericConstant('SPACE_TEXTURE_WIDTH')
 const spaceTextureHeight = readNumericConstant('SPACE_TEXTURE_HEIGHT')
 const galaxyTextureSize = readNumericConstant('GALAXY_TEXTURE_SIZE')
+const temperatureMediumThreshold = readNumericConstant('STAR_TEMPERATURE_MEDIUM_THRESHOLD')
+const temperatureBrightThreshold = readNumericConstant('STAR_TEMPERATURE_BRIGHT_THRESHOLD')
+const tintSizeMin = readNumericConstant('STAR_TINT_SIZE_MIN')
+const tintSizeMax = readNumericConstant('STAR_TINT_SIZE_MAX')
 
 requireCondition(textureSize >= 16 && textureSize <= 32, 'star point texture must stay within 16–32 px')
 requireCondition(brightnessExponent === 2.6, `foreground/shared star brightness sampling exponent changed: ${brightnessExponent}`)
@@ -41,6 +45,92 @@ requireCondition(galaxyTextureSize <= 64, 'galaxy texture exceeded the 64×64 in
 requireCondition(
   spaceBaseRed === 5 && spaceBaseGreen === 7 && spaceBaseBlue === 13,
   `Pass 6 must preserve the established RGB 5/7/13 sky floor, found ${spaceBaseRed}/${spaceBaseGreen}/${spaceBaseBlue}`,
+)
+requireCondition(
+  temperatureMediumThreshold === 0.45 && temperatureBrightThreshold === 0.8,
+  `star temperature brightness bands changed: ${temperatureMediumThreshold}/${temperatureBrightThreshold}`,
+)
+requireCondition(
+  tintSizeMin === 1.0 && tintSizeMax === 2.2,
+  `star temperature size-response range changed: ${tintSizeMin}/${tintSizeMax}`,
+)
+
+const temperatureBlock = backgroundSource.match(/const STAR_TEMPERATURES:[\s\S]*?= \[([\s\S]*?)\n\]/)
+requireCondition(temperatureBlock, 'missing star temperature palette')
+const temperatureSpecs = [...temperatureBlock[1].matchAll(
+  /\{\s*name:\s*'([^']+)',\s*color:\s*new THREE\.Color\('(#[0-9a-fA-F]{6})'\),\s*faintWeight:\s*([0-9.]+),\s*mediumWeight:\s*([0-9.]+),\s*brightWeight:\s*([0-9.]+),\s*\}/g,
+)].map((match) => ({
+  name: match[1],
+  color: match[2].toLowerCase(),
+  faintWeight: Number(match[3]),
+  mediumWeight: Number(match[4]),
+  brightWeight: Number(match[5]),
+}))
+const expectedTemperatureColors = new Map([
+  ['neutral', '#f8faff'],
+  ['blue-white', '#e7eeff'],
+  ['warm-white', '#fff7e8'],
+  ['pale-yellow', '#ffe9b5'],
+  ['soft-orange', '#ffd19a'],
+  ['red-orange', '#ffb29a'],
+])
+requireCondition(temperatureSpecs.length === 6, `expected six restrained temperature classes, found ${temperatureSpecs.length}`)
+requireCondition(
+  temperatureSpecs.map(({ name }) => name).join(',') === [...expectedTemperatureColors.keys()].join(','),
+  `unexpected star temperature class order: ${temperatureSpecs.map(({ name }) => name).join(',')}`,
+)
+for (const spec of temperatureSpecs) {
+  requireCondition(
+    expectedTemperatureColors.get(spec.name) === spec.color,
+    `unexpected or overly saturated palette color for ${spec.name}: ${spec.color}`,
+  )
+}
+for (const weightKey of ['faintWeight', 'mediumWeight', 'brightWeight']) {
+  const sum = temperatureSpecs.reduce((total, spec) => total + spec[weightKey], 0)
+  requireCondition(Math.abs(sum - 1) < 1e-9, `${weightKey} temperature weights must sum to 1, found ${sum}`)
+}
+
+const faintShare = Math.pow(temperatureMediumThreshold, 1 / brightnessExponent)
+const mediumShare = Math.pow(temperatureBrightThreshold, 1 / brightnessExponent) - faintShare
+const brightShare = 1 - faintShare - mediumShare
+const expectedTemperatureShares = new Map(temperatureSpecs.map((spec) => [
+  spec.name,
+  faintShare * spec.faintWeight + mediumShare * spec.mediumWeight + brightShare * spec.brightWeight,
+]))
+const expectedShareRanges = new Map([
+  ['neutral', [0.55, 0.65]],
+  ['blue-white', [0.15, 0.20]],
+  ['warm-white', [0.10, 0.15]],
+  ['pale-yellow', [0.05, 0.08]],
+  ['soft-orange', [0.02, 0.04]],
+  ['red-orange', [0.005, 0.015]],
+])
+for (const [name, [minimum, maximum]] of expectedShareRanges) {
+  const share = expectedTemperatureShares.get(name)
+  requireCondition(
+    share >= minimum && share <= maximum,
+    `${name} expected visible distribution ${(share * 100).toFixed(2)}% escaped ${(minimum * 100).toFixed(1)}–${(maximum * 100).toFixed(1)}%`,
+  )
+}
+requireCondition(
+  backgroundSource.includes('function getStarTintStrength(brightnessProgress: number, pointSize: number)'),
+  'star tint must respond to both brightness and screen-space point size',
+)
+requireCondition(
+  backgroundSource.includes('const sizeTintScale = THREE.MathUtils.lerp(0.55, 1.0, smooth01(sizeProgress))'),
+  'small-star tint suppression must remain enabled',
+)
+requireCondition(
+  backgroundSource.includes('const colorSample = random()') &&
+    backgroundSource.includes('pickStarColor(colorSample, brightnessProgress, size, starColor)'),
+  'star color must reuse the single legacy RNG draw after brightness sampling',
+)
+const colorPickerBlock = backgroundSource.match(/function pickStarColor\([\s\S]*?\n\}/)
+requireCondition(colorPickerBlock, 'missing star color picker')
+requireCondition(!colorPickerBlock[0].includes('random('), 'star color picker must not consume additional random values')
+requireCondition(
+  backgroundSource.includes("const STAR_TINT_BASE_COLOR = new THREE.Color('#f1f2ee')"),
+  'temperature tint must blend from the established near-white star base',
 )
 
 const starLayerBlocks = [...rendererSource.matchAll(/createSpaceStarLayer\(\{([\s\S]*?)\}\)/g)].map((match) => match[1])
@@ -182,9 +272,14 @@ requireCondition(
   'space background must not add time-based animation',
 )
 
+const temperatureSummary = [...expectedTemperatureShares.entries()]
+  .map(([name, share]) => `${name} ${(share * 100).toFixed(1)}%`)
+  .join(' / ')
+
 console.log(
   `space background regression ok: ${totalStars} stars (${denseBackgroundStarCount} dense + ${fineBackgroundStarCount} fine background), ` +
     `${galaxySpecs.length} galaxies / ${clusterCount} cluster regions, ${textureSize}x${textureSize} shared point texture, ` +
+    `temperatures ${temperatureSummary}, ` +
     `OLED floor ${spaceBaseRed}/${spaceBaseGreen}/${spaceBaseBlue}, ` +
     `background attributes ${(backgroundAttributeBytes / 1024).toFixed(1)} KiB, ` +
     `depth responses ${depthResponses.map((value) => (value * 100).toFixed(3)).join('% / ')}%, ` +
