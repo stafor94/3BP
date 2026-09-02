@@ -1,0 +1,155 @@
+name: PR 120 Luminance Fixup
+
+on:
+  push:
+    branches: [feat/starfield-temperature-colors]
+
+permissions:
+  contents: write
+
+jobs:
+  fixup:
+    if: ${{ !contains(github.event.head_commit.message, '[fixup-done]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/starfield-temperature-colors
+          fetch-depth: 0
+      - name: Preserve v0.24.3 per-star luminance and clean release diff
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          source_path = Path('src/rendering/spaceBackground.ts')
+          source = source_path.read_text(encoding='utf-8')
+
+          base_color = "const STAR_TINT_BASE_COLOR = new THREE.Color('#f1f2ee')\n"
+          legacy_palette = """const STAR_TINT_BASE_COLOR = new THREE.Color('#f1f2ee')
+          const LEGACY_STAR_TEMPERATURES = [
+            new THREE.Color('#d7e2f4'),
+            new THREE.Color('#f1f2ee'),
+            new THREE.Color('#e8dfd0'),
+            new THREE.Color('#d6ccc7'),
+          ] as const
+          const LEGACY_STAR_TEMPERATURE_THRESHOLDS = [0.10, 0.78, 0.96, 1.0] as const
+          """
+          if 'LEGACY_STAR_TEMPERATURES' not in source:
+              assert base_color in source, 'star tint base color anchor missing'
+              source = source.replace(base_color, legacy_palette, 1)
+
+          old_picker = """function pickStarColor(
+            sample: number,
+            brightnessProgress: number,
+            pointSize: number,
+            target: THREE.Color,
+          ) {
+            let accumulated = 0
+            for (const temperature of STAR_TEMPERATURES) {
+              accumulated += getStarTemperatureWeight(temperature, brightnessProgress)
+              if (sample <= accumulated) {
+                return target
+                  .copy(STAR_TINT_BASE_COLOR)
+                  .lerp(temperature.color, getStarTintStrength(brightnessProgress, pointSize))
+              }
+            }
+            return target.copy(STAR_TINT_BASE_COLOR)
+          }
+          """
+          new_picker = """function getStarLinearLuminance(color: THREE.Color) {
+            return color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722
+          }
+
+          function getLegacyStarLuminance(sample: number) {
+            for (let index = 0; index < LEGACY_STAR_TEMPERATURE_THRESHOLDS.length; index += 1) {
+              if (sample <= LEGACY_STAR_TEMPERATURE_THRESHOLDS[index]) {
+                return getStarLinearLuminance(LEGACY_STAR_TEMPERATURES[index])
+              }
+            }
+            return getStarLinearLuminance(LEGACY_STAR_TEMPERATURES[LEGACY_STAR_TEMPERATURES.length - 1])
+          }
+
+          function preserveLegacyStarLuminance(sample: number, target: THREE.Color) {
+            const currentLuminance = getStarLinearLuminance(target)
+            if (currentLuminance <= 0) return target
+            return target.multiplyScalar(getLegacyStarLuminance(sample) / currentLuminance)
+          }
+
+          function pickStarColor(
+            sample: number,
+            brightnessProgress: number,
+            pointSize: number,
+            target: THREE.Color,
+          ) {
+            let accumulated = 0
+            for (const temperature of STAR_TEMPERATURES) {
+              accumulated += getStarTemperatureWeight(temperature, brightnessProgress)
+              if (sample <= accumulated) {
+                target
+                  .copy(STAR_TINT_BASE_COLOR)
+                  .lerp(temperature.color, getStarTintStrength(brightnessProgress, pointSize))
+                return preserveLegacyStarLuminance(sample, target)
+              }
+            }
+            target.copy(STAR_TINT_BASE_COLOR)
+            return preserveLegacyStarLuminance(sample, target)
+          }
+          """
+          if 'function preserveLegacyStarLuminance' not in source:
+              assert old_picker in source, 'star color picker anchor missing'
+              source = source.replace(old_picker, new_picker, 1)
+          source_path.write_text(source, encoding='utf-8')
+
+          regression_path = Path('scripts/spaceBackgroundRegression.mjs')
+          regression = regression_path.read_text(encoding='utf-8')
+          anchor = """requireCondition(
+            backgroundSource.includes(\"const STAR_TINT_BASE_COLOR = new THREE.Color('#f1f2ee')\"),
+            'temperature tint must blend from the established near-white star base',
+          )
+          """
+          luminance_contract = anchor + """requireCondition(
+            backgroundSource.includes('function preserveLegacyStarLuminance(sample: number, target: THREE.Color)') &&
+              backgroundSource.includes('getLegacyStarLuminance(sample) / currentLuminance'),
+            'temperature tint must preserve the v0.24.3 per-star luminance envelope',
+          )
+          """
+          if 'per-star luminance envelope' not in regression:
+              assert anchor in regression, 'background regression anchor missing'
+              regression = regression.replace(anchor, luminance_contract, 1)
+          regression_path.write_text(regression, encoding='utf-8')
+
+          base_changelog = subprocess.check_output(
+              ['git', 'show', 'origin/main:CHANGELOG.md'], text=True, encoding='utf-8'
+          )
+          marker = '## [0.24.3] - 2026-09-02'
+          assert marker in base_changelog, 'v0.24.3 changelog marker missing on main'
+          intro, remainder = base_changelog.split(marker, 1)
+          release = """## [0.24.4] - 2026-09-02
+
+          ### Changed
+          - v0.24.3의 20,000개 background + 1,000개 foreground dense starfield를 그대로 유지하면서 star vertex color를 `neutral`, `blue-white`, `warm-white`, `pale-yellow`, `soft-orange`, `red-orange`의 6개 저채도 temperature class로 확장했습니다.
+          - 기존 brightness sampling exponent 2.60을 이용해 faint/medium/bright 구간별 color weight를 다르게 적용합니다. 전체 기대 분포는 약 neutral 58.8%, blue-white 19.5%, warm-white 13.6%, pale-yellow 5.2%, soft-orange 2.4%, red-orange 0.6%입니다.
+          - 작은 background star는 tint를 억제하고 밝고 큰 star일수록 온도 차이를 더 읽을 수 있게 하되, 동일 color sample이 v0.24.3에서 가졌던 선형 luminance를 보존하도록 정규화해 색상 추가 때문에 모바일 체감 밀도가 낮아지지 않도록 했습니다.
+          - 색상 선택은 기존 brightness 뒤 RNG draw 1회를 그대로 사용하며 picker 내부에 추가 random 호출을 만들지 않아 위치·밝기 random sequence를 변경하지 않습니다.
+
+          ### Verification
+          - space background regression에 6개 temperature class, brightness별 weight, low-saturation palette, brightness/size tint 연계, no-extra-RNG 및 v0.24.3 per-star luminance 보존 계약을 추가했습니다.
+          - mobile 390×844 / desktop 1280×800의 5개 viewpoint에서 v0.24.3과 A/B 캡처해 density/visibility 및 색온도 다양성을 비교합니다.
+
+          ### Unchanged
+          - dense/fine background count 10,000/10,000, foreground 1,000, 각 layer의 size/opacity/min/max brightness, shared 24×24 point texture, sky base RGB 5/7/13, Milky Way/haze/distant galaxy, foreground 천체, physics/solver/collision, camera, trails, VFX, UI/controls는 변경하지 않습니다.
+
+          """
+          Path('CHANGELOG.md').write_text(intro + release + marker + remainder, encoding='utf-8')
+
+          Path('.github/workflows/pr120-luminance-fixup.yml').unlink()
+          PY
+      - name: Commit fixup
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/rendering/spaceBackground.ts scripts/spaceBackgroundRegression.mjs CHANGELOG.md .github/workflows/pr120-luminance-fixup.yml
+          git commit -m "fix: preserve starfield luminance [fixup-done]"
+          git push origin HEAD:feat/starfield-temperature-colors
