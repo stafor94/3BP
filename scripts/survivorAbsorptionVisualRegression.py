@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import time
+from collections import deque
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageStat
@@ -65,24 +66,54 @@ def warm_primary_pixels(path: Path) -> list[tuple[int, int]]:
     width, height = image.size
     x0, x1 = int(width * 0.30), int(width * 0.66)
     y0, y1 = int(height * 0.22), int(height * 0.78)
-    candidates: list[tuple[int, int]] = []
+    occupied: set[tuple[int, int]] = set()
     for y in range(y0, y1):
         for x in range(x0, x1):
             r, g, b = image.getpixel((x, y))
             if r >= 42 and r >= g * 1.05 and r >= b * 1.10:
-                candidates.append((x, y))
+                occupied.add((x, y))
 
-    candidate_set = set(candidates)
-    points = [
-        (x, y)
-        for x, y in candidates
-        if any(
-            (x + dx, y + dy) in candidate_set
-            for dx in (-1, 0, 1)
-            for dy in (-1, 0, 1)
-            if dx != 0 or dy != 0
-        )
-    ]
+    components: list[list[tuple[int, int]]] = []
+    while occupied:
+        seed = occupied.pop()
+        queue = deque([seed])
+        component = [seed]
+        while queue:
+            x, y = queue.popleft()
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    candidate = (x + dx, y + dy)
+                    if candidate in occupied:
+                        occupied.remove(candidate)
+                        queue.append(candidate)
+                        component.append(candidate)
+        components.append(component)
+
+    require(components, f'primary warm surface is not detectable in {path.name}')
+    components.sort(key=len, reverse=True)
+    anchor = components[0]
+    anchor_xs = [x for x, _ in anchor]
+    anchor_center_x = sum(anchor_xs) / len(anchor_xs)
+    anchor_width = max(anchor_xs) - min(anchor_xs) + 1
+    minimum_component_area = max(32, int(len(anchor) * 0.05))
+    center_window = max(16.0, anchor_width * 0.35)
+
+    # The giant survivor's banded surface is intentionally split into several
+    # large warm components. Reassemble those components around the dominant
+    # body's screen-space center while rejecting tiny warm star/AA clusters and
+    # the smaller impactor on the +X side. Extrema from those detached pixels
+    # would otherwise inflate max_x and move the impact-cap ROI off the planet.
+    points: list[tuple[int, int]] = []
+    for component in components:
+        if len(component) < minimum_component_area:
+            continue
+        component_center_x = sum(x for x, _ in component) / len(component)
+        if abs(component_center_x - anchor_center_x) > center_window:
+            continue
+        points.extend(component)
+
     require(len(points) >= 500, f'not enough primary surface pixels in {path.name}')
     return points
 
