@@ -6,9 +6,11 @@ from pathlib import Path
 from PIL import Image
 
 import stellarPhotosphereVisualRegression as base
+import stellarGranulationLodVisualRegression as lod
 
 OUTPUT_DIR = Path('stellar-granulation-lod-artifacts')
 CORE_THRESHOLD = 180.0
+FULL_SWEEP_SAMPLES = 24
 
 
 def luma(rgb: tuple[int, int, int]) -> float:
@@ -63,6 +65,38 @@ def measure_star_diameter(path: Path) -> float:
     return sum(half_diameters) / len(half_diameters)
 
 
+def measure_surface_noise(path: Path) -> tuple[float, float]:
+    image = Image.open(path).convert('RGB')
+    width, height = image.size
+    pixels = image.load()
+    high_frequency_sum = 0.0
+    sample_count = 0
+    lane_count = 0
+
+    for y in range(1, height - 1):
+        for x in range(1, width - 1):
+            current = luma(pixels[x, y])
+            if current < 145.0:
+                continue
+            neighbors = (
+                luma(pixels[x - 1, y]),
+                luma(pixels[x + 1, y]),
+                luma(pixels[x, y - 1]),
+                luma(pixels[x, y + 1]),
+            )
+            if min(neighbors) < 125.0:
+                continue
+            neighbor_mean = sum(neighbors) / 4.0
+            high_frequency_sum += abs(current - neighbor_mean)
+            sample_count += 1
+            brighter_neighbors = sum(value >= current + 2.0 for value in neighbors)
+            if neighbor_mean >= current + 2.5 and brighter_neighbors >= 3:
+                lane_count += 1
+
+    base.require(sample_count > 100, f'{path.name}: insufficient resolved photosphere samples')
+    return high_frequency_sum / sample_count, lane_count / sample_count
+
+
 def validate_three_distances(side: str) -> dict[str, float]:
     diameters = {
         level: measure_star_diameter(OUTPUT_DIR / f'{side}-{level}-mobile.png')
@@ -80,30 +114,70 @@ def validate_three_distances(side: str) -> dict[str, float]:
     return diameters
 
 
-def validate_zoom_sweep() -> list[float]:
-    diameters = [
-        measure_star_diameter(OUTPUT_DIR / f'zoom-sweep-{index:02d}.png')
-        for index in range(13)
-    ]
+def capture_full_zoom_sweep() -> list[dict[str, float]]:
+    base.wait_for_url(base.CURRENT_URL)
+    driver = base.make_driver()
+    samples: list[dict[str, float]] = []
+    try:
+        canvas = lod.prepare_scene(driver, base.CURRENT_URL)
+        lod.apply_zoom(driver, canvas, -8, settle_frames=30)
+        for index in range(FULL_SWEEP_SAMPLES):
+            path = OUTPUT_DIR / f'zoom-full-{index:02d}.png'
+            base.require(bool(canvas.screenshot(str(path))) and path.exists(), 'full zoom sweep capture failed')
+            diameter = measure_star_diameter(path)
+            high_frequency, lane_presence = measure_surface_noise(path)
+            samples.append({
+                'diameter': diameter,
+                'high_frequency': high_frequency,
+                'lane_presence': lane_presence,
+            })
+            if index < FULL_SWEEP_SAMPLES - 1:
+                lod.apply_zoom(driver, canvas, 1, delta=100.0, settle_frames=5)
+    finally:
+        driver.quit()
+    return samples
 
-    for previous, current in zip(diameters, diameters[1:]):
+
+def validate_full_zoom_sweep(samples: list[dict[str, float]]):
+    for previous, current in zip(samples, samples[1:]):
+        previous_diameter = previous['diameter']
+        current_diameter = current['diameter']
         base.require(
-            current <= previous + 1.0,
-            'zoom sweep: apparent stellar diameter grew while zooming out: '
-            f'{previous:.2f}px -> {current:.2f}px',
+            current_diameter <= previous_diameter + 1.0,
+            'full zoom sweep: apparent stellar diameter grew while zooming out: '
+            f'{previous_diameter:.2f}px -> {current_diameter:.2f}px',
         )
         base.require(
-            current >= previous * 0.90,
-            'zoom sweep: apparent stellar diameter jumped between adjacent zoom samples: '
-            f'{previous:.2f}px -> {current:.2f}px',
+            current_diameter >= previous_diameter * 0.82,
+            'full zoom sweep: apparent stellar diameter jumped between adjacent samples: '
+            f'{previous_diameter:.2f}px -> {current_diameter:.2f}px',
         )
 
+        previous_hf = previous['high_frequency']
+        current_hf = current['high_frequency']
+        base.require(
+            current_hf <= previous_hf * 1.35 + 0.40,
+            'full zoom sweep: high-frequency surface energy spiked during zoom-out: '
+            f'{previous_hf:.3f} -> {current_hf:.3f}',
+        )
+        base.require(
+            abs(current['lane_presence'] - previous['lane_presence']) <= 0.065,
+            'full zoom sweep: intergranular lane visibility popped between adjacent samples: '
+            f"{previous['lane_presence']:.5f} -> {current['lane_presence']:.5f}",
+        )
+
+    start = samples[0]
+    end = samples[-1]
     base.require(
-        diameters[-1] <= diameters[0] * 0.82,
-        'zoom sweep did not cover enough screen-space range to exercise LOD transitions: '
-        f'{diameters[0]:.2f}px -> {diameters[-1]:.2f}px',
+        end['diameter'] <= start['diameter'] * 0.45,
+        'full zoom sweep did not cross enough screen-space scale for the LOD transition: '
+        f"{start['diameter']:.1f}px -> {end['diameter']:.1f}px",
     )
-    return diameters
+    base.require(
+        end['lane_presence'] <= max(start['lane_presence'] * 0.80, 0.01),
+        'full zoom sweep did not retire thin intergranular lanes at small screen size: '
+        f"{start['lane_presence']:.5f} -> {end['lane_presence']:.5f}",
+    )
 
 
 def main():
@@ -117,15 +191,21 @@ def main():
             f"{baseline[level]:.2f}px -> {current[level]:.2f}px",
         )
 
-    sweep = validate_zoom_sweep()
+    full_sweep = capture_full_zoom_sweep()
+    validate_full_zoom_sweep(full_sweep)
+
     print('stellar granulation screen-size audit: ok')
     print(
         '  current diameters: ' +
         ', '.join(f'{level}={current[level]:.1f}px' for level in ('large', 'normal', 'small'))
     )
     print(
-        '  zoom sweep diameters: ' +
-        ' -> '.join(f'{value:.1f}px' for value in sweep)
+        '  full zoom diameters: ' +
+        ' -> '.join(f"{sample['diameter']:.1f}px" for sample in full_sweep)
+    )
+    print(
+        '  full zoom lane presence: ' +
+        ' -> '.join(f"{sample['lane_presence']:.4f}" for sample in full_sweep)
     )
 
 
