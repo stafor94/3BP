@@ -194,7 +194,7 @@ function testPhotosphereUsesSoftStellarLimbAndCoverage() {
     'stellar limb emission must use a broad continuous center-to-edge response',
   )
   assert(
-    stellarMaterialSource.includes('return 0.90 + broadLimb * 0.20 + centerLift * 0.16;'),
+    stellarMaterialSource.includes('return 0.92 + broadLimb * 0.18 + centerLift * 0.16;'),
     'stellar limb must retain a bright edge floor instead of producing a gray or black ring',
   )
   assert(
@@ -202,7 +202,7 @@ function testPhotosphereUsesSoftStellarLimbAndCoverage() {
     'stellar photosphere must expose a dedicated thin fringe instead of the generic bright rim',
   )
   assert(
-    stellarMaterialSource.includes('float fringeFall = 1.0 - smoothstep(0.965, 0.998, fresnel);'),
+    stellarMaterialSource.includes('float fringeFall = 1.0 - smoothstep(0.94, 0.995, fresnel);'),
     'stellar fringe must fall away at the exact silhouette so it cannot become a visible ring',
   )
   assert(
@@ -210,8 +210,12 @@ function testPhotosphereUsesSoftStellarLimbAndCoverage() {
     'stellar silhouette must derive coverage from the view angle inside the existing sphere draw',
   )
   assert(
-    stellarMaterialSource.includes('fwidth(viewMu) * 1.15'),
+    stellarMaterialSource.includes('fwidth(viewMu) * 1.65'),
     'stellar edge feather must be screen-space derivative aware',
+  )
+  assert(
+    stellarMaterialSource.includes('fringe * 0.46'),
+    'thin fringe must support the coverage transition without becoming a separate ring',
   )
   assert(
     stellarMaterialSource.includes('gl_FragColor = vec4(color, uOpacity * edgeCoverage);'),
