@@ -210,11 +210,11 @@ function testPhotosphereUsesSoftStellarLimbAndCoverage() {
     'stellar silhouette must derive coverage from the view angle inside the existing sphere draw',
   )
   assert(
-    stellarMaterialSource.includes('fwidth(viewMu) * 1.65'),
+    stellarMaterialSource.includes('fwidth(viewMu) * 1.90'),
     'stellar edge feather must be screen-space derivative aware',
   )
   assert(
-    stellarMaterialSource.includes('fringe * 0.46'),
+    stellarMaterialSource.includes('fringe * 0.52'),
     'thin fringe must support the coverage transition without becoming a separate ring',
   )
   assert(

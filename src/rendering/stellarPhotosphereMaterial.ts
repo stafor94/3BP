@@ -296,7 +296,7 @@ export const stellarPhotosphereFragmentShader = `
 
   float getStellarEdgeCoverage(vec3 worldNormal, vec3 viewDirection) {
     float viewMu = max(dot(worldNormal, viewDirection), 0.0);
-    float viewMuWidth = min(max(fwidth(viewMu) * 1.65, 0.055), 0.24);
+    float viewMuWidth = min(max(fwidth(viewMu) * 1.90, 0.060), 0.28);
     return smoothstep(0.0, viewMuWidth, viewMu);
   }
 
@@ -320,7 +320,7 @@ export const stellarPhotosphereFragmentShader = `
     float emission = drawStellarEmission(normalWorld, viewDirection);
     float fringe = drawStellarFringe(normalWorld, viewDirection);
     float edgeCoverage = getStellarEdgeCoverage(normalWorld, viewDirection);
-    float intensity = min((emission * granulation + fringe * 0.46) * uEmissionStrength, 1.22);
+    float intensity = min((emission * granulation + fringe * 0.52) * uEmissionStrength, 1.22);
     vec3 stellarColor = toneMapStellarHuePreserving(uIdentityColor * intensity);
     float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.070, 0.047);
     float stellarSurfaceModulation = 1.0 + granulationContrast;

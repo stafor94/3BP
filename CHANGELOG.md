@@ -11,7 +11,7 @@
 ### Changed
 - 항성 photosphere의 단순 `limbDarkening * centerEmission`과 전체 Fresnel rim을 연속적인 view-angle 기반 limb 곡선으로 교체해 중앙에서 가장자리까지 밝기 전환을 완만하게 만들고, 실루엣 직전에도 충분한 발광 floor를 유지해 회색/검은 테두리가 생기지 않도록 했습니다.
 - 기존 `drawStellarRim()`을 제거하고 실루엣 바로 안쪽에서만 올라왔다가 정확한 경계에서는 다시 사라지는 좁은 emissive fringe로 축소해 두꺼운 ring 없이 photosphere 가장자리를 빛에 묻히게 했습니다.
-- `fwidth(viewMu)`로 화면상의 마지막 limb 폭을 계산하고 stellar material에 MSAA alpha-to-coverage를 적용해 물리 반지름과 sphere geometry를 바꾸지 않은 채 기존 draw call 내부에서 hard silhouette를 약 1px 수준으로 feather 처리합니다.
+- `fwidth(viewMu)`로 화면상의 마지막 limb 폭을 계산하고 stellar material에 MSAA alpha-to-coverage를 적용해 물리 반지름과 sphere geometry를 바꾸지 않은 채 기존 draw call 내부에서 hard silhouette를 약 1–2px 수준으로 feather 처리합니다.
 - Pass 2/3의 cellular granulation, intergranular lane, convection modulation, screen-space LOD와 temperature-color/hue-preserving 경로는 그대로 유지합니다.
 
 ### Performance

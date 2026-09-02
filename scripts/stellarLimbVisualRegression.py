@@ -86,6 +86,28 @@ def first_sustained_crossing(profile: list[float], threshold: float, start: int 
     return len(profile) - 2
 
 
+def interpolated_crossing(
+    profile: list[float],
+    target: float,
+    start: int,
+    end: int,
+) -> float | None:
+    previous = profile[start]
+    if previous <= target:
+        return float(start)
+
+    for index in range(start + 1, min(end, len(profile))):
+        current = profile[index]
+        if current <= target:
+            span = previous - current
+            if span <= 1e-6:
+                return float(index)
+            fraction = max(0.0, min(1.0, (previous - target) / span))
+            return float(index - 1) + fraction
+        previous = current
+    return None
+
+
 def profile_metrics(profile: list[float]) -> dict[str, float]:
     core_radius = first_sustained_crossing(profile, 90.0)
     halo_radius = first_sustained_crossing(profile, 18.0, max(core_radius + 1, 5))
@@ -98,18 +120,14 @@ def profile_metrics(profile: list[float]) -> dict[str, float]:
     edge_inside = profile[max(0, core_radius - 3):max(1, core_radius)]
     edge_inside_luma = sum(edge_inside) / max(len(edge_inside), 1)
 
-    inside_reference = sum(profile[max(0, core_radius - 5):max(1, core_radius - 2)]) / 3.0
-    outside_reference = sum(profile[core_radius + 3:core_radius + 6]) / 3.0
-    high = outside_reference + (inside_reference - outside_reference) * 0.75
-    low = outside_reference + (inside_reference - outside_reference) * 0.25
-    high_radius = None
-    low_radius = None
-    for index in range(max(1, core_radius - 5), min(len(profile), core_radius + 7)):
-        if high_radius is None and profile[index] <= high:
-            high_radius = float(index)
-        if profile[index] <= low:
-            low_radius = float(index)
-            break
+    inside_reference = sum(profile[max(0, core_radius - 6):max(1, core_radius - 3)]) / 3.0
+    outside_reference = sum(profile[core_radius + 4:core_radius + 7]) / 3.0
+    high = outside_reference + (inside_reference - outside_reference) * 0.80
+    low = outside_reference + (inside_reference - outside_reference) * 0.20
+    transition_start = max(1, core_radius - 7)
+    transition_end = min(len(profile), core_radius + 9)
+    high_radius = interpolated_crossing(profile, high, transition_start, transition_end)
+    low_radius = interpolated_crossing(profile, low, transition_start, transition_end)
     transition_width = 0.0
     if high_radius is not None and low_radius is not None:
         transition_width = max(0.0, low_radius - high_radius)
@@ -193,16 +211,20 @@ def validate(metrics: dict[str, dict[str, dict[str, float | int]]]) -> None:
     normal_current = metrics['current']['normal']
 
     base.require(
-        float(large_current['hard_edge_drop']) <= float(large_base['hard_edge_drop']) * 1.02 + 1.0,
+        float(large_current['hard_edge_drop']) <= float(large_base['hard_edge_drop']) * 1.02 + 0.5,
         'large: hard silhouette gradient became sharper instead of softer',
     )
     base.require(
-        float(normal_current['hard_edge_drop']) <= float(normal_base['hard_edge_drop']) * 1.05 + 1.5,
-        'normal: hard silhouette gradient regressed',
+        float(normal_current['hard_edge_drop']) <= float(normal_base['hard_edge_drop']) * 0.97 + 0.5,
+        'normal: hard silhouette gradient did not soften measurably',
     )
     base.require(
-        float(large_current['edge_transition_width_px']) >= float(large_base['edge_transition_width_px']) - 0.25,
-        'large: edge transition became narrower',
+        float(normal_current['edge_transition_width_px']) >= float(normal_base['edge_transition_width_px']) * 0.96,
+        'normal: interpolated edge transition became materially narrower',
+    )
+    base.require(
+        float(large_current['edge_transition_width_px']) >= float(large_base['edge_transition_width_px']) * 0.94,
+        'large: interpolated edge transition became materially narrower',
     )
 
 
