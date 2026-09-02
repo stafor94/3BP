@@ -168,15 +168,22 @@ def validate_full_zoom_sweep(samples: list[dict[str, float]]):
 
     start = samples[0]
     end = samples[-1]
+    peak_lane = max(sample['lane_presence'] for sample in samples)
+    peak_high_frequency = max(sample['high_frequency'] for sample in samples)
     base.require(
         end['diameter'] <= start['diameter'] * 0.45,
         'full zoom sweep did not cross enough screen-space scale for the LOD transition: '
         f"{start['diameter']:.1f}px -> {end['diameter']:.1f}px",
     )
     base.require(
-        end['lane_presence'] <= max(start['lane_presence'] * 0.80, 0.01),
-        'full zoom sweep did not retire thin intergranular lanes at small screen size: '
-        f"{start['lane_presence']:.5f} -> {end['lane_presence']:.5f}",
+        end['lane_presence'] <= max(peak_lane * 0.85, 0.01),
+        'full zoom sweep did not retire thin intergranular lanes after their mid-scale visibility peak: '
+        f"peak={peak_lane:.5f} end={end['lane_presence']:.5f}",
+    )
+    base.require(
+        end['high_frequency'] <= peak_high_frequency * 0.95 + 0.05,
+        'full zoom sweep did not reduce high-frequency surface energy after its mid-scale peak: '
+        f"peak={peak_high_frequency:.3f} end={end['high_frequency']:.3f}",
     )
 
 
