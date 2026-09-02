@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  pass6-ultra-dense-starfield-ab:
+  star-temperature-color-ab:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout full history
@@ -43,13 +43,13 @@ jobs:
           done
           cat /tmp/3bp-space-current-preview.log
           exit 1
-      - name: Capture v0.24.2 / Pass 6 A/B
-        run: python scripts/spaceBackgroundPass6VisualRegression.py
-      - name: Upload Pass 6 ultra-dense-starfield A/B captures
+      - name: Capture v0.24.3 / v0.24.4 temperature A/B
+        run: python scripts/spaceBackgroundTemperatureVisualRegression.py
+      - name: Upload star-temperature A/B captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: space-background-pass6-ab
+          name: space-background-star-temperature-ab
           path: space-background-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
