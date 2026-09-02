@@ -96,6 +96,13 @@ const NEBULA_CYAN_HAZE_CENTER = new THREE.Vector3(-0.28, -0.63, 0.72).normalize(
 const NEBULA_MAGENTA_HAZE_CENTER = new THREE.Vector3(0.77, 0.27, -0.58).normalize()
 const NEBULA_NEUTRAL_HAZE_CENTER = new THREE.Vector3(-0.66, -0.18, -0.73).normalize()
 const STAR_TINT_BASE_COLOR = new THREE.Color('#f1f2ee')
+const LEGACY_STAR_TEMPERATURES = [
+  new THREE.Color('#d7e2f4'),
+  new THREE.Color('#f1f2ee'),
+  new THREE.Color('#e8dfd0'),
+  new THREE.Color('#d6ccc7'),
+] as const
+const LEGACY_STAR_TEMPERATURE_THRESHOLDS = [0.10, 0.78, 0.96, 1.0] as const
 
 const STAR_CLUSTERS: readonly StarClusterSpec[] = [
   {
@@ -398,6 +405,25 @@ function getStarTintStrength(brightnessProgress: number, pointSize: number) {
   return brightnessTint * sizeTintScale
 }
 
+function getStarLinearLuminance(color: THREE.Color) {
+  return color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722
+}
+
+function getLegacyStarLuminance(sample: number) {
+  for (let index = 0; index < LEGACY_STAR_TEMPERATURE_THRESHOLDS.length; index += 1) {
+    if (sample <= LEGACY_STAR_TEMPERATURE_THRESHOLDS[index]) {
+      return getStarLinearLuminance(LEGACY_STAR_TEMPERATURES[index])
+    }
+  }
+  return getStarLinearLuminance(LEGACY_STAR_TEMPERATURES[LEGACY_STAR_TEMPERATURES.length - 1])
+}
+
+function preserveLegacyStarLuminance(sample: number, target: THREE.Color) {
+  const currentLuminance = getStarLinearLuminance(target)
+  if (currentLuminance <= 0) return target
+  return target.multiplyScalar(getLegacyStarLuminance(sample) / currentLuminance)
+}
+
 function pickStarColor(
   sample: number,
   brightnessProgress: number,
@@ -408,12 +434,14 @@ function pickStarColor(
   for (const temperature of STAR_TEMPERATURES) {
     accumulated += getStarTemperatureWeight(temperature, brightnessProgress)
     if (sample <= accumulated) {
-      return target
+      target
         .copy(STAR_TINT_BASE_COLOR)
         .lerp(temperature.color, getStarTintStrength(brightnessProgress, pointSize))
+      return preserveLegacyStarLuminance(sample, target)
     }
   }
-  return target.copy(STAR_TINT_BASE_COLOR)
+  target.copy(STAR_TINT_BASE_COLOR)
+  return preserveLegacyStarLuminance(sample, target)
 }
 
 export function createSpaceStarLayer(options: SpaceStarLayerOptions): SpaceStarLayer {

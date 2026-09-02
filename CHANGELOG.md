@@ -10,16 +10,16 @@
 
 ### Changed
 - v0.24.3의 20,000개 background + 1,000개 foreground dense starfield를 그대로 유지하면서 star vertex color를 `neutral`, `blue-white`, `warm-white`, `pale-yellow`, `soft-orange`, `red-orange`의 6개 저채도 temperature class로 확장했습니다.
-- 기존 brightness sampling exponent 2.60을 이용해 faint/medium/bright 구간별 color weight를 다르게 적용합니다. 전체 기대 분포는 약 neutral 58.8%, blue-white 19.5%, warm-white 13.6%, pale-yellow 5.2%, soft-orange 2.4%, red-orange 0.6%이며, 밝은 별일수록 warm/yellow/orange 계열을 조금 더 발견할 수 있게 했습니다.
-- color tint 강도는 brightness와 point size에 함께 연동해 작은 background star는 거의 흰색으로 유지하고, 중간/밝은 foreground star에서만 온도 차이가 조금 더 읽히도록 했습니다. shared 24×24 point texture와 `THREE.PointsMaterial`은 그대로 유지해 별이 컬러 particle처럼 보이지 않도록 했습니다.
-- 색상 선택은 밝기 샘플 뒤에 기존부터 존재하던 RNG draw 1회를 그대로 사용하고 picker 내부에 추가 random 호출을 만들지 않아 star position/brightness RNG sequence를 변경하지 않습니다. 기존 session-level layout variation도 유지합니다.
+- 기존 brightness sampling exponent 2.60을 이용해 faint/medium/bright 구간별 color weight를 다르게 적용합니다. 전체 기대 분포는 약 neutral 58.8%, blue-white 19.5%, warm-white 13.6%, pale-yellow 5.2%, soft-orange 2.4%, red-orange 0.6%입니다.
+- 작은 background star는 tint를 억제하고 밝고 큰 star일수록 온도 차이를 더 읽을 수 있게 하되, 동일 color sample이 v0.24.3에서 가졌던 선형 luminance를 보존하도록 정규화해 색상 추가 때문에 모바일 체감 밀도가 낮아지지 않도록 했습니다.
+- 색상 선택은 기존 brightness 뒤 RNG draw 1회를 그대로 사용하며 picker 내부에 추가 random 호출을 만들지 않아 위치·밝기 random sequence를 변경하지 않습니다.
 
 ### Verification
-- space background regression에 6개 temperature class, faint/medium/bright weight 합, brightness exponent를 반영한 기대 분포 범위, low-saturation palette, brightness/size tint 연계 및 no-extra-RNG 계약을 추가했습니다.
-- visual A/B baseline을 v0.24.3 main (`38637551e8ef53bccafb64540a76502a40397b45`)으로 고정하고 mobile 390×844 / desktop 1280×800, 기존 5개 viewpoint에서 density/visibility와 color diversity를 직접 비교하도록 CI를 갱신했습니다.
+- space background regression에 6개 temperature class, brightness별 weight, low-saturation palette, brightness/size tint 연계, no-extra-RNG 및 v0.24.3 per-star luminance 보존 계약을 추가했습니다.
+- mobile 390×844 / desktop 1280×800의 5개 viewpoint에서 v0.24.3과 A/B 캡처해 density/visibility 및 색온도 다양성을 비교합니다.
 
 ### Unchanged
-- dense/fine background count 10,000/10,000, foreground 1,000, 각 layer의 size/opacity/min/max brightness, sky base RGB 5/7/13, Milky Way/haze/distant galaxy, foreground 천체, physics/solver/collision, camera, trails, VFX, UI/controls는 변경하지 않습니다.
+- dense/fine background count 10,000/10,000, foreground 1,000, 각 layer의 size/opacity/min/max brightness, shared 24×24 point texture, sky base RGB 5/7/13, Milky Way/haze/distant galaxy, foreground 천체, physics/solver/collision, camera, trails, VFX, UI/controls는 변경하지 않습니다.
 
 ## [0.24.3] - 2026-09-02
 
@@ -249,7 +249,7 @@
 - 1단계 상태를 동일 fixture의 baseline으로 직접 실행하는 low/current/high-speed normalized penetration regression과 Chromium A/B capture를 추가해 peak penetration, mass/momentum conservation, result continuity를 함께 검증합니다.
 
 ### Unchanged
-- swept first-contact core solver와 collision classification, ejecta 방향·속도·확산, 질량·운동량 보존 계약, 1단계 macro-fragment continuity, Stage 2 penetration limiter, survivor recoil/spin, flash/VFX profile 및 particle count는 유지합니다.
+- swept first-contact core solver와 collision classification, ejecta 방향·속도·확산, 질량·운동량 보존 계약, 1단계 macro-fragment continuity, survivor recoil/spin, flash/VFX profile 및 particle count는 유지합니다.
 
 ## [0.20.2] - 2026-08-30
 
@@ -542,7 +542,7 @@
 
 ### Fixed
 - 충돌 관찰 카메라가 종료될 때 `trackedBodyId`가 동일해 일반 tracking의 selection change가 발생하지 않고, collision camera의 마지막 거리/방향이 남은 채 focus settle이 재시작되지 않던 문제를 수정했습니다.
-- collision camera의 `focused → released` 전이를 별도 camera-mode handoff로 감지해 기존 tracking selection·baseline·50% mass rule을 건드리지 않고 같은 tracking focus 초기화 경로에서 view direction과 auto-distance settle을 다시 시작하도록 변경했습니다.
+- collision camera의 `focused → released` 전이를 별도 camera-mode handoff로 감지해 기존 tracking selection·baseline·50% mass rule을 건드리지 않고 같은 tracking focus 초기화 경로에서 view direction과 auto-distance settle을 다시 시작하도록 했습니다.
 - collision camera 종료 프레임에 default composition을 거치거나 카메라를 순간이동하지 않고, 현재 카메라 위치에서 기존 tracking transition으로 유효 continuation을 계속 화면 중앙에 유지하도록 했습니다.
 
 ### Added

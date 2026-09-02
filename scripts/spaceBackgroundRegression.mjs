@@ -132,6 +132,11 @@ requireCondition(
   backgroundSource.includes("const STAR_TINT_BASE_COLOR = new THREE.Color('#f1f2ee')"),
   'temperature tint must blend from the established near-white star base',
 )
+requireCondition(
+  backgroundSource.includes('function preserveLegacyStarLuminance(sample: number, target: THREE.Color)') &&
+    backgroundSource.includes('getLegacyStarLuminance(sample) / currentLuminance'),
+  'temperature tint must preserve the v0.24.3 per-star luminance envelope',
+)
 
 const starLayerBlocks = [...rendererSource.matchAll(/createSpaceStarLayer\(\{([\s\S]*?)\}\)/g)].map((match) => match[1])
 requireCondition(starLayerBlocks.length === 3, 'expected exactly three foreground THREE.Points star layers')
