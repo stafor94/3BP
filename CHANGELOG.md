@@ -6,6 +6,24 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.22.0] - 2026-09-02
+
+### Added
+- pass 1의 camera-centered 우주 배경 위에 64×64 정적 RGBA DataTexture와 Sprite를 사용하는 작은 distant galaxy 3개를 추가했습니다. 형태는 subtle spiral, edge-on, diffuse elliptical로 분리하고 서로 다른 celestial direction에 배치했습니다.
+- 기본 시야 전방에는 형태를 찾을 수 있는 청백색 계열 spiral galaxy를 두고, 나머지 두 은하는 더 낮은 opacity로 주변 시야에 분산했습니다.
+
+### Changed
+- 기존 1,000개 star 수와 최대 밝기는 유지하면서 초기 생성 acceptance에 약한 broad cluster와 void를 추가해 균일한 noise처럼 보이는 분포를 완화했습니다.
+- Milky Way band 내부의 장주기 density variation과 dust lane의 폭·warp·연속성 편차를 소폭 늘려 일정한 띠처럼 보이는 부분을 줄였습니다.
+- distant galaxy는 warm collision foreground로 오인되지 않도록 저채도 blue/neutral 계열과 낮은 alpha를 사용하고, depth test를 유지해 천체와 collision VFX가 항상 앞에서 가리도록 했습니다.
+
+### Performance
+- galaxy texture 3개는 renderer 초기화 시에만 생성되며 총 raw RGBA data는 약 48 KiB입니다. Sprite/material/object는 각 3개, 예상 추가 draw call은 약 3개입니다.
+- frame loop의 추가 작업은 galaxy group의 camera position copy뿐이며 per-frame allocation, procedural noise animation, raymarch, volumetric rendering은 추가하지 않습니다.
+
+### Unchanged
+- physics/solver/collision, mass/radius/velocity/trajectory, celestial body shader, collision/destruction VFX production 동작은 변경하지 않습니다.
+
 ## [0.21.0] - 2026-09-02
 
 ### Added
