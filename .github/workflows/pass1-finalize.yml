@@ -23,34 +23,35 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-
           package_path = Path('package.json')
           package = json.loads(package_path.read_text())
           package['version'] = '0.24.6'
           package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n')
-
           changelog_path = Path('CHANGELOG.md')
           changelog = changelog_path.read_text()
           marker = '## [0.24.5] - 2026-09-02'
-          release = '''## [0.24.6] - 2026-09-02
-
-### Changed
-- 항성 photosphere를 generic planet/moon/fragment body shader의 `uSelfLuminous` 분기에서 분리해 `src/rendering/stellarPhotosphereMaterial.ts` 전용 shader/material 경로로 이동했습니다.
-- 항성 전용 granulation, emission, limb darkening, white-hot/hue-preserving 처리와 `uTime` 등 uniform을 새 모듈에서 관리하고, `bodyLighting.ts`는 generic non-stellar shader와 공통 body/light/glow 연결을 담당하도록 정리했습니다.
-- stellar color, luminosity, surface temperature, render profile, animation time, evolution phase, collision transient heat를 `StellarPhotosphereFrame` 및 `updateStellarPhotosphereMaterial()` 계약으로 모아 후속 stellar rendering Pass에서 generic shader를 건드리지 않고 photosphere를 교체할 수 있는 기반을 마련했습니다.
-- 기존 inner/outer glow Sprite와 luminosity 기반 glow scale/opacity 구조는 유지합니다.
-
-### Performance
-- star/non-star는 서로 다른 shader program을 사용하지만 기존 sphere mesh 및 inner/outer glow Sprite 수를 유지하며, material은 재사용하고 resolved body type이 실제로 바뀌는 경우에만 shader program을 전환합니다.
-- 새 texture, geometry, particle, sprite 또는 draw call을 추가하지 않습니다.
-
-### Verification
-- stellar rendering regression에 dedicated stellar/generic shader 경로, stellar-only uniform 격리, non-stellar `uTime` 부재와 기존 planet/moon/fragment path 보존 검증을 추가했습니다.
-- main v0.24.5 (`75532efafa4aec499b902d9c6113b4bdc002d213`)와 mobile 390×844 A/B를 수행해 구조 분리 전후의 photosphere/halo 시각 출력이 사실상 동일하게 유지되는지 검증합니다.
-
-### Unchanged
-- 이번 버전은 visual overhaul이 아니며 기존 항성 temperature color, photosphere brightness/granulation/limb/white-hot/glow 외형을 의도적으로 유지합니다.
-- planet/moon/fragment 외형, 질량·반지름·궤도·속도·timestep·collision 판정/결과, preset, `starColors.ts` temperature 정책, stellar evolution 물리, collision VFX/remnant, trail 및 space background는 변경하지 않습니다.'''
+          release_lines = [
+              '## [0.24.6] - 2026-09-02',
+              '',
+              '### Changed',
+              '- 항성 photosphere를 generic planet/moon/fragment body shader의 `uSelfLuminous` 분기에서 분리해 `src/rendering/stellarPhotosphereMaterial.ts` 전용 shader/material 경로로 이동했습니다.',
+              '- 항성 전용 granulation, emission, limb darkening, white-hot/hue-preserving 처리와 `uTime` 등 uniform을 새 모듈에서 관리하고, `bodyLighting.ts`는 generic non-stellar shader와 공통 body/light/glow 연결을 담당하도록 정리했습니다.',
+              '- stellar color, luminosity, surface temperature, render profile, animation time, evolution phase, collision transient heat를 `StellarPhotosphereFrame` 및 `updateStellarPhotosphereMaterial()` 계약으로 모아 후속 stellar rendering Pass에서 generic shader를 건드리지 않고 photosphere를 교체할 수 있는 기반을 마련했습니다.',
+              '- 기존 inner/outer glow Sprite와 luminosity 기반 glow scale/opacity 구조는 유지합니다.',
+              '',
+              '### Performance',
+              '- star/non-star는 서로 다른 shader program을 사용하지만 기존 sphere mesh 및 inner/outer glow Sprite 수를 유지하며, material은 재사용하고 resolved body type이 실제로 바뀌는 경우에만 shader program을 전환합니다.',
+              '- 새 texture, geometry, particle, sprite 또는 draw call을 추가하지 않습니다.',
+              '',
+              '### Verification',
+              '- stellar rendering regression에 dedicated stellar/generic shader 경로, stellar-only uniform 격리, non-stellar `uTime` 부재와 기존 planet/moon/fragment path 보존 검증을 추가했습니다.',
+              '- main v0.24.5 (`75532efafa4aec499b902d9c6113b4bdc002d213`)와 mobile 390×844 A/B를 수행해 구조 분리 전후의 photosphere/halo 시각 출력이 사실상 동일하게 유지되는지 검증합니다.',
+              '',
+              '### Unchanged',
+              '- 이번 버전은 visual overhaul이 아니며 기존 항성 temperature color, photosphere brightness/granulation/limb/white-hot/glow 외형을 의도적으로 유지합니다.',
+              '- planet/moon/fragment 외형, 질량·반지름·궤도·속도·timestep·collision 판정/결과, preset, `starColors.ts` temperature 정책, stellar evolution 물리, collision VFX/remnant, trail 및 space background는 변경하지 않습니다.',
+          ]
+          release = '\n'.join(release_lines)
           if '## [0.24.6] - 2026-09-02' not in changelog:
               if marker not in changelog:
                   raise SystemExit('0.24.5 changelog marker not found')
