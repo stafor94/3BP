@@ -280,15 +280,24 @@ export const stellarPhotosphereFragmentShader = `
   }
 
   float drawStellarEmission(vec3 worldNormal, vec3 viewDirection) {
-    float limb = max(dot(worldNormal, viewDirection), 0.0);
-    float limbDarkening = 0.74 + 0.26 * pow(limb, 0.52);
-    float centerEmission = 1.06 + 0.22 * pow(limb, 0.78);
-    return limbDarkening * centerEmission;
+    float viewMu = max(dot(worldNormal, viewDirection), 0.0);
+    float broadLimb = pow(viewMu, 0.42);
+    float centerLift = pow(viewMu, 1.85);
+    return 0.90 + broadLimb * 0.20 + centerLift * 0.16;
   }
 
-  float drawStellarRim(vec3 worldNormal, vec3 viewDirection) {
-    float fresnel = 1.0 - max(dot(worldNormal, viewDirection), 0.0);
-    return pow(fresnel, 2.45) * uRimStrength;
+  float drawStellarFringe(vec3 worldNormal, vec3 viewDirection) {
+    float viewMu = max(dot(worldNormal, viewDirection), 0.0);
+    float fresnel = 1.0 - viewMu;
+    float fringeRise = smoothstep(0.70, 0.91, fresnel);
+    float fringeFall = 1.0 - smoothstep(0.965, 0.998, fresnel);
+    return fringeRise * fringeFall * uRimStrength;
+  }
+
+  float getStellarEdgeCoverage(vec3 worldNormal, vec3 viewDirection) {
+    float viewMu = max(dot(worldNormal, viewDirection), 0.0);
+    float viewMuWidth = min(max(fwidth(viewMu) * 1.15, 0.0025), 0.12);
+    return smoothstep(0.0, viewMuWidth, viewMu);
   }
 
   vec3 toneMapStellarHuePreserving(vec3 source) {
@@ -307,10 +316,11 @@ export const stellarPhotosphereFragmentShader = `
     vec3 objectNormal = normalize(vObjectNormal);
     vec3 normalWorld = normalize(vWorldNormal);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
-    float rim = drawStellarRim(normalWorld, viewDirection);
     float granulation = drawStellarGranulation(objectNormal);
     float emission = drawStellarEmission(normalWorld, viewDirection);
-    float intensity = min((emission * granulation + rim * 0.45) * uEmissionStrength, 1.22);
+    float fringe = drawStellarFringe(normalWorld, viewDirection);
+    float edgeCoverage = getStellarEdgeCoverage(normalWorld, viewDirection);
+    float intensity = min((emission * granulation + fringe * 0.32) * uEmissionStrength, 1.22);
     vec3 stellarColor = toneMapStellarHuePreserving(uIdentityColor * intensity);
     float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.070, 0.047);
     float stellarSurfaceModulation = 1.0 + granulationContrast;
@@ -319,7 +329,7 @@ export const stellarPhotosphereFragmentShader = `
     float peak = min(0.98, max(max(stellarColor.r, stellarColor.g), stellarColor.b) + 0.055);
     vec3 color = mix(stellarColor, vec3(peak), whiteHotCore);
 
-    gl_FragColor = vec4(color, uOpacity);
+    gl_FragColor = vec4(color, uOpacity * edgeCoverage);
     #include <tonemapping_fragment>
     gl_FragColor.rgb *= stellarSurfaceModulation;
     #include <colorspace_fragment>
@@ -362,12 +372,14 @@ export function createStellarPhotosphereMaterialValues(values: Record<string, an
     ...values,
     fragmentShader: stellarPhotosphereFragmentShader,
     uniforms: createStellarUniforms(values.uniforms ?? {}),
+    alphaToCoverage: true,
   }
 }
 
 export function configureStellarPhotosphereMaterial(material: THREE.ShaderMaterial) {
   material.fragmentShader = stellarPhotosphereFragmentShader
   material.uniforms = createStellarUniforms(material.uniforms)
+  material.alphaToCoverage = true
   material.userData.bodyRenderPath = STELLAR_PHOTOSPHERE_RENDER_PATH
   material.needsUpdate = true
 }
