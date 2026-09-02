@@ -12,13 +12,13 @@
 - Pass 4/0.24.1에서 수치상 perceived-density가 개선됐지만 실제 모바일 화면에서는 작은 background star 다수가 사실상 사라지고 넓은 검은 패치가 남아 우주가 sparse하게 보이던 문제를 수정했습니다.
 
 ### Changed
-- 기존 far/mid/near foreground 1,000-star hierarchy와 최대 밝기·parallax는 유지하고, background를 2,200개의 dense visible layer와 1,800개의 fine fill layer로 재구성했습니다. 총 stellar population은 5,000개입니다.
-- dense layer는 size 1.45, opacity 0.82, brightness 0.27~0.62로 모바일 screen-space에서 작은 점으로 지속적으로 읽히도록 했고, fine layer는 size 1.12, opacity 0.70, brightness 0.18~0.46으로 주력 layer 사이의 빈 공간을 채웁니다. 두 layer 모두 기존 far foreground peak 0.72보다 낮게 유지됩니다.
+- 기존 far/mid/near foreground 1,000-star hierarchy와 최대 밝기·parallax는 유지하고, background를 2,500개의 dense visible layer와 2,000개의 fine fill layer로 재구성했습니다. 총 stellar population은 5,500개입니다.
+- dense layer는 size 1.58, opacity 0.86, brightness 0.32~0.67로 모바일 screen-space에서 작은 점으로 지속적으로 읽히도록 했고, fine layer는 size 1.26, opacity 0.76, brightness 0.23~0.50으로 주력 layer 사이의 빈 공간을 채웁니다. 두 layer 모두 기존 far foreground peak 0.72보다 낮게 유지됩니다.
 - background star 분포를 cluster-first rejection에서 full-sky baseline 우선 방식으로 전환하고 낮은 강도의 Milky Way/지역 편차만 남겨 카메라 방향에 따라 큰 빈 영역이 반복되는 현상을 줄였습니다.
 - sky base를 RGB 5/7/13으로 올리고 Milky Way band, broad haze, mid/fine-scale variation을 강화했으며 dust suppression을 낮춰 OLED black crush에서도 은은한 공간 구조가 보이도록 조정했습니다. sky/galaxy texture 해상도는 그대로 유지됩니다.
 
 ### Performance
-- v0.24.1 대비 background star는 1,850개에서 4,000개로 +2,150개 증가하며 position+color raw buffer 증가는 약 50.4 KiB입니다. 기존 2개의 background `THREE.Points` draw call을 그대로 재사용하므로 draw call 증가는 0입니다.
+- v0.24.1 대비 background star는 1,850개에서 4,500개로 +2,650개 증가하며 position+color raw buffer 증가는 약 62.1 KiB입니다. 기존 2개의 background `THREE.Points` draw call을 그대로 재사용하므로 draw call 증가는 0입니다.
 - shared 24×24 star point texture, 512×256 sky texture, 64×64 galaxy texture를 그대로 사용하며 per-frame allocation, procedural noise, particle animation, bloom/volumetric/raymarching 비용을 추가하지 않습니다.
 
 ### Verification
