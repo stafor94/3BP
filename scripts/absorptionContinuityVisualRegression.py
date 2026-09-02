@@ -182,12 +182,33 @@ def detached_component_metrics(path: Path) -> dict[str, object]:
 def primary_geometry(path: Path) -> tuple[float, float, float]:
     image = Image.open(path).convert('RGB')
     width, height = image.size
-    points: list[tuple[int, int]] = []
+    occupied: set[tuple[int, int]] = set()
     for y in range(int(height * 0.20), int(height * 0.80)):
         for x in range(int(width * 0.25), int(width * 0.75)):
             r, g, b = image.getpixel((x, y))
             if r >= 28 and r >= g * 1.08 and r >= b * 1.15:
-                points.append((x, y))
+                occupied.add((x, y))
+
+    components: list[list[tuple[int, int]]] = []
+    while occupied:
+        seed = occupied.pop()
+        queue = deque([seed])
+        points = [seed]
+        while queue:
+            x, y = queue.popleft()
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    candidate = (x + dx, y + dy)
+                    if candidate in occupied:
+                        occupied.remove(candidate)
+                        queue.append(candidate)
+                        points.append(candidate)
+        components.append(points)
+
+    require(components, 'baseline primary body is not detectable')
+    points = max(components, key=len)
     require(len(points) >= 500, 'baseline primary body is not detectable')
     center_x = sum(x for x, _ in points) / len(points)
     center_y = sum(y for _, y in points) / len(points)
