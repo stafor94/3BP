@@ -173,6 +173,11 @@ def main() -> None:
                 f'{name}: mobile early disruption handoff lost too much visible material',
             )
 
+        primary_collision_component_pixels = {
+            name: len(components[0]) if components else 0
+            for name, components in tracking_components.items()
+        }
+
         final_full_area = max(1, len(full_brightness_components['09-2600ms'][0]))
         full_disc_ratio: dict[str, float] = {}
         full_disc_counts: dict[str, int] = {}
@@ -246,8 +251,14 @@ def main() -> None:
             fracture_energy_fraction <= 0.03,
             'mobile fine debris expands across too much of the viewport',
         )
-        for name, energy in energies.items():
-            regression.require(energy >= 400, f'{name}: mobile capture is unexpectedly empty')
+        # Preserve the existing 400-pixel readability floor, but measure the
+        # foreground collision component instead of whole-frame brightness so the
+        # gate cannot pass or fail based on stars and deep-space background pixels.
+        for name, pixels in primary_collision_component_pixels.items():
+            regression.require(
+                pixels >= 400,
+                f'{name}: mobile foreground collision component is unexpectedly small',
+            )
 
         final_warm = max(1, warm_pixels['09-2600ms'])
         remnant_core_ratio = warm_pixels['05-1050ms'] / final_warm
@@ -308,6 +319,7 @@ def main() -> None:
             'late_center_error_fraction': late_center_errors,
             'warm_edge_fraction': edge_fractions,
             'tracking_warm_pixels': warm_pixels,
+            'primary_collision_component_pixels': primary_collision_component_pixels,
             'non_dark_pixels': energies,
         }
         (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
