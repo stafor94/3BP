@@ -6,6 +6,26 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.23.0] - 2026-09-02
+
+### Added
+- 24×24 정적 RGBA DataTexture로 생성하는 compact PSF형 star point texture를 추가하고 기존 3개 `THREE.Points` star layer가 하나의 texture를 공유하도록 했습니다. 작은 밝은 중심과 빠르게 감쇠하는 원형 가장자리만 사용해 bloom/flare 없이 광점 형태를 부드럽게 만듭니다.
+- 기존 far/mid/near star layer의 `follow` 튜닝을 각각 0.125% / 0.225% / 0.325%의 translation-only depth response로 해석하고, 매우 큰 카메라 이동에서도 각 레이어의 시각 변위가 0.24°를 넘지 않도록 제한했습니다.
+- star count, shared texture 생성 횟수, parallax 상한, depth-write 및 sky/galaxy camera-centering 계약을 검증하는 background regression을 추가했습니다.
+
+### Changed
+- star brightness 분포 지수를 2.35에서 2.60으로 소폭 높여 기존 최대 밝기와 1,000개 star 수는 유지하면서 faint star가 다수를 이루고 bright star가 드물게 보이도록 hierarchy를 정리했습니다.
+- star temperature palette를 neutral white 중심으로 더 저채도화해 blue-white/warm 차이가 가까이서만 읽히도록 조정했습니다.
+- 기존 `follow`가 tracking target 이동량을 star layer 위치에 누적하던 경로는 `follow: 0`으로 중립화하고, `spaceBackground`가 실제 camera position과 초기 anchor 차이만으로 매 프레임 deterministic depth offset을 계산하도록 변경했습니다. target-only 변경은 더 이상 별을 움직이지 않습니다.
+- sky sphere와 distant galaxy group은 기존처럼 매 프레임 camera position에 정확히 재중심화되어 Milky Way, dust lane, nebula 및 distant galaxy의 사실상 무한원 동작을 유지합니다.
+
+### Performance
+- 추가 texture raw RGBA data는 24×24×4 = 2,304 bytes(약 2.25 KiB)이며 renderer 초기화 시 한 번만 생성합니다. 기존 star layer 3 draw call은 그대로이고 추가 draw call은 없습니다.
+- frame loop 추가 비용은 star layer 3개의 재사용 Vector3 기반 camera-offset 계산과 상한 검사뿐이며 per-frame allocation, procedural noise, twinkle, raymarch, volumetric effect는 추가하지 않습니다.
+
+### Unchanged
+- physics/solver/collision, mass/radius/velocity/trajectory, collision camera 자체의 transform 로직, celestial body shader, collision/destruction VFX, ejecta/fragment/trail physics는 변경하지 않습니다.
+
 ## [0.22.0] - 2026-09-02
 
 ### Added
