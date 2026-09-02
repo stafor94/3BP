@@ -1,0 +1,27 @@
+name: Source Export Temp
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Upload working tree source
+        uses: actions/upload-artifact@v4
+        with:
+          name: pass5-source-export
+          path: |
+            .
+            !node_modules
+            !dist
+            !space-background-visual-artifacts
+          include-hidden-files: true
+          retention-days: 1
