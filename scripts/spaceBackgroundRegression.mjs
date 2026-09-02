@@ -23,8 +23,8 @@ const textureSize = readNumericConstant('STAR_POINT_TEXTURE_SIZE')
 const brightnessExponent = readNumericConstant('STAR_BRIGHTNESS_EXPONENT')
 const parallaxScale = readNumericConstant('STAR_PARALLAX_SCALE')
 const maxParallaxAngle = readNumericConstant('STAR_PARALLAX_MAX_ANGLE_DEGREES')
-const deepFieldStarCount = readNumericConstant('DEEP_FIELD_STAR_COUNT')
-const midFaintStarCount = readNumericConstant('MID_FAINT_STAR_COUNT')
+const denseBackgroundStarCount = readNumericConstant('DENSE_BACKGROUND_STAR_COUNT')
+const fineBackgroundStarCount = readNumericConstant('FINE_BACKGROUND_STAR_COUNT')
 const spaceBaseRed = readNumericConstant('SPACE_BASE_RED')
 const spaceBaseGreen = readNumericConstant('SPACE_BASE_GREEN')
 const spaceBaseBlue = readNumericConstant('SPACE_BASE_BLUE')
@@ -39,11 +39,11 @@ requireCondition(maxParallaxAngle > 0 && maxParallaxAngle <= 0.25, 'parallax ang
 requireCondition(spaceTextureWidth <= 512 && spaceTextureHeight <= 256, 'space texture exceeded the 512×256 initialization budget')
 requireCondition(galaxyTextureSize <= 64, 'galaxy texture exceeded the 64×64 initialization budget')
 requireCondition(
-  spaceBaseRed >= 3 && spaceBaseGreen >= 4 && spaceBaseBlue >= 8,
+  spaceBaseRed >= 5 && spaceBaseGreen >= 7 && spaceBaseBlue >= 13,
   `OLED black floor regressed: ${spaceBaseRed}/${spaceBaseGreen}/${spaceBaseBlue}`,
 )
 requireCondition(
-  spaceBaseRed <= 4 && spaceBaseGreen <= 5 && spaceBaseBlue <= 10,
+  spaceBaseRed <= 7 && spaceBaseGreen <= 10 && spaceBaseBlue <= 17,
   `space black floor became too prominent: ${spaceBaseRed}/${spaceBaseGreen}/${spaceBaseBlue}`,
 )
 
@@ -54,14 +54,14 @@ const starCounts = starLayerBlocks.map((block) => readOption(block, 'count'))
 const maxBrightnesses = starLayerBlocks.map((block) => readOption(block, 'maxBrightness'))
 const follows = starLayerBlocks.map((block) => readOption(block, 'follow'))
 const baseStars = starCounts.reduce((sum, count) => sum + count, 0)
-const backgroundStars = deepFieldStarCount + midFaintStarCount
+const backgroundStars = denseBackgroundStarCount + fineBackgroundStarCount
 const totalStars = baseStars + backgroundStars
 const depthResponses = follows.map((follow) => follow * parallaxScale)
 
 requireCondition(baseStars === 1000, `expected the established 1000-star foreground hierarchy, found ${baseStars}`)
-requireCondition(totalStars >= 2500 && totalStars <= 3000, `visible deep-space population must stay within 2500–3000 stars, found ${totalStars}`)
-requireCondition(deepFieldStarCount > baseStars, 'deep field must remain the dominant faint background population')
-requireCondition(midFaintStarCount >= 150 && midFaintStarCount <= 350, `mid-faint fill layer escaped restrained budget: ${midFaintStarCount}`)
+requireCondition(totalStars >= 4500 && totalStars <= 5500, `Pass 5 total star population must stay within 4500–5500 stars, found ${totalStars}`)
+requireCondition(denseBackgroundStarCount >= 1800 && denseBackgroundStarCount <= 2600, `dense background escaped visible-density budget: ${denseBackgroundStarCount}`)
+requireCondition(fineBackgroundStarCount >= 1300 && fineBackgroundStarCount <= 2200, `fine background escaped fill budget: ${fineBackgroundStarCount}`)
 requireCondition(
   maxBrightnesses.join(',') === '0.72,0.86,1',
   `star maximum brightness budget changed: ${maxBrightnesses.join(',')}`,
@@ -75,31 +75,38 @@ requireCondition(
   'far/mid/near depth hierarchy must increase monotonically',
 )
 
-const deepFieldMatch = backgroundSource.match(/const deepFieldLayer = createSpaceStarLayer\(\{([\s\S]*?)\}\)/)
-requireCondition(deepFieldMatch, 'missing dedicated deep-field star layer')
-const deepFieldBlock = deepFieldMatch[1]
-const deepSize = readOption(deepFieldBlock, 'size')
-const deepOpacity = readOption(deepFieldBlock, 'opacity')
-const deepMaxBrightness = readOption(deepFieldBlock, 'maxBrightness')
-requireCondition(deepSize >= 0.95 && deepSize <= 1.2, `deep-field size must remain faint-but-visible, found ${deepSize}`)
-requireCondition(deepOpacity >= 0.62 && deepOpacity <= 0.78, `deep-field opacity must remain faint-but-visible, found ${deepOpacity}`)
-requireCondition(deepMaxBrightness >= 0.48 && deepMaxBrightness <= 0.60, `deep-field max brightness must remain visible but restrained, found ${deepMaxBrightness}`)
-requireCondition(deepMaxBrightness < maxBrightnesses[0], 'deep-field maximum brightness must stay below the far foreground layer')
-requireCondition(readOption(deepFieldBlock, 'follow') * parallaxScale < depthResponses[0], 'deep field must remain more distant than the far foreground layer')
+const denseBackgroundMatch = backgroundSource.match(/const denseBackgroundLayer = createSpaceStarLayer\(\{([\s\S]*?)\}\)/)
+requireCondition(denseBackgroundMatch, 'missing dense visible background star layer')
+const denseBackgroundBlock = denseBackgroundMatch[1]
+const denseSize = readOption(denseBackgroundBlock, 'size')
+const denseOpacity = readOption(denseBackgroundBlock, 'opacity')
+const denseMinBrightness = readOption(denseBackgroundBlock, 'minBrightness')
+const denseMaxBrightness = readOption(denseBackgroundBlock, 'maxBrightness')
+const denseDepthResponse = readOption(denseBackgroundBlock, 'follow') * parallaxScale
+requireCondition(denseSize >= 1.25 && denseSize <= 1.6, `dense background size must stay screen-visible, found ${denseSize}`)
+requireCondition(denseOpacity >= 0.74 && denseOpacity <= 0.88, `dense background opacity escaped Pass 5 range: ${denseOpacity}`)
+requireCondition(denseMinBrightness >= 0.24 && denseMinBrightness <= 0.34, `dense background minimum brightness is not mobile-visible: ${denseMinBrightness}`)
+requireCondition(denseMaxBrightness >= 0.58 && denseMaxBrightness <= 0.68, `dense background max brightness escaped restrained range: ${denseMaxBrightness}`)
+requireCondition(denseMaxBrightness < maxBrightnesses[0], 'dense background maximum brightness must stay below the far foreground layer')
+requireCondition(denseDepthResponse < depthResponses[0], 'dense background must remain behind the established far foreground layer')
+requireCondition(denseBackgroundBlock.includes('fullSkyBaseline: true'), 'dense background must use full-sky baseline distribution')
 
-const midFaintMatch = backgroundSource.match(/const midFaintLayer = createSpaceStarLayer\(\{([\s\S]*?)\}\)/)
-requireCondition(midFaintMatch, 'missing full-sky mid-faint fill layer')
-const midFaintBlock = midFaintMatch[1]
-const midFaintSize = readOption(midFaintBlock, 'size')
-const midFaintOpacity = readOption(midFaintBlock, 'opacity')
-const midFaintMaxBrightness = readOption(midFaintBlock, 'maxBrightness')
-const midFaintDepthResponse = readOption(midFaintBlock, 'follow') * parallaxScale
-requireCondition(midFaintSize >= 1.0 && midFaintSize <= 1.3, `mid-faint star size escaped restrained range: ${midFaintSize}`)
-requireCondition(midFaintOpacity >= 0.64 && midFaintOpacity <= 0.78, `mid-faint opacity escaped restrained range: ${midFaintOpacity}`)
-requireCondition(midFaintMaxBrightness >= 0.50 && midFaintMaxBrightness <= 0.64, `mid-faint max brightness escaped restrained range: ${midFaintMaxBrightness}`)
-requireCondition(midFaintMaxBrightness < maxBrightnesses[0], 'mid-faint stars must remain below the far foreground maximum brightness')
-requireCondition(midFaintDepthResponse > readOption(deepFieldBlock, 'follow') * parallaxScale, 'mid-faint layer should sit perceptually in front of deep field')
-requireCondition(midFaintDepthResponse < depthResponses[0], 'mid-faint layer must remain behind the established far foreground layer')
+const fineBackgroundMatch = backgroundSource.match(/const fineBackgroundLayer = createSpaceStarLayer\(\{([\s\S]*?)\}\)/)
+requireCondition(fineBackgroundMatch, 'missing fine full-sky background layer')
+const fineBackgroundBlock = fineBackgroundMatch[1]
+const fineSize = readOption(fineBackgroundBlock, 'size')
+const fineOpacity = readOption(fineBackgroundBlock, 'opacity')
+const fineMinBrightness = readOption(fineBackgroundBlock, 'minBrightness')
+const fineMaxBrightness = readOption(fineBackgroundBlock, 'maxBrightness')
+const fineDepthResponse = readOption(fineBackgroundBlock, 'follow') * parallaxScale
+requireCondition(fineSize >= 1.0 && fineSize <= 1.3, `fine background size escaped screen-space range: ${fineSize}`)
+requireCondition(fineOpacity >= 0.62 && fineOpacity <= 0.78, `fine background opacity escaped Pass 5 range: ${fineOpacity}`)
+requireCondition(fineMinBrightness >= 0.16 && fineMinBrightness <= 0.26, `fine background minimum brightness escaped restrained range: ${fineMinBrightness}`)
+requireCondition(fineMaxBrightness >= 0.42 && fineMaxBrightness <= 0.52, `fine background max brightness escaped restrained range: ${fineMaxBrightness}`)
+requireCondition(fineMaxBrightness < denseMaxBrightness, 'fine background must remain below the dense background brightness ceiling')
+requireCondition(fineDepthResponse < depthResponses[0], 'fine background must remain behind the established far foreground layer')
+requireCondition(fineBackgroundBlock.includes('fullSkyBaseline: true'), 'fine background must use full-sky baseline distribution')
+requireCondition(backgroundSource.includes('function sampleBackgroundStarDirection'), 'Pass 5 full-sky background sampler is missing')
 
 const clusterBlock = backgroundSource.match(/const STAR_CLUSTERS:[\s\S]*?= \[([\s\S]*?)\] as const/)
 requireCondition(clusterBlock, 'missing local star cluster specifications')
@@ -129,8 +136,8 @@ requireCondition(backgroundSource.includes('fineDirectionField(direction'), 'Mil
 requireCondition(backgroundSource.includes('midScaleVariation') && backgroundSource.includes('fineVariation'), 'visible middle/fine sky texture variation is missing')
 requireCondition(backgroundSource.includes('dustBranchA') && backgroundSource.includes('dustBranchB'), 'branched dust-lane structure is missing')
 requireCondition(
-  backgroundSource.includes('const dustSuppression = dustLane * (0.30 + innerBand * 0.55)'),
-  'dust lane suppression must stay below the previous full-strength blackening budget',
+  backgroundSource.includes('const dustSuppression = dustLane * (0.22 + innerBand * 0.38)'),
+  'Pass 5 dust lane suppression must avoid black-crushed gaps',
 )
 requireCondition(
   backgroundSource.includes('cyanHaze') && backgroundSource.includes('magentaHaze') && backgroundSource.includes('neutralHaze'),
@@ -163,7 +170,7 @@ requireCondition(
     backgroundSource.includes('galaxyGroup.position.copy(cameraPosition)'),
   'sky sphere and distant galaxies must remain exactly camera-centered',
 )
-for (const layerName of ['deepFieldLayer', 'midFaintLayer']) {
+for (const layerName of ['denseBackgroundLayer', 'fineBackgroundLayer']) {
   requireCondition(
     backgroundSource.includes(`scene.remove(${layerName}.points)`) &&
       backgroundSource.includes(`${layerName}.geometry.dispose()`) &&
@@ -177,7 +184,7 @@ requireCondition(
 )
 
 console.log(
-  `space background regression ok: ${totalStars} stars (${deepFieldStarCount} deep-field + ${midFaintStarCount} mid-faint), ` +
+  `space background regression ok: ${totalStars} stars (${denseBackgroundStarCount} dense + ${fineBackgroundStarCount} fine background), ` +
     `${galaxySpecs.length} galaxies / ${clusterCount} cluster regions, ${textureSize}x${textureSize} shared point texture, ` +
     `OLED floor ${spaceBaseRed}/${spaceBaseGreen}/${spaceBaseBlue}, ` +
     `depth responses ${depthResponses.map((value) => (value * 100).toFixed(3)).join('% / ')}%, ` +
