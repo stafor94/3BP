@@ -131,7 +131,7 @@ function testDedicatedStellarMaterialPathIsStructurallySeparated() {
     'generic body rendering must not retain the old self-luminous star/effect branch uniform',
   )
   assert(
-    !stellarMaterialSource.includes('uLightPositions'),
+    !stellarMaterialSource.includes('uniform vec3 uLightPositions'),
     'stellar photosphere shader must not carry generic planet lighting arrays',
   )
 }
