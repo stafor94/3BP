@@ -138,29 +138,55 @@ function testDedicatedStellarMaterialPathIsStructurallySeparated() {
 
 function testPhotosphereUsesCellularGranulationTopology() {
   assert(stellarMaterialSource.includes('uniform float uTime;'), 'stellar photosphere shader must expose a time uniform')
-  assert(stellarMaterialSource.includes('const float STELLAR_CONVECTION_FREQUENCY = 2.7;'), 'large convection frequency must be centralized for Pass 3 tuning')
-  assert(stellarMaterialSource.includes('const float STELLAR_GRANULE_FREQUENCY = 7.2;'), 'primary granule frequency must be centralized at a readable object-space scale')
+  assert(stellarMaterialSource.includes('const float STELLAR_CONVECTION_FREQUENCY = 2.7;'), 'large convection frequency must remain stable')
+  assert(stellarMaterialSource.includes('const float STELLAR_GRANULE_FREQUENCY = 7.2;'), 'primary granule frequency must remain stable')
   assert(stellarMaterialSource.includes('const float STELLAR_FINE_FREQUENCY = 21.0;'), 'fine breakup frequency must remain subordinate to primary cells')
-  assert(stellarMaterialSource.includes('vec4 sampleStellarCellular(vec3 p, vec3 seedOffset)'), 'stellar photosphere must use a dedicated cellular distance field')
+  assert(stellarMaterialSource.includes('vec4 sampleStellarCellular(vec3 p, vec3 seedOffset)'), 'stellar photosphere must use the Pass 2 cellular distance field')
   assert(stellarMaterialSource.includes('for (int z = -1; z <= 1; z++)'), 'cellular search must use a bounded 3x3x3 neighborhood')
-  assert(stellarMaterialSource.includes('float cellSizeScale = 0.88 + heat * 0.28;'), 'cellular granules must vary in size instead of forming equal tiles')
+  assert(stellarMaterialSource.includes('float cellSizeScale = 0.88 + heat * 0.28;'), 'cellular granules must retain Pass 2 cell-size variation')
   assert(stellarMaterialSource.includes('sqrt(nearestDistanceSq)'), 'cellular field must expose nearest-cell distance')
   assert(stellarMaterialSource.includes('sqrt(secondDistanceSq)'), 'cellular field must expose second-nearest-cell distance')
-  assert(stellarMaterialSource.includes('float drawIntergranularLane(vec4 cellular)'), 'stellar photosphere must explicitly model intergranular lanes')
-  assert(stellarMaterialSource.includes('float boundaryDistance = max(cellular.y - cellular.x, 0.0);'), 'lane topology must derive from nearest/second-nearest cell separation')
-  assert(stellarMaterialSource.includes('return lane * mix(1.0, 0.20, mergeAffinity);'), 'thermally similar neighboring cells must weaken shared boundaries to avoid a closed honeycomb network')
-  assert(stellarMaterialSource.includes('intergranularLane * 0.075'), 'intergranular network must contribute a bounded darker thermal lane')
+  assert(stellarMaterialSource.includes('float drawIntergranularLane(vec4 cellular, float laneLod)'), 'stellar photosphere must explicitly anti-alias intergranular lanes')
+  assert(stellarMaterialSource.includes('float boundaryDistance = max(cellular.y - cellular.x, 0.0);'), 'lane topology must remain derived from nearest/second-nearest cell separation')
+  assert(stellarMaterialSource.includes('float lanePixelWidth = min(fwidth(boundaryDistance) * 0.35, 0.035);'), 'lane edge width must respond to screen-space derivatives')
+  assert(stellarMaterialSource.includes('return lane * mix(1.0, 0.20, mergeAffinity) * laneLod;'), 'thermally similar boundaries and unresolved lanes must be suppressed without changing topology')
+  assert(stellarMaterialSource.includes('intergranularLane * 0.075'), 'resolved intergranular lanes must retain the Pass 2 contrast budget')
   assert(stellarMaterialSource.includes('granuleCenter * 0.016'), 'granule interiors must retain a subtle hotter center lift')
   assert(stellarMaterialSource.includes('(convection - 0.5) * 0.035'), 'large convection modulation must remain lower contrast than primary cells')
   assert(stellarMaterialSource.includes('(fineBreakup - 0.5) * 0.008'), 'fine breakup must stay subordinate to cellular topology')
   assert(stellarMaterialSource.includes('uSurfaceSeed * 0.051'), 'cellular photosphere must remain deterministic per stellar surface seed')
   assert(stellarMaterialSource.includes('material.uniforms.uTime.value = frame.animationTimeSeconds'), 'animation time must be updated only through the stellar material contract')
   assert(stellarMaterialSource.includes('float limbDarkening = 0.74 + 0.26 * pow(limb, 0.52);'), 'existing stellar limb darkening must remain unchanged')
-  assert(stellarMaterialSource.includes('float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.070, 0.047);'), 'cellular topology must survive tone mapping through a bounded stellar-only modulation')
+  assert(stellarMaterialSource.includes('float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.070, 0.047);'), 'cellular topology must survive tone mapping through the existing bounded stellar-only modulation')
   assert(stellarMaterialSource.includes('#include <tonemapping_fragment>\n    gl_FragColor.rgb *= stellarSurfaceModulation;'), 'stellar surface topology must remain visible after tone mapping')
-  assert(!stellarMaterialSource.includes('objectNormal * 15.5'), 'legacy smooth value-noise primary granulation must be removed')
-  assert(!stellarMaterialSource.includes('granuleDrift'), 'legacy texture-like granule drift must be removed')
-  assert(!stellarMaterialSource.includes('fwidth('), 'screen-space derivative LOD belongs to Pass 3, not Pass 2')
+  assert(!stellarMaterialSource.includes('objectNormal * 15.5'), 'legacy smooth value-noise primary granulation must remain removed')
+  assert(!stellarMaterialSource.includes('granuleDrift'), 'legacy texture-like granule drift must remain removed')
+}
+
+function testPhotosphereUsesScreenSpaceGranulationLod() {
+  assert(stellarMaterialSource.includes('vec3 normalWidth = fwidth(objectNormal);'), 'granulation LOD must start from the actual screen-space normal footprint')
+  assert(stellarMaterialSource.includes('float getStellarFeaturePixels(float normalPixelFootprint, float frequency)'), 'stellar shader must convert derivative footprint into approximate pixels per procedural feature')
+  assert(stellarMaterialSource.includes('float granulePixels = getStellarFeaturePixels('), 'primary granule LOD must use screen-space feature coverage')
+  assert(stellarMaterialSource.includes('float finePixels = getStellarFeaturePixels('), 'fine breakup LOD must use screen-space feature coverage')
+  assert(stellarMaterialSource.includes('float granuleLod = smoothstep(0.90, 2.35, granulePixels);'), 'primary granules must fade continuously rather than pop')
+  assert(stellarMaterialSource.includes('float laneLod = smoothstep(1.35, 3.25, granulePixels);'), 'thin lanes must retire before the primary cellular field becomes unresolved')
+  assert(stellarMaterialSource.includes('float fineLod = smoothstep(1.15, 2.65, finePixels);'), 'fine breakup must retire first as screen coverage shrinks')
+  assert(stellarMaterialSource.includes('0.72,\n      1.0,\n      smoothstep(0.65, 2.40, convectionPixels)'), 'broad convection must retain a nonzero floor for very small stars')
+  assert(stellarMaterialSource.includes('* granuleLod - intergranularLane * 0.075;'), 'primary cellular contrast and lane contrast must have separate resolution gates')
+  assert(stellarMaterialSource.includes('* 0.008 * fineLod * fineBreath;'), 'fine breakup contrast must be derivative-gated instead of distance-dimmed')
+
+  const cellularOccurrences = stellarMaterialSource.match(/sampleStellarCellular\(/g) ?? []
+  assert(cellularOccurrences.length === 2, 'Pass 3 must keep exactly one cellular neighborhood sample per stellar fragment')
+  assert(!stellarMaterialSource.includes('uCameraDistance'), 'stellar LOD must not add a world-distance uniform')
+  assert(!stellarMaterialSource.includes('uScreenRadius'), 'stellar LOD must not require a CPU-managed screen-radius uniform')
+}
+
+function testPhotosphereTimeEvolutionDoesNotSlideTopology() {
+  assert(!stellarMaterialSource.includes('convectionWobble'), 'broad convection coordinates must not slide across the sphere')
+  assert(!stellarMaterialSource.includes('fineWobble'), 'fine breakup coordinates must not slide across the sphere')
+  assert(stellarMaterialSource.includes('uTime * 0.0035 + uSurfaceSeed * 0.009'), 'broad convection must evolve only through a very slow amplitude breathing term')
+  assert(stellarMaterialSource.includes('uTime * 0.009 +'), 'cellular granules must use a distinct very slow per-cell thermal phase')
+  assert(stellarMaterialSource.includes('uTime * 0.0055 + uSurfaceSeed * 0.013 + 1.1'), 'fine breakup must use a separate very slow amplitude phase')
 }
 
 function testStellarOnlyUniformsDoNotLeakIntoGenericShader() {
@@ -207,6 +233,8 @@ const tests = [
   testMassChangesImmediatelyChangeRenderInputs,
   testDedicatedStellarMaterialPathIsStructurallySeparated,
   testPhotosphereUsesCellularGranulationTopology,
+  testPhotosphereUsesScreenSpaceGranulationLod,
+  testPhotosphereTimeEvolutionDoesNotSlideTopology,
   testStellarOnlyUniformsDoNotLeakIntoGenericShader,
   testStellarUpdateContractOwnsRenderInputs,
   testCoronaUsesSubtleShaderBasedAsymmetry,
