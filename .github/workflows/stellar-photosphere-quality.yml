@@ -4,25 +4,24 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'src/rendering/stellarPhotosphereMaterial.ts'
       - 'src/rendering/bodyLighting.ts'
-      - 'src/starColors.ts'
+      - 'src/rendering/stellarPhotosphereMaterial.ts'
       - 'src/rendering/stellarRenderProfile.ts'
-      - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
+      - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
+      - 'scripts/stellarRenderPathVisualRegression.py'
       - 'scripts/stellarCellularPhotosphereVisualRegression.py'
       - 'scripts/stellarGranulationLodVisualRegression.py'
-      - 'scripts/stellarRenderingRegression.ts'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
   contents: read
 
 jobs:
-  stellar-photosphere-quality:
+  stellar-photosphere-corona-ab:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout full history
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -32,7 +31,7 @@ jobs:
           node-version: 24
       - name: Install dependencies
         run: npm install
-      - name: Full build and regressions
+      - name: Build and regression checks
         run: npm run build
       - name: Install browser visual regression runtime
         run: python -m pip install --disable-pip-version-check --quiet selenium==4.35.0 pillow==11.3.0
@@ -48,15 +47,15 @@ jobs:
           done
           cat /tmp/3bp-stellar-preview.log
           exit 1
-      - name: Pass 2 cellular photosphere mobile A/B regression
+      - name: Capture Pass 1 vs Pass 2 main-sequence mobile A/B
         env:
-          STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda8e6d62d35f87688f5ec760ae67287d6f
+          STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
         run: python scripts/stellarCellularPhotosphereVisualRegression.py
       - name: Pass 3 screen-space granulation LOD mobile regression
         env:
           STELLAR_GRANULATION_LOD_BASELINE_REF: 901b2dd596cb3a0f240853aa851981087f92ae04
         run: python scripts/stellarGranulationLodVisualRegression.py
-      - name: Upload cellular photosphere mobile A/B captures
+      - name: Upload stellar photosphere A/B captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
