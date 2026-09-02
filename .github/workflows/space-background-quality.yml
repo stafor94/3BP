@@ -1,0 +1,55 @@
+name: Space Background Quality
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  perceived-density-ab:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install
+      - name: Versioning regression
+        run: npm run check:version
+      - name: Physics regression
+        run: npm run check:physics
+      - name: Space background regression
+        run: npm run check:background
+      - name: Full build
+        run: npm run build
+      - name: Install browser visual runtime
+        run: python -m pip install --disable-pip-version-check --quiet selenium==4.35.0 pillow==11.3.0
+      - name: Start current production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/3bp-space-current-preview.log 2>&1 &
+          echo $! > /tmp/3bp-space-current-preview.pid
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/3BP/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/3bp-space-current-preview.log
+          exit 1
+      - name: Capture Pass 3 / Pass 4 / current A/B
+        run: python scripts/spaceBackgroundVisualRegression.py
+      - name: Upload perceived-density A/B captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: space-background-perceived-density-ab
+          path: space-background-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7

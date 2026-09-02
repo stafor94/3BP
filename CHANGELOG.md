@@ -6,6 +6,28 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.1] - 2026-09-02
+
+### Fixed
+- Pass 4에서 1,400개의 deep-field star와 fine grain/haze를 추가했음에도 모바일·OLED 화면에서 대부분이 near-black에 묻혀 실제 화면이 더 휑하게 보이던 문제를 수정했습니다.
+
+### Changed
+- 기존 1,000개 far/mid/near foreground star hierarchy와 최대 밝기는 그대로 유지하면서 deep-field를 1,600개, size 1.00, opacity 0.68, brightness 0.16~0.50으로 조정해 foreground보다 낮은 우선순위 안에서 실제로 읽히는 faint background layer로 변경했습니다.
+- 250개의 mid-faint full-sky fill layer를 추가해 특정 cluster를 강조하지 않고 넓은 빈 영역 사이에 드문드문 읽히는 중간 밝기 별을 보강했습니다. 전체 stellar population은 2,850개입니다.
+- 512×256 space texture의 near-black RGB floor를 소폭 높이고 Milky Way stellar grain에 중간/미세 스케일 변화를 함께 사용하며 broad haze 기여도를 상향해 8-bit 모바일 화면에서도 구조가 사라지지 않도록 조정했습니다.
+- dark dust lane의 최대 suppression을 낮춰 기존 dust 구조와 branch는 유지하면서 화면의 넓은 영역이 과도하게 검게 눌리는 현상을 줄였습니다.
+
+### Performance
+- Pass 4 대비 star population 증가는 450개이며 추가 position/color raw buffer는 약 10.5 KiB입니다. mid-faint layer로 `THREE.Points` draw call 1개가 추가되지만 기존 shared 24×24 point texture를 재사용합니다.
+- sky/galaxy texture 해상도, galaxy 수, per-frame animation 비용은 증가하지 않으며 procedural texture 계산은 기존처럼 초기화 시에만 수행합니다.
+
+### Verification
+- background regression이 deep-field와 mid-faint layer의 faint-but-visible 범위, foreground brightness/depth hierarchy 보존, 2,500~3,000 total star budget, OLED floor, dust suppression 및 두 background layer의 dispose를 검증하도록 갱신했습니다.
+- 별도 visual CI가 Pass 3(0.23.0), Pass 4(0.24.0), 현재안을 동일 deterministic layout과 5개 시점에서 mobile 390×844 / desktop 1280×800으로 캡처하고 near-black·low/mid luminance 지표와 contact sheet를 artifact로 남기도록 추가했습니다.
+
+### Unchanged
+- physics/solver/collision, mass/radius/velocity/trajectory, collision/tracking camera, celestial body shader, collision/destruction VFX, ejecta/fragment/trail physics는 변경하지 않습니다.
+
 ## [0.24.0] - 2026-09-02
 
 ### Added

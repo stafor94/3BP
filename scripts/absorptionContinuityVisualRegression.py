@@ -426,29 +426,32 @@ def main() -> None:
             'surface-local absorption staging lost the source silhouette before the physical handoff',
         )
         baseline_silhouette = silhouettes[0]
-        baseline_aspect = int(baseline_silhouette['width']) / max(int(baseline_silhouette['height']), 1)
-        step8_aspect = int(silhouettes[8]['width']) / max(int(silhouettes[8]['height']), 1)
-        step12_aspect = int(silhouettes[12]['width']) / max(int(silhouettes[12]['height']), 1)
+        step8_silhouette = silhouettes[8]
+        step12_silhouette = silhouettes[12]
+        step8_width_limit = math.ceil(int(baseline_silhouette['width']) * 0.90)
+        step12_width_limit = math.ceil(int(step8_silhouette['width']) * 0.90)
         require(
             int(baseline_silhouette['max_column_height']) >= 32,
             'baseline exposed impactor silhouette is too small for deformation inspection',
         )
         require(
-            step8_aspect <= baseline_aspect * 0.90,
+            int(step8_silhouette['width']) <= step8_width_limit and
+            int(step8_silhouette['outward_edge_x']) <= int(baseline_silhouette['outward_edge_x']) - 2,
             'step8 rendered silhouette must already show contact-axis compression while the impactor remains large',
         )
         require(
-            step12_aspect <= step8_aspect * 0.90,
+            int(step12_silhouette['width']) <= step12_width_limit and
+            int(step12_silhouette['outward_edge_x']) <= int(step8_silhouette['outward_edge_x']) - 2,
             'step12 rendered silhouette must deepen contact-axis deformation before topology collapse',
         )
         require(
-            int(silhouettes[8]['max_column_height']) >= int(baseline_silhouette['max_column_height']) * 0.90 and
-            int(silhouettes[12]['max_column_height']) >= int(baseline_silhouette['max_column_height']) * 0.90,
+            int(step8_silhouette['max_column_height']) >= int(baseline_silhouette['max_column_height']) * 0.90 and
+            int(step12_silhouette['max_column_height']) >= int(baseline_silhouette['max_column_height']) * 0.90,
             'pre-transition deformation must preserve a tall far-side remainder instead of uniformly shrinking the sphere',
         )
         require(
-            int(silhouettes[8]['width']) >= int(baseline_silhouette['width']) * 0.78 and
-            int(silhouettes[12]['width']) >= int(baseline_silhouette['width']) * 0.52,
+            int(step8_silhouette['width']) >= int(baseline_silhouette['width']) * 0.78 and
+            int(step12_silhouette['width']) >= int(baseline_silhouette['width']) * 0.52,
             'pre-transition deformation must retain a visible far-side remainder instead of uniformly deleting the sphere',
         )
         require(
