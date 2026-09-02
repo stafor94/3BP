@@ -133,9 +133,10 @@ requireCondition(
   'temperature tint must blend from the established near-white star base',
 )
 requireCondition(
-  backgroundSource.includes('function preserveLegacyStarLuminance(sample: number, target: THREE.Color)') &&
-    backgroundSource.includes('getLegacyStarLuminance(sample) / currentLuminance'),
-  'temperature tint must preserve the v0.24.3 per-star luminance envelope',
+  backgroundSource.includes('function preserveLegacyStarDisplayLuminance(sample: number, target: THREE.Color)') &&
+    backgroundSource.includes('const displayScale = getLegacyStarDisplayLuminance(sample) / currentLuminance') &&
+    backgroundSource.includes('srgbChannelToLinear(linearChannelToSrgb(target.r) * displayScale)'),
+  'temperature tint must preserve the v0.24.3 per-star display luminance envelope',
 )
 
 const starLayerBlocks = [...rendererSource.matchAll(/createSpaceStarLayer\(\{([\s\S]*?)\}\)/g)].map((match) => match[1])

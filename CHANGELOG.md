@@ -11,12 +11,12 @@
 ### Changed
 - v0.24.3의 20,000개 background + 1,000개 foreground dense starfield를 그대로 유지하면서 star vertex color를 `neutral`, `blue-white`, `warm-white`, `pale-yellow`, `soft-orange`, `red-orange`의 6개 저채도 temperature class로 확장했습니다.
 - 기존 brightness sampling exponent 2.60을 이용해 faint/medium/bright 구간별 color weight를 다르게 적용합니다. 전체 기대 분포는 약 neutral 58.8%, blue-white 19.5%, warm-white 13.6%, pale-yellow 5.2%, soft-orange 2.4%, red-orange 0.6%입니다.
-- 작은 background star는 tint를 억제하고 밝고 큰 star일수록 온도 차이를 더 읽을 수 있게 하되, 동일 color sample이 v0.24.3에서 가졌던 선형 luminance를 보존하도록 정규화해 색상 추가 때문에 모바일 체감 밀도가 낮아지지 않도록 했습니다.
+- 작은 background star는 tint를 억제하고 밝고 큰 star일수록 온도 차이를 더 읽을 수 있게 하되, 동일 color sample이 v0.24.3에서 가졌던 display-space luminance를 보존하도록 정규화해 색상 추가 때문에 모바일 체감 밀도가 낮아지지 않도록 했습니다.
 - 색상 선택은 기존 brightness 뒤 RNG draw 1회를 그대로 사용하며 picker 내부에 추가 random 호출을 만들지 않아 위치·밝기 random sequence를 변경하지 않습니다.
 
 ### Verification
-- space background regression에 6개 temperature class, brightness별 weight, low-saturation palette, brightness/size tint 연계, no-extra-RNG 및 v0.24.3 per-star luminance 보존 계약을 추가했습니다.
-- mobile 390×844 / desktop 1280×800의 5개 viewpoint에서 v0.24.3과 A/B 캡처해 density/visibility 및 색온도 다양성을 비교합니다.
+- space background regression에 6개 temperature class, brightness별 weight, low-saturation palette, brightness/size tint 연계, no-extra-RNG 및 v0.24.3 per-star display luminance 보존 계약을 추가했습니다.
+- mobile 390×844 / desktop 1280×800의 5개 viewpoint에서 v0.24.3과 A/B 캡처하고 near-black·low/mid·mean luminance·bright fraction 회귀 gate를 적용합니다.
 
 ### Unchanged
 - dense/fine background count 10,000/10,000, foreground 1,000, 각 layer의 size/opacity/min/max brightness, shared 24×24 point texture, sky base RGB 5/7/13, Milky Way/haze/distant galaxy, foreground 천체, physics/solver/collision, camera, trails, VFX, UI/controls는 변경하지 않습니다.

@@ -405,23 +405,43 @@ function getStarTintStrength(brightnessProgress: number, pointSize: number) {
   return brightnessTint * sizeTintScale
 }
 
-function getStarLinearLuminance(color: THREE.Color) {
-  return color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722
+function linearChannelToSrgb(value: number) {
+  if (value <= 0.0031308) return value * 12.92
+  return 1.055 * Math.pow(value, 1 / 2.4) - 0.055
 }
 
-function getLegacyStarLuminance(sample: number) {
+function srgbChannelToLinear(value: number) {
+  if (value <= 0.04045) return value / 12.92
+  return Math.pow((value + 0.055) / 1.055, 2.4)
+}
+
+function getStarDisplayLuminance(color: THREE.Color) {
+  return (
+    linearChannelToSrgb(color.r) * 0.299 +
+    linearChannelToSrgb(color.g) * 0.587 +
+    linearChannelToSrgb(color.b) * 0.114
+  )
+}
+
+function getLegacyStarDisplayLuminance(sample: number) {
   for (let index = 0; index < LEGACY_STAR_TEMPERATURE_THRESHOLDS.length; index += 1) {
     if (sample <= LEGACY_STAR_TEMPERATURE_THRESHOLDS[index]) {
-      return getStarLinearLuminance(LEGACY_STAR_TEMPERATURES[index])
+      return getStarDisplayLuminance(LEGACY_STAR_TEMPERATURES[index])
     }
   }
-  return getStarLinearLuminance(LEGACY_STAR_TEMPERATURES[LEGACY_STAR_TEMPERATURES.length - 1])
+  return getStarDisplayLuminance(LEGACY_STAR_TEMPERATURES[LEGACY_STAR_TEMPERATURES.length - 1])
 }
 
-function preserveLegacyStarLuminance(sample: number, target: THREE.Color) {
-  const currentLuminance = getStarLinearLuminance(target)
+function preserveLegacyStarDisplayLuminance(sample: number, target: THREE.Color) {
+  const currentLuminance = getStarDisplayLuminance(target)
   if (currentLuminance <= 0) return target
-  return target.multiplyScalar(getLegacyStarLuminance(sample) / currentLuminance)
+  const displayScale = getLegacyStarDisplayLuminance(sample) / currentLuminance
+  target.setRGB(
+    srgbChannelToLinear(linearChannelToSrgb(target.r) * displayScale),
+    srgbChannelToLinear(linearChannelToSrgb(target.g) * displayScale),
+    srgbChannelToLinear(linearChannelToSrgb(target.b) * displayScale),
+  )
+  return target
 }
 
 function pickStarColor(
@@ -437,11 +457,11 @@ function pickStarColor(
       target
         .copy(STAR_TINT_BASE_COLOR)
         .lerp(temperature.color, getStarTintStrength(brightnessProgress, pointSize))
-      return preserveLegacyStarLuminance(sample, target)
+      return preserveLegacyStarDisplayLuminance(sample, target)
     }
   }
   target.copy(STAR_TINT_BASE_COLOR)
-  return preserveLegacyStarLuminance(sample, target)
+  return preserveLegacyStarDisplayLuminance(sample, target)
 }
 
 export function createSpaceStarLayer(options: SpaceStarLayerOptions): SpaceStarLayer {
