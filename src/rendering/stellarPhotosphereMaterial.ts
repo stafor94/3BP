@@ -157,8 +157,9 @@ export const stellarPhotosphereFragmentShader = `
           vec3 cell = lattice + neighbor;
           vec3 jitter = 0.10 + hash33(cell + seedOffset) * 0.80;
           vec3 delta = neighbor + jitter - local;
-          float distanceSq = dot(delta, delta);
           float heat = hash31(cell + seedOffset * 1.73 + vec3(7.31, -3.17, 5.83));
+          float cellSizeScale = 0.88 + heat * 0.28;
+          float distanceSq = dot(delta, delta) / (cellSizeScale * cellSizeScale);
 
           if (distanceSq < nearestDistanceSq) {
             secondDistanceSq = nearestDistanceSq;
@@ -183,9 +184,9 @@ export const stellarPhotosphereFragmentShader = `
 
   float drawIntergranularLane(vec4 cellular) {
     float boundaryDistance = max(cellular.y - cellular.x, 0.0);
-    float lane = 1.0 - smoothstep(0.014, 0.090, boundaryDistance);
-    float mergeAffinity = 1.0 - smoothstep(0.055, 0.24, abs(cellular.z - cellular.w));
-    return lane * mix(1.0, 0.65, mergeAffinity);
+    float lane = 1.0 - smoothstep(0.012, 0.075, boundaryDistance);
+    float mergeAffinity = 1.0 - smoothstep(0.060, 0.25, abs(cellular.z - cellular.w));
+    return lane * mix(1.0, 0.20, mergeAffinity);
   }
 
   float drawStellarGranulation(vec3 objectNormal) {
@@ -212,7 +213,7 @@ export const stellarPhotosphereFragmentShader = `
       seedOffset * 1.19 + vec3(11.7, -4.3, 6.9)
     );
     float boundaryDistance = max(cellular.y - cellular.x, 0.0);
-    float granuleInterior = smoothstep(0.032, 0.18, boundaryDistance);
+    float granuleInterior = smoothstep(0.030, 0.17, boundaryDistance);
     float granuleCenter = 1.0 - smoothstep(0.30, 0.74, cellular.x);
     float intergranularLane = drawIntergranularLane(cellular);
     float cellThermalBias = cellular.z - 0.5;
@@ -238,7 +239,7 @@ export const stellarPhotosphereFragmentShader = `
       (granuleInterior - 0.56) * 0.064 +
       granuleCenter * 0.016 +
       cellThermalBias * 0.010 -
-      intergranularLane * 0.070;
+      intergranularLane * 0.075;
     float fineVariation = (fineBreakup - 0.5) * 0.008;
     float temporalVariation = (cellPulse - 0.5) * granuleInterior * 0.006;
     float variation =
