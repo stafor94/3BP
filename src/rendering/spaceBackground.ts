@@ -54,6 +54,14 @@ type StarClusterSpec = {
   strength: number
 }
 
+type StarTemperatureSpec = {
+  name: 'neutral' | 'blue-white' | 'warm-white' | 'pale-yellow' | 'soft-orange' | 'red-orange'
+  color: THREE.Color
+  faintWeight: number
+  mediumWeight: number
+  brightWeight: number
+}
+
 const SPACE_TEXTURE_WIDTH = 512
 const SPACE_TEXTURE_HEIGHT = 256
 const SPACE_SKY_RADIUS = 240
@@ -69,6 +77,10 @@ const SPACE_BASE_BLUE = 13.0
 const GALAXY_TEXTURE_SIZE = 64
 const DISTANT_GALAXY_RADIUS = 205
 const STAR_LAYOUT_SESSION_SALT = Math.floor(Math.random() * 0xffffffff) >>> 0
+const STAR_TEMPERATURE_MEDIUM_THRESHOLD = 0.45
+const STAR_TEMPERATURE_BRIGHT_THRESHOLD = 0.80
+const STAR_TINT_SIZE_MIN = 1.0
+const STAR_TINT_SIZE_MAX = 2.2
 
 const SPACE_BACKDROP_STATES = new WeakMap<THREE.Camera, SpaceBackdropState>()
 
@@ -83,6 +95,14 @@ const NEBULA_RED_CENTER = new THREE.Vector3(0.16, 0.52, -0.84).normalize()
 const NEBULA_CYAN_HAZE_CENTER = new THREE.Vector3(-0.28, -0.63, 0.72).normalize()
 const NEBULA_MAGENTA_HAZE_CENTER = new THREE.Vector3(0.77, 0.27, -0.58).normalize()
 const NEBULA_NEUTRAL_HAZE_CENTER = new THREE.Vector3(-0.66, -0.18, -0.73).normalize()
+const STAR_TINT_BASE_COLOR = new THREE.Color('#f1f2ee')
+const LEGACY_STAR_TEMPERATURES = [
+  new THREE.Color('#d7e2f4'),
+  new THREE.Color('#f1f2ee'),
+  new THREE.Color('#e8dfd0'),
+  new THREE.Color('#d6ccc7'),
+] as const
+const LEGACY_STAR_TEMPERATURE_THRESHOLDS = [0.10, 0.78, 0.96, 1.0] as const
 
 const STAR_CLUSTERS: readonly StarClusterSpec[] = [
   {
@@ -182,12 +202,50 @@ const DISTANT_GALAXIES: readonly DistantGalaxySpec[] = [
   },
 ] as const
 
-const STAR_TEMPERATURES = [
-  { color: new THREE.Color('#d7e2f4'), weight: 0.10 },
-  { color: new THREE.Color('#f1f2ee'), weight: 0.68 },
-  { color: new THREE.Color('#e8dfd0'), weight: 0.18 },
-  { color: new THREE.Color('#d6ccc7'), weight: 0.04 },
-] as const
+const STAR_TEMPERATURES: readonly StarTemperatureSpec[] = [
+  {
+    name: 'neutral',
+    color: new THREE.Color('#f8faff'),
+    faintWeight: 0.610,
+    mediumWeight: 0.548,
+    brightWeight: 0.478,
+  },
+  {
+    name: 'blue-white',
+    color: new THREE.Color('#e7eeff'),
+    faintWeight: 0.200,
+    mediumWeight: 0.180,
+    brightWeight: 0.180,
+  },
+  {
+    name: 'warm-white',
+    color: new THREE.Color('#fff7e8'),
+    faintWeight: 0.130,
+    mediumWeight: 0.150,
+    brightWeight: 0.160,
+  },
+  {
+    name: 'pale-yellow',
+    color: new THREE.Color('#ffe9b5'),
+    faintWeight: 0.042,
+    mediumWeight: 0.072,
+    brightWeight: 0.092,
+  },
+  {
+    name: 'soft-orange',
+    color: new THREE.Color('#ffd19a'),
+    faintWeight: 0.015,
+    mediumWeight: 0.040,
+    brightWeight: 0.070,
+  },
+  {
+    name: 'red-orange',
+    color: new THREE.Color('#ffb29a'),
+    faintWeight: 0.003,
+    mediumWeight: 0.010,
+    brightWeight: 0.020,
+  },
+]
 
 function createSeededRandom(seed: number) {
   let state = (seed ^ STAR_LAYOUT_SESSION_SALT) >>> 0
@@ -304,14 +362,106 @@ function sampleBackgroundStarDirection(random: () => number, target: THREE.Vecto
   return target
 }
 
-function pickStarColor(random: () => number, target: THREE.Color) {
-  const sample = random()
+function getStarTemperatureWeight(temperature: StarTemperatureSpec, brightnessProgress: number) {
+  if (brightnessProgress < STAR_TEMPERATURE_MEDIUM_THRESHOLD) return temperature.faintWeight
+  if (brightnessProgress < STAR_TEMPERATURE_BRIGHT_THRESHOLD) return temperature.mediumWeight
+  return temperature.brightWeight
+}
+
+function getStarTintStrength(brightnessProgress: number, pointSize: number) {
+  let brightnessTint = 0
+  if (brightnessProgress < STAR_TEMPERATURE_MEDIUM_THRESHOLD) {
+    brightnessTint = THREE.MathUtils.lerp(
+      0.12,
+      0.24,
+      smooth01(brightnessProgress / STAR_TEMPERATURE_MEDIUM_THRESHOLD),
+    )
+  } else if (brightnessProgress < STAR_TEMPERATURE_BRIGHT_THRESHOLD) {
+    brightnessTint = THREE.MathUtils.lerp(
+      0.30,
+      0.50,
+      smooth01(
+        (brightnessProgress - STAR_TEMPERATURE_MEDIUM_THRESHOLD) /
+          (STAR_TEMPERATURE_BRIGHT_THRESHOLD - STAR_TEMPERATURE_MEDIUM_THRESHOLD),
+      ),
+    )
+  } else {
+    brightnessTint = THREE.MathUtils.lerp(
+      0.58,
+      0.78,
+      smooth01(
+        (brightnessProgress - STAR_TEMPERATURE_BRIGHT_THRESHOLD) /
+          (1 - STAR_TEMPERATURE_BRIGHT_THRESHOLD),
+      ),
+    )
+  }
+
+  const sizeProgress = THREE.MathUtils.clamp(
+    (pointSize - STAR_TINT_SIZE_MIN) / (STAR_TINT_SIZE_MAX - STAR_TINT_SIZE_MIN),
+    0,
+    1,
+  )
+  const sizeTintScale = THREE.MathUtils.lerp(0.55, 1.0, smooth01(sizeProgress))
+  return brightnessTint * sizeTintScale
+}
+
+function linearChannelToSrgb(value: number) {
+  if (value <= 0.0031308) return value * 12.92
+  return 1.055 * Math.pow(value, 1 / 2.4) - 0.055
+}
+
+function srgbChannelToLinear(value: number) {
+  if (value <= 0.04045) return value / 12.92
+  return Math.pow((value + 0.055) / 1.055, 2.4)
+}
+
+function getStarDisplayLuminance(color: THREE.Color) {
+  return (
+    linearChannelToSrgb(color.r) * 0.299 +
+    linearChannelToSrgb(color.g) * 0.587 +
+    linearChannelToSrgb(color.b) * 0.114
+  )
+}
+
+function getLegacyStarDisplayLuminance(sample: number) {
+  for (let index = 0; index < LEGACY_STAR_TEMPERATURE_THRESHOLDS.length; index += 1) {
+    if (sample <= LEGACY_STAR_TEMPERATURE_THRESHOLDS[index]) {
+      return getStarDisplayLuminance(LEGACY_STAR_TEMPERATURES[index])
+    }
+  }
+  return getStarDisplayLuminance(LEGACY_STAR_TEMPERATURES[LEGACY_STAR_TEMPERATURES.length - 1])
+}
+
+function preserveLegacyStarDisplayLuminance(sample: number, target: THREE.Color) {
+  const currentLuminance = getStarDisplayLuminance(target)
+  if (currentLuminance <= 0) return target
+  const displayScale = getLegacyStarDisplayLuminance(sample) / currentLuminance
+  target.setRGB(
+    srgbChannelToLinear(linearChannelToSrgb(target.r) * displayScale),
+    srgbChannelToLinear(linearChannelToSrgb(target.g) * displayScale),
+    srgbChannelToLinear(linearChannelToSrgb(target.b) * displayScale),
+  )
+  return target
+}
+
+function pickStarColor(
+  sample: number,
+  brightnessProgress: number,
+  pointSize: number,
+  target: THREE.Color,
+) {
   let accumulated = 0
   for (const temperature of STAR_TEMPERATURES) {
-    accumulated += temperature.weight
-    if (sample <= accumulated) return target.copy(temperature.color)
+    accumulated += getStarTemperatureWeight(temperature, brightnessProgress)
+    if (sample <= accumulated) {
+      target
+        .copy(STAR_TINT_BASE_COLOR)
+        .lerp(temperature.color, getStarTintStrength(brightnessProgress, pointSize))
+      return preserveLegacyStarDisplayLuminance(sample, target)
+    }
   }
-  return target.copy(STAR_TEMPERATURES[STAR_TEMPERATURES.length - 1].color)
+  target.copy(STAR_TINT_BASE_COLOR)
+  return preserveLegacyStarDisplayLuminance(sample, target)
 }
 
 export function createSpaceStarLayer(options: SpaceStarLayerOptions): SpaceStarLayer {
@@ -352,7 +502,8 @@ export function createSpaceStarLayer(options: SpaceStarLayerOptions): SpaceStarL
 
     const brightnessProgress = Math.pow(random(), STAR_BRIGHTNESS_EXPONENT)
     const brightness = THREE.MathUtils.lerp(minBrightness, maxBrightness, brightnessProgress)
-    pickStarColor(random, starColor).multiplyScalar(brightness)
+    const colorSample = random()
+    pickStarColor(colorSample, brightnessProgress, size, starColor).multiplyScalar(brightness)
     colors[offset] = starColor.r
     colors[offset + 1] = starColor.g
     colors[offset + 2] = starColor.b
