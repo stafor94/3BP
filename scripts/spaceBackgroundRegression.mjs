@@ -33,18 +33,14 @@ const spaceTextureHeight = readNumericConstant('SPACE_TEXTURE_HEIGHT')
 const galaxyTextureSize = readNumericConstant('GALAXY_TEXTURE_SIZE')
 
 requireCondition(textureSize >= 16 && textureSize <= 32, 'star point texture must stay within 16–32 px')
-requireCondition(brightnessExponent >= 2.35 && brightnessExponent <= 3.0, 'brightness hierarchy drifted outside restrained range')
+requireCondition(brightnessExponent === 2.6, `foreground/shared star brightness sampling exponent changed: ${brightnessExponent}`)
 requireCondition(parallaxScale > 0 && parallaxScale <= 0.05, 'parallax scale exceeds restrained depth budget')
 requireCondition(maxParallaxAngle > 0 && maxParallaxAngle <= 0.25, 'parallax angular cap exceeds 0.25 degrees')
 requireCondition(spaceTextureWidth <= 512 && spaceTextureHeight <= 256, 'space texture exceeded the 512×256 initialization budget')
 requireCondition(galaxyTextureSize <= 64, 'galaxy texture exceeded the 64×64 initialization budget')
 requireCondition(
-  spaceBaseRed >= 5 && spaceBaseGreen >= 7 && spaceBaseBlue >= 13,
-  `OLED black floor regressed: ${spaceBaseRed}/${spaceBaseGreen}/${spaceBaseBlue}`,
-)
-requireCondition(
-  spaceBaseRed <= 7 && spaceBaseGreen <= 10 && spaceBaseBlue <= 17,
-  `space black floor became too prominent: ${spaceBaseRed}/${spaceBaseGreen}/${spaceBaseBlue}`,
+  spaceBaseRed === 5 && spaceBaseGreen === 7 && spaceBaseBlue === 13,
+  `Pass 6 must preserve the established RGB 5/7/13 sky floor, found ${spaceBaseRed}/${spaceBaseGreen}/${spaceBaseBlue}`,
 )
 
 const starLayerBlocks = [...rendererSource.matchAll(/createSpaceStarLayer\(\{([\s\S]*?)\}\)/g)].map((match) => match[1])
@@ -57,11 +53,14 @@ const baseStars = starCounts.reduce((sum, count) => sum + count, 0)
 const backgroundStars = denseBackgroundStarCount + fineBackgroundStarCount
 const totalStars = baseStars + backgroundStars
 const depthResponses = follows.map((follow) => follow * parallaxScale)
+const backgroundAttributeBytes = backgroundStars * 6 * Float32Array.BYTES_PER_ELEMENT
 
 requireCondition(baseStars === 1000, `expected the established 1000-star foreground hierarchy, found ${baseStars}`)
-requireCondition(totalStars >= 4500 && totalStars <= 5500, `Pass 5 total star population must stay within 4500–5500 stars, found ${totalStars}`)
-requireCondition(denseBackgroundStarCount >= 1800 && denseBackgroundStarCount <= 2600, `dense background escaped visible-density budget: ${denseBackgroundStarCount}`)
-requireCondition(fineBackgroundStarCount >= 1300 && fineBackgroundStarCount <= 2200, `fine background escaped fill budget: ${fineBackgroundStarCount}`)
+requireCondition(backgroundStars >= 18000 && backgroundStars <= 22000, `Pass 6 background population must stay within 18000–22000 stars, found ${backgroundStars}`)
+requireCondition(totalStars >= 19000 && totalStars <= 23000, `Pass 6 total star population must stay within 19000–23000 stars, found ${totalStars}`)
+requireCondition(denseBackgroundStarCount >= 9000 && denseBackgroundStarCount <= 11000, `dense background escaped Pass 6 budget: ${denseBackgroundStarCount}`)
+requireCondition(fineBackgroundStarCount >= 9000 && fineBackgroundStarCount <= 11000, `fine background escaped Pass 6 budget: ${fineBackgroundStarCount}`)
+requireCondition(backgroundAttributeBytes <= 22_000 * 24, `background position/color buffers exceeded intended static memory budget: ${backgroundAttributeBytes} bytes`)
 requireCondition(
   maxBrightnesses.join(',') === '0.72,0.86,1',
   `star maximum brightness budget changed: ${maxBrightnesses.join(',')}`,
@@ -83,10 +82,10 @@ const denseOpacity = readOption(denseBackgroundBlock, 'opacity')
 const denseMinBrightness = readOption(denseBackgroundBlock, 'minBrightness')
 const denseMaxBrightness = readOption(denseBackgroundBlock, 'maxBrightness')
 const denseDepthResponse = readOption(denseBackgroundBlock, 'follow') * parallaxScale
-requireCondition(denseSize >= 1.25 && denseSize <= 1.6, `dense background size must stay screen-visible, found ${denseSize}`)
-requireCondition(denseOpacity >= 0.74 && denseOpacity <= 0.88, `dense background opacity escaped Pass 5 range: ${denseOpacity}`)
-requireCondition(denseMinBrightness >= 0.24 && denseMinBrightness <= 0.34, `dense background minimum brightness is not mobile-visible: ${denseMinBrightness}`)
-requireCondition(denseMaxBrightness >= 0.58 && denseMaxBrightness <= 0.68, `dense background max brightness escaped restrained range: ${denseMaxBrightness}`)
+requireCondition(denseSize >= 1.65 && denseSize <= 1.80, `dense background size escaped Pass 6 screen-space range: ${denseSize}`)
+requireCondition(denseOpacity >= 0.90 && denseOpacity <= 0.94, `dense background opacity escaped Pass 6 range: ${denseOpacity}`)
+requireCondition(denseMinBrightness >= 0.38 && denseMinBrightness <= 0.42, `dense background minimum brightness escaped Pass 6 range: ${denseMinBrightness}`)
+requireCondition(denseMaxBrightness >= 0.68 && denseMaxBrightness <= 0.70, `dense background max brightness escaped restrained Pass 6 range: ${denseMaxBrightness}`)
 requireCondition(denseMaxBrightness < maxBrightnesses[0], 'dense background maximum brightness must stay below the far foreground layer')
 requireCondition(denseDepthResponse < depthResponses[0], 'dense background must remain behind the established far foreground layer')
 requireCondition(denseBackgroundBlock.includes('fullSkyBaseline: true'), 'dense background must use full-sky baseline distribution')
@@ -99,14 +98,14 @@ const fineOpacity = readOption(fineBackgroundBlock, 'opacity')
 const fineMinBrightness = readOption(fineBackgroundBlock, 'minBrightness')
 const fineMaxBrightness = readOption(fineBackgroundBlock, 'maxBrightness')
 const fineDepthResponse = readOption(fineBackgroundBlock, 'follow') * parallaxScale
-requireCondition(fineSize >= 1.0 && fineSize <= 1.3, `fine background size escaped screen-space range: ${fineSize}`)
-requireCondition(fineOpacity >= 0.62 && fineOpacity <= 0.78, `fine background opacity escaped Pass 5 range: ${fineOpacity}`)
-requireCondition(fineMinBrightness >= 0.16 && fineMinBrightness <= 0.26, `fine background minimum brightness escaped restrained range: ${fineMinBrightness}`)
-requireCondition(fineMaxBrightness >= 0.42 && fineMaxBrightness <= 0.52, `fine background max brightness escaped restrained range: ${fineMaxBrightness}`)
+requireCondition(fineSize >= 1.35 && fineSize <= 1.50, `fine background size escaped Pass 6 screen-space range: ${fineSize}`)
+requireCondition(fineOpacity >= 0.82 && fineOpacity <= 0.88, `fine background opacity escaped Pass 6 range: ${fineOpacity}`)
+requireCondition(fineMinBrightness >= 0.30 && fineMinBrightness <= 0.34, `fine background minimum brightness escaped Pass 6 range: ${fineMinBrightness}`)
+requireCondition(fineMaxBrightness >= 0.52 && fineMaxBrightness <= 0.56, `fine background max brightness escaped Pass 6 range: ${fineMaxBrightness}`)
 requireCondition(fineMaxBrightness < denseMaxBrightness, 'fine background must remain below the dense background brightness ceiling')
 requireCondition(fineDepthResponse < depthResponses[0], 'fine background must remain behind the established far foreground layer')
 requireCondition(fineBackgroundBlock.includes('fullSkyBaseline: true'), 'fine background must use full-sky baseline distribution')
-requireCondition(backgroundSource.includes('function sampleBackgroundStarDirection'), 'Pass 5 full-sky background sampler is missing')
+requireCondition(backgroundSource.includes('function sampleBackgroundStarDirection'), 'full-sky background sampler is missing')
 
 const clusterBlock = backgroundSource.match(/const STAR_CLUSTERS:[\s\S]*?= \[([\s\S]*?)\] as const/)
 requireCondition(clusterBlock, 'missing local star cluster specifications')
@@ -137,7 +136,7 @@ requireCondition(backgroundSource.includes('midScaleVariation') && backgroundSou
 requireCondition(backgroundSource.includes('dustBranchA') && backgroundSource.includes('dustBranchB'), 'branched dust-lane structure is missing')
 requireCondition(
   backgroundSource.includes('const dustSuppression = dustLane * (0.22 + innerBand * 0.38)'),
-  'Pass 5 dust lane suppression must avoid black-crushed gaps',
+  'Pass 5 dust lane suppression must remain unchanged',
 )
 requireCondition(
   backgroundSource.includes('cyanHaze') && backgroundSource.includes('magentaHaze') && backgroundSource.includes('neutralHaze'),
@@ -187,6 +186,7 @@ console.log(
   `space background regression ok: ${totalStars} stars (${denseBackgroundStarCount} dense + ${fineBackgroundStarCount} fine background), ` +
     `${galaxySpecs.length} galaxies / ${clusterCount} cluster regions, ${textureSize}x${textureSize} shared point texture, ` +
     `OLED floor ${spaceBaseRed}/${spaceBaseGreen}/${spaceBaseBlue}, ` +
+    `background attributes ${(backgroundAttributeBytes / 1024).toFixed(1)} KiB, ` +
     `depth responses ${depthResponses.map((value) => (value * 100).toFixed(3)).join('% / ')}%, ` +
     `max angular displacement ${maxParallaxAngle.toFixed(2)}°`,
 )

@@ -61,8 +61,8 @@ const STAR_POINT_TEXTURE_SIZE = 24
 const STAR_BRIGHTNESS_EXPONENT = 2.60
 const STAR_PARALLAX_SCALE = 0.05
 const STAR_PARALLAX_MAX_ANGLE_DEGREES = 0.24
-const DENSE_BACKGROUND_STAR_COUNT = 2500
-const FINE_BACKGROUND_STAR_COUNT = 2000
+const DENSE_BACKGROUND_STAR_COUNT = 10000
+const FINE_BACKGROUND_STAR_COUNT = 10000
 const SPACE_BASE_RED = 5.0
 const SPACE_BASE_GREEN = 7.0
 const SPACE_BASE_BLUE = 13.0
@@ -670,10 +670,10 @@ export function createSpaceBackdrop(scene: THREE.Scene, camera: THREE.Camera): S
     count: DENSE_BACKGROUND_STAR_COUNT,
     minRadius: 116,
     maxRadius: 218,
-    size: 1.58,
-    opacity: 0.86,
-    minBrightness: 0.32,
-    maxBrightness: 0.67,
+    size: 1.72,
+    opacity: 0.92,
+    minBrightness: 0.40,
+    maxBrightness: 0.69,
     follow: 0.011,
     seed: 0x51f29a3,
     fullSkyBaseline: true,
@@ -686,10 +686,10 @@ export function createSpaceBackdrop(scene: THREE.Scene, camera: THREE.Camera): S
     count: FINE_BACKGROUND_STAR_COUNT,
     minRadius: 128,
     maxRadius: 222,
-    size: 1.26,
-    opacity: 0.76,
-    minBrightness: 0.23,
-    maxBrightness: 0.50,
+    size: 1.42,
+    opacity: 0.85,
+    minBrightness: 0.32,
+    maxBrightness: 0.55,
     follow: 0.014,
     seed: 0x7ac42d1,
     fullSkyBaseline: true,
