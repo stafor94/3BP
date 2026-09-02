@@ -5,6 +5,10 @@ export type SpaceStarLayer = {
   geometry: THREE.BufferGeometry
   material: THREE.PointsMaterial
   follow: number
+  depthResponse: number
+  cameraAnchor: THREE.Vector3
+  cameraOffset: THREE.Vector3
+  maxParallaxOffset: number
 }
 
 type SpaceStarLayerOptions = {
@@ -19,6 +23,11 @@ type SpaceStarLayerOptions = {
   maxBrightness: number
   follow: number
   seed: number
+}
+
+type SpaceBackdropState = {
+  starPointTexture: THREE.DataTexture
+  starLayers: SpaceStarLayer[]
 }
 
 type SpaceBackdrop = {
@@ -41,9 +50,15 @@ type DistantGalaxySpec = {
 const SPACE_TEXTURE_WIDTH = 512
 const SPACE_TEXTURE_HEIGHT = 256
 const SPACE_SKY_RADIUS = 240
+const STAR_POINT_TEXTURE_SIZE = 24
+const STAR_BRIGHTNESS_EXPONENT = 2.60
+const STAR_PARALLAX_SCALE = 0.05
+const STAR_PARALLAX_MAX_ANGLE_DEGREES = 0.24
 const GALAXY_TEXTURE_SIZE = 64
 const DISTANT_GALAXY_RADIUS = 205
 const STAR_LAYOUT_SESSION_SALT = Math.floor(Math.random() * 0xffffffff) >>> 0
+
+const SPACE_BACKDROP_STATES = new WeakMap<THREE.Camera, SpaceBackdropState>()
 
 const GALACTIC_NORMAL = new THREE.Vector3(0.26, 0.83, 0.49).normalize()
 const STAR_CLUSTER_CENTER = new THREE.Vector3(-0.44, 0.58, -0.68).normalize()
@@ -83,10 +98,10 @@ const DISTANT_GALAXIES: readonly DistantGalaxySpec[] = [
 ] as const
 
 const STAR_TEMPERATURES = [
-  { color: new THREE.Color('#c7d9ff'), weight: 0.14 },
-  { color: new THREE.Color('#f2f4ef'), weight: 0.60 },
-  { color: new THREE.Color('#eadfca'), weight: 0.21 },
-  { color: new THREE.Color('#c8bdb9'), weight: 0.05 },
+  { color: new THREE.Color('#d7e2f4'), weight: 0.10 },
+  { color: new THREE.Color('#f1f2ee'), weight: 0.68 },
+  { color: new THREE.Color('#e8dfd0'), weight: 0.18 },
+  { color: new THREE.Color('#d6ccc7'), weight: 0.04 },
 ] as const
 
 function createSeededRandom(seed: number) {
@@ -103,6 +118,44 @@ function createSeededRandom(seed: number) {
 function smooth01(value: number) {
   const clamped = THREE.MathUtils.clamp(value, 0, 1)
   return clamped * clamped * (3 - 2 * clamped)
+}
+
+function createStarPointTexture() {
+  const data = new Uint8Array(STAR_POINT_TEXTURE_SIZE * STAR_POINT_TEXTURE_SIZE * 4)
+
+  for (let y = 0; y < STAR_POINT_TEXTURE_SIZE; y += 1) {
+    const ny = ((y + 0.5) / STAR_POINT_TEXTURE_SIZE) * 2 - 1
+    for (let x = 0; x < STAR_POINT_TEXTURE_SIZE; x += 1) {
+      const nx = ((x + 0.5) / STAR_POINT_TEXTURE_SIZE) * 2 - 1
+      const radiusSquared = nx * nx + ny * ny
+      const radius = Math.sqrt(radiusSquared)
+      const compactCore = Math.exp(-radiusSquared * 7.2)
+      const softShoulder = Math.exp(-radiusSquared * 2.5) * 0.16
+      const edge = 1 - smooth01((radius - 0.72) / 0.28)
+      const alpha = THREE.MathUtils.clamp((compactCore + softShoulder) * edge, 0, 1)
+      const offset = (y * STAR_POINT_TEXTURE_SIZE + x) * 4
+      data[offset] = 255
+      data[offset + 1] = 255
+      data[offset + 2] = 255
+      data[offset + 3] = Math.round(alpha * 255)
+    }
+  }
+
+  const texture = new THREE.DataTexture(
+    data,
+    STAR_POINT_TEXTURE_SIZE,
+    STAR_POINT_TEXTURE_SIZE,
+    THREE.RGBAFormat,
+    THREE.UnsignedByteType,
+  )
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.minFilter = THREE.LinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = false
+  texture.wrapS = THREE.ClampToEdgeWrapping
+  texture.wrapT = THREE.ClampToEdgeWrapping
+  texture.needsUpdate = true
+  return texture
 }
 
 function sampleStarDirection(random: () => number, target: THREE.Vector3) {
@@ -152,6 +205,11 @@ export function createSpaceStarLayer(options: SpaceStarLayerOptions): SpaceStarL
     follow,
     seed,
   } = options
+  const backdropState = SPACE_BACKDROP_STATES.get(camera)
+  if (!backdropState) {
+    throw new Error('createSpaceBackdrop must be created before space star layers')
+  }
+
   const random = createSeededRandom(seed)
   const geometry = new THREE.BufferGeometry()
   const positions = new Float32Array(count * 3)
@@ -167,7 +225,7 @@ export function createSpaceStarLayer(options: SpaceStarLayerOptions): SpaceStarL
     positions[offset + 1] = direction.y
     positions[offset + 2] = direction.z
 
-    const brightnessProgress = Math.pow(random(), 2.35)
+    const brightnessProgress = Math.pow(random(), STAR_BRIGHTNESS_EXPONENT)
     const brightness = THREE.MathUtils.lerp(minBrightness, maxBrightness, brightnessProgress)
     pickStarColor(random, starColor).multiplyScalar(brightness)
     colors[offset] = starColor.r
@@ -178,11 +236,13 @@ export function createSpaceStarLayer(options: SpaceStarLayerOptions): SpaceStarL
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
   const material = new THREE.PointsMaterial({
+    map: backdropState.starPointTexture,
     size,
     sizeAttenuation: false,
     vertexColors: true,
     transparent: true,
     opacity,
+    alphaTest: 0.01,
     depthWrite: false,
     fog: false,
     toneMapped: false,
@@ -192,7 +252,33 @@ export function createSpaceStarLayer(options: SpaceStarLayerOptions): SpaceStarL
   points.frustumCulled = false
   scene.add(points)
 
-  return { points, geometry, material, follow }
+  const depthResponse = follow * STAR_PARALLAX_SCALE
+  const cameraAnchor = camera.position.clone()
+  const cameraOffset = new THREE.Vector3()
+  const maxParallaxOffset = minRadius * Math.tan(
+    THREE.MathUtils.degToRad(STAR_PARALLAX_MAX_ANGLE_DEGREES),
+  )
+  const layer: SpaceStarLayer = {
+    points,
+    geometry,
+    material,
+    // Legacy camera-target helpers still read this field. Zero keeps target-only changes from moving stars.
+    follow: 0,
+    depthResponse,
+    cameraAnchor,
+    cameraOffset,
+    maxParallaxOffset,
+  }
+  backdropState.starLayers.push(layer)
+  return layer
+}
+
+function updateSpaceStarLayer(layer: SpaceStarLayer, cameraPosition: THREE.Vector3) {
+  layer.cameraOffset.copy(layer.cameraAnchor).sub(cameraPosition).multiplyScalar(layer.depthResponse)
+  if (layer.cameraOffset.lengthSq() > layer.maxParallaxOffset * layer.maxParallaxOffset) {
+    layer.cameraOffset.setLength(layer.maxParallaxOffset)
+  }
+  layer.points.position.copy(cameraPosition).add(layer.cameraOffset)
 }
 
 function directionField(direction: THREE.Vector3, phase: number) {
@@ -376,6 +462,10 @@ function createDistantGalaxyTexture(kind: DistantGalaxyKind, seed: number) {
 }
 
 export function createSpaceBackdrop(scene: THREE.Scene, camera: THREE.Camera): SpaceBackdrop {
+  const starPointTexture = createStarPointTexture()
+  const backdropState: SpaceBackdropState = { starPointTexture, starLayers: [] }
+  SPACE_BACKDROP_STATES.set(camera, backdropState)
+
   const texture = createSpaceTexture()
   const geometry = new THREE.SphereGeometry(SPACE_SKY_RADIUS, 32, 16)
   const material = new THREE.MeshBasicMaterial({
@@ -426,6 +516,9 @@ export function createSpaceBackdrop(scene: THREE.Scene, camera: THREE.Camera): S
     update(cameraPosition) {
       mesh.position.copy(cameraPosition)
       galaxyGroup.position.copy(cameraPosition)
+      for (const starLayer of backdropState.starLayers) {
+        updateSpaceStarLayer(starLayer, cameraPosition)
+      }
     },
     dispose() {
       scene.remove(mesh)
@@ -433,8 +526,12 @@ export function createSpaceBackdrop(scene: THREE.Scene, camera: THREE.Camera): S
       geometry.dispose()
       material.dispose()
       texture.dispose()
+      starPointTexture.dispose()
       for (const galaxyMaterial of galaxyMaterials) galaxyMaterial.dispose()
       for (const galaxyTexture of galaxyTextures) galaxyTexture.dispose()
+      if (SPACE_BACKDROP_STATES.get(camera) === backdropState) {
+        SPACE_BACKDROP_STATES.delete(camera)
+      }
     },
   }
 }
