@@ -5,9 +5,11 @@ on:
     branches: [main]
     paths:
       - 'src/rendering/bodyLighting.ts'
+      - 'src/rendering/stellarPhotosphereMaterial.ts'
       - 'src/rendering/stellarRenderProfile.ts'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
+      - 'scripts/stellarRenderPathVisualRegression.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
@@ -45,8 +47,8 @@ jobs:
           exit 1
       - name: Capture main-sequence mobile A/B
         env:
-          STELLAR_PHOTOSPHERE_BASELINE_REF: ca5568cd7f6bac13f63680c45593e0c24913cc96
-        run: python scripts/stellarPhotosphereVisualRegression.py
+          STELLAR_PHOTOSPHERE_BASELINE_REF: 75532efafa4aec499b902d9c6113b4bdc002d213
+        run: python scripts/stellarRenderPathVisualRegression.py
       - name: Upload stellar photosphere/corona A/B captures
         if: always()
         uses: actions/upload-artifact@v4
