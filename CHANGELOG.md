@@ -6,6 +6,24 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.3] - 2026-09-02
+
+### Changed
+- 모바일 실기기에서 여전히 성기게 보이던 Pass 5 starfield를 background 4,500개에서 20,000개로 확장했습니다. dense/fine layer는 각각 10,000개이며 기존 foreground 1,000개를 포함한 전체 stellar population은 21,000개입니다.
+- dense background를 size 1.72, opacity 0.92, brightness 0.40~0.69로 조정하고 fine background를 size 1.42, opacity 0.85, brightness 0.32~0.55로 조정해 고해상도 모바일 화면에서 작고 희미한 별이 texture filtering과 투명도에 묻히는 비율을 줄였습니다.
+- background의 full-sky baseline 분포, shared 24×24 point texture와 기존 brightness sampling exponent 2.60은 유지합니다. 밝기 분포 자체를 전역 변경하지 않고 background minimum brightness를 올려 faint tail의 실제 화면 가독성을 확보했습니다.
+
+### Performance
+- v0.24.2 대비 background star는 +15,500개 증가하며 정적 position+color Float32 attribute raw buffer는 약 +363.3 KiB 증가합니다. 20,000 background 전체 attribute는 약 468.8 KiB입니다.
+- dense/fine 각각 기존 단일 `THREE.Points` batch를 그대로 사용하므로 draw call 증가는 0입니다. star point texture는 기존 shared 24×24 DataTexture를 재사용해 texture 증가는 0이며, geometry는 초기화 후 static이고 per-frame buffer allocation을 추가하지 않습니다.
+
+### Verification
+- space background regression을 background 18,000~22,000 / foreground 정확히 1,000 / total 19,000~23,000 의도 범위와 Pass 6 dense/fine size·opacity·brightness 범위를 검증하도록 갱신했습니다. foreground maxBrightness 0.72/0.86/1.00과 shared brightness exponent 2.60도 그대로 검증합니다.
+- v0.24.2 main (`9768b95d32040cb97f598f98f36ff6bc707280ee`)과 Pass 6를 동일 deterministic seed의 mobile 390×844 / desktop 1280×800, 5개 viewpoint에서 native A/B로 비교합니다.
+
+### Unchanged
+- sky base RGB 5/7/13, Milky Way/haze/distant galaxy luminance와 texture, foreground 500/300/200 hierarchy, physics/solver/collision, camera, planets, orbital trails, destruction VFX, UI와 controls는 변경하지 않습니다.
+
 ## [0.24.2] - 2026-09-02
 
 ### Fixed
