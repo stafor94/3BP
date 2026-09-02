@@ -156,7 +156,6 @@ function testPhotosphereUsesCellularGranulationTopology() {
   assert(stellarMaterialSource.includes('(fineBreakup - 0.5) * 0.008'), 'fine breakup must stay subordinate to cellular topology')
   assert(stellarMaterialSource.includes('uSurfaceSeed * 0.051'), 'cellular photosphere must remain deterministic per stellar surface seed')
   assert(stellarMaterialSource.includes('material.uniforms.uTime.value = frame.animationTimeSeconds'), 'animation time must be updated only through the stellar material contract')
-  assert(stellarMaterialSource.includes('float limbDarkening = 0.74 + 0.26 * pow(limb, 0.52);'), 'existing stellar limb darkening must remain unchanged')
   assert(stellarMaterialSource.includes('float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.070, 0.047);'), 'cellular topology must survive tone mapping through the existing bounded stellar-only modulation')
   assert(stellarMaterialSource.includes('#include <tonemapping_fragment>\n    gl_FragColor.rgb *= stellarSurfaceModulation;'), 'stellar surface topology must remain visible after tone mapping')
   assert(!stellarMaterialSource.includes('objectNormal * 15.5'), 'legacy smooth value-noise primary granulation must remain removed')
@@ -187,6 +186,49 @@ function testPhotosphereTimeEvolutionDoesNotSlideTopology() {
   assert(stellarMaterialSource.includes('uTime * 0.0035 + uSurfaceSeed * 0.009'), 'broad convection must evolve only through a very slow amplitude breathing term')
   assert(stellarMaterialSource.includes('uTime * 0.009 +'), 'cellular granules must use a distinct very slow per-cell thermal phase')
   assert(stellarMaterialSource.includes('uTime * 0.0055 + uSurfaceSeed * 0.013 + 1.1'), 'fine breakup must use a separate very slow amplitude phase')
+}
+
+function testPhotosphereUsesSoftStellarLimbAndCoverage() {
+  assert(
+    stellarMaterialSource.includes('float broadLimb = pow(viewMu, 0.42);'),
+    'stellar limb emission must use a broad continuous center-to-edge response',
+  )
+  assert(
+    stellarMaterialSource.includes('return 0.90 + broadLimb * 0.20 + centerLift * 0.16;'),
+    'stellar limb must retain a bright edge floor instead of producing a gray or black ring',
+  )
+  assert(
+    stellarMaterialSource.includes('float drawStellarFringe(vec3 worldNormal, vec3 viewDirection)'),
+    'stellar photosphere must expose a dedicated thin fringe instead of the generic bright rim',
+  )
+  assert(
+    stellarMaterialSource.includes('float fringeFall = 1.0 - smoothstep(0.965, 0.998, fresnel);'),
+    'stellar fringe must fall away at the exact silhouette so it cannot become a visible ring',
+  )
+  assert(
+    stellarMaterialSource.includes('float getStellarEdgeCoverage(vec3 worldNormal, vec3 viewDirection)'),
+    'stellar silhouette must derive coverage from the view angle inside the existing sphere draw',
+  )
+  assert(
+    stellarMaterialSource.includes('fwidth(viewMu) * 1.15'),
+    'stellar edge feather must be screen-space derivative aware',
+  )
+  assert(
+    stellarMaterialSource.includes('gl_FragColor = vec4(color, uOpacity * edgeCoverage);'),
+    'stellar fragment alpha must carry only the thin silhouette coverage transition',
+  )
+  assert(
+    stellarMaterialSource.includes('alphaToCoverage: true'),
+    'new stellar material creation must enable MSAA alpha-to-coverage without transparent sorting',
+  )
+  assert(
+    stellarMaterialSource.includes('material.alphaToCoverage = true'),
+    'runtime stellar-path conversion must also enable alpha-to-coverage',
+  )
+  assert(
+    !stellarMaterialSource.includes('float drawStellarRim('),
+    'legacy full Fresnel stellar rim must remain removed',
+  )
 }
 
 function testStellarOnlyUniformsDoNotLeakIntoGenericShader() {
@@ -235,6 +277,7 @@ const tests = [
   testPhotosphereUsesCellularGranulationTopology,
   testPhotosphereUsesScreenSpaceGranulationLod,
   testPhotosphereTimeEvolutionDoesNotSlideTopology,
+  testPhotosphereUsesSoftStellarLimbAndCoverage,
   testStellarOnlyUniformsDoNotLeakIntoGenericShader,
   testStellarUpdateContractOwnsRenderInputs,
   testCoronaUsesSubtleShaderBasedAsymmetry,
