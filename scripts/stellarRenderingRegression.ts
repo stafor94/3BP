@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { getStellarComputedProperties } from '../src/starColors'
 import { getStellarRenderProfile } from '../src/rendering/stellarRenderProfile'
 import type { BodyState, StellarEvolutionStage } from '../src/types'
+
+const bodyLightingSource = readFileSync(resolve(process.cwd(), 'src/rendering/bodyLighting.ts'), 'utf8')
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -97,11 +101,42 @@ function testMassChangesImmediatelyChangeRenderInputs() {
   assert(stripped.render.innerGlowOpacity !== before.render.innerGlowOpacity, 'mass stripping must immediately change luminosity-driven glow')
 }
 
+function testPhotosphereUsesSubtleMultiScaleTimeVaryingGranulation() {
+  assert(bodyLightingSource.includes('uniform float uTime;'), 'stellar photosphere shader must expose a time uniform')
+  assert(bodyLightingSource.includes('float drawStellarGranulation(vec3 objectNormal)'), 'stellar photosphere must use a dedicated granulation function')
+  assert(bodyLightingSource.includes('objectNormal * 4.2'), 'stellar granulation must retain a broad convection-cell scale')
+  assert(bodyLightingSource.includes('objectNormal * 15.5'), 'stellar granulation must retain a smaller granular scale')
+  assert(bodyLightingSource.includes('objectNormal * 31.0'), 'stellar granulation must include subtle micro-scale breakup')
+  assert(bodyLightingSource.includes('vec3 convectionDrift = vec3(0.15, -0.10, 0.08) * slowTime;'), 'stellar convection cells must drift slowly instead of rotating as a rigid texture')
+  assert(bodyLightingSource.includes('vec3 granuleDrift = vec3(-0.08, 0.13, -0.11) * slowTime;'), 'stellar granules must evolve independently from broad convection cells')
+  assert(bodyLightingSource.includes('material.uniforms.uTime.value = isStar ? renderTimeSeconds : 0'), 'time animation must stay isolated to stellar body rendering')
+  assert(bodyLightingSource.includes('float limbDarkening = 0.74 + 0.26 * pow(limb, 0.52);'), 'stellar limb darkening must retain the stronger edge falloff')
+  assert(bodyLightingSource.includes('float granulationContrast = clamp((granulation - 1.0) * 1.75, -0.055, 0.055);'), 'stellar granulation must retain a tightly bounded post-tone-map contrast signal')
+  assert(bodyLightingSource.includes('#include <tonemapping_fragment>\n    if (uSelfLuminous > 0.5) {\n      gl_FragColor.rgb *= stellarSurfaceModulation;'), 'stellar granulation must survive the renderer tone-mapping shoulder without affecting non-stellar bodies')
+}
+
+function testCoronaUsesSubtleShaderBasedAsymmetry() {
+  assert(bodyLightingSource.includes('uStellarGlowTime'), 'stellar glow shader must receive a slow time input')
+  assert(bodyLightingSource.includes('uStellarGlowSeed'), 'stellar glow asymmetry must remain deterministic per body')
+  assert(bodyLightingSource.includes('stellarAngularA * 0.065 + stellarAngularB * 0.035'), 'outer corona variation must stay subtle rather than flare-like')
+  assert(bodyLightingSource.includes("configureStellarGlowMaterial(glowInner.material, 'inner'"), 'inner stellar glow must use the shader customization')
+  assert(bodyLightingSource.includes("configureStellarGlowMaterial(glowOuter.material, 'outer'"), 'outer stellar corona must use the shader customization')
+  assert(!bodyLightingSource.includes('new THREE.CanvasTexture'), 'stellar visual refinement must not add a new per-body texture path')
+}
+
+function testNonStellarSurfacePathRemainsSeparated() {
+  assert(bodyLightingSource.includes("if (bodyType === 'planet' || bodyType === 'moon' || bodyType === 'fragment')"), 'non-stellar surface profiles must keep their dedicated routing')
+  assert(bodyLightingSource.includes('float surfaceDetail = drawBodySurfaceDetail(objectNormal);\n      vec3 albedo = drawNonStellarAlbedo(objectNormal, surfaceDetail);'), 'planet/moon/fragment shading must continue using the existing non-stellar detail path')
+}
+
 const tests = [
   testRepresentativeStarsStayVisuallyDistinct,
   testLuminosityIsCompressedForDisplay,
   testCoreAndHaloHierarchy,
   testMassChangesImmediatelyChangeRenderInputs,
+  testPhotosphereUsesSubtleMultiScaleTimeVaryingGranulation,
+  testCoronaUsesSubtleShaderBasedAsymmetry,
+  testNonStellarSurfacePathRemainsSeparated,
 ]
 
 for (const test of tests) test()
