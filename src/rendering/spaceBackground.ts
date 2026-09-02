@@ -130,7 +130,7 @@ function createStarPointTexture() {
       const radiusSquared = nx * nx + ny * ny
       const radius = Math.sqrt(radiusSquared)
       const compactCore = Math.exp(-radiusSquared * 7.2)
-      const softShoulder = Math.exp(-radiusSquared * 2.5) * 0.22
+      const softShoulder = Math.exp(-radiusSquared * 2.5) * 0.45
       const edge = 1 - smooth01((radius - 0.72) / 0.28)
       const alpha = THREE.MathUtils.clamp((compactCore + softShoulder) * edge, 0, 1)
       const offset = (y * STAR_POINT_TEXTURE_SIZE + x) * 4
