@@ -171,7 +171,7 @@
 - 비항성 충돌의 실제 mass-bearing ejecta가 surviving solid 표면에 붙거나 뭉쳐 보이지 않도록 실제 생성 위치와 방출 방향을 collision geometry 기준으로 조정했습니다.
 - ejecta momentum 변화량을 survivor/remnant의 실제 velocity에 보정해 represented linear momentum conservation을 유지했습니다.
 - post-solver solid handoff timing을 첫 실제 renderer frame 기준으로 시작해 source → remnant/absorbed 전환의 첫 visible-frame jump를 줄였습니다.
-- 작은 high-head-on collision에서 physical spark가 과도한 표시 크기로 뭉치거나 세로 기둥처럼 보이지 않도록 fragment-scale presentation을 적용했습니다.
+- 작은 high-head-on 충돌에서 physical spark가 과도한 표시 크기로 뭉치거나 세로 기둥처럼 보이지 않도록 fragment-scale presentation을 적용했습니다.
 
 ### Changed
 - non-stellar destruction browser regression을 synthetic fragment fixture 대신 실제 `fragmentAwareEngine.stepBodies()` 기반 production solver fixture로 전환했습니다.
@@ -344,7 +344,7 @@
 - non-stellar destruction browser artifact를 IMPACT, early/mid FRACTURE, TRANSFER, REMNANT_SETTLE 시점으로 세분화해 solid breakup과 기존 source-sized ghost 방지 조건을 함께 검사하도록 했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 판정 및 결과, mass/radius/velocity, physical fragment/ejecta, tracking/camera/trail, stellar collision VFX는 변경하지 않았습니다.
+- collision physics, merge/disruption 판정, collision prediction, mass/ejecta 및 실제 physical fragment 결과, 50% initial-mass tracking rule, tracking lineage semantics, collision/tracking camera, trail 정책, stellar collision VFX, absorption/merge visual 의미 및 일반 UI는 변경하지 않았습니다.
 
 ## [0.19.12] - 2026-08-28
 
@@ -392,7 +392,7 @@
 - 흡수 충돌에서 피흡수체가 접촉면 근처에서 빠르게 작아지며 사라지고 생존 remnant가 같은 순간 최종 크기로 튀어, 실제로 질량이 넘어가기보다 한 천체가 교체되는 것처럼 보이던 전환을 자연스럽게 연결했습니다.
 
 ### Unchanged
-- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial-mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
+- collision physics, merge/disruption 판정, collision prediction, 질량 보존/fragment 생성, 50% initial mass tracking rule, tracking lineage semantics, remnant 물리, trail 생성/수명 및 camera transform/tracking 로직은 변경하지 않았습니다.
 
 ## [0.19.9] - 2026-08-27
 
@@ -444,7 +444,7 @@
 
 ### Fixed
 - 충돌 관찰 카메라가 종료될 때 `trackedBodyId`가 동일해 일반 tracking의 selection change가 발생하지 않고, collision camera의 마지막 거리/방향이 남은 채 focus settle이 재시작되지 않던 문제를 수정했습니다.
-- collision camera의 `focused → released` 전이를 별도 camera-mode handoff로 감지해 기존 tracking selection·baseline·50% mass rule을 건드리지 않고 같은 tracking focus 초기화 경로에서 view direction과 auto-distance settle을 다시 시작하도록 변경했습니다.
+- collision camera의 `focused → released` 전이를 별도 camera-mode handoff로 감지해 기존 tracking selection·baseline·50% mass rule을 건드리지 않고 같은 tracking focus 초기화 경로에서 view direction과 auto-distance settle을 다시 시작하도록 했습니다.
 - collision camera 종료 프레임에 default composition을 거치거나 카메라를 순간이동하지 않고, 현재 카메라 위치에서 기존 tracking transition으로 유효 continuation을 계속 화면 중앙에 유지하도록 했습니다.
 
 ### Added
@@ -743,7 +743,7 @@
 - 항성 ejecta의 방향을 단순 랜덤 산란 대신 충돌 `normal`, `tangent`, `relativeVelocity`, `headOn`, `grazing`, `speedRatio`와 질량비를 조합해 결정하도록 했습니다.
 - 스치는 충돌은 한쪽 접선 방향의 길고 찢어진 분출을 우세하게 하고, 정면 충돌은 충돌면을 따라 짧고 두꺼운 분출이 나오도록 분기했습니다.
 - 항성 충돌마다 2~4개의 큰 플라즈마 클럼프와 더 작은 ejecta를 섞고, 충돌 속도와 기하에 따라 수명·속도·길이·꼬리·난류를 다르게 적용하도록 했습니다.
-- 질량 차이가 큰 항성 충돌은 작은 항성의 색과 운동 방향이 ejecta에 더 강하게 반영되도록 해 작은 쪽 물질이 뜯겨 나가는 편향을 강화했습니다.
+- 질량 차가 큰 항성 충돌은 작은 항성의 색과 운동 방향이 ejecta에 더 강하게 반영되도록 해 작은 쪽 물질이 뜯겨 나가는 편향을 강화했습니다.
 - 플라즈마 색을 백색/청백색 고온 코어, 혼합된 항성색 중간층, 냉각되며 옅게 적색화·탈채되는 외곽층으로 분리하고 선형이 아닌 감쇠 곡선을 적용했습니다.
 - 효과 수는 기존 동적 천체 상한 28개 안에서 contact flash 슬롯까지 예약하도록 제한하고, effect plane geometry를 공유해 렌더링 부하 증가를 제한했습니다.
 
@@ -784,7 +784,7 @@
 
 ### Fixed
 - 항성끼리 충분히 깊게 파고들기 전에 합체 결과로 교체되어 여전히 `뿅` 하고 하나로 바뀌는 느낌이 남던 문제를 완화했습니다.
-- 같은 천체를 다시 추적할 때 현재 주변 천체의 거리·질량이나 충돌 상대와의 거리에 따라 자동 카메라 배율이 달라지거나 간헐적으로 과확대되던 문제를 수정했습니다.
+- 추적 대상 주변 천체의 거리·질량이나 충돌 상대와의 거리에 따라 자동 카메라 배율이 달라지던 경로를 제거했습니다.
 
 ## [0.17.15] - 2026-08-25
 
@@ -956,7 +956,7 @@
 
 ### Changed
 - 자동 충돌 관찰이 추적 대상을 선택할 때도 왼쪽 추적 레일의 선택 상태가 함께 반영되도록 변경했습니다.
-- 합체 이후에는 선택한 초기 천체의 원래 이름을 유지하면서 현재 생존 천체의 질량·반지름을 갱신하도록 했습니다.
+- 합체 이후에는 선택한 초기 천체의 계보에서 가장 큰 생존 천체를 계속 추적 대상으로 연결하도록 변경했습니다.
 
 ### Fixed
 - 초기 질량의 절반 이하로 감소했거나 더 이상 생존 계보를 찾을 수 없는 천체는 추적 레일에서 흑백/비활성 상태로 표시하고 선택할 수 없도록 했습니다.
