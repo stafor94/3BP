@@ -6,6 +6,27 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.0] - 2026-09-02
+
+### Added
+- 기존 1,000개 far/mid/near star hierarchy 앞에 1,400개의 더 작고 희미한 deep-field star layer를 추가해 전체 stellar population을 2,400개로 늘리고, 4개의 느슨한 local cluster 영역으로 방향별 밀도 차이를 보강했습니다.
+- distant galaxy를 3개에서 8개로 확장하고 새 5개는 더 작은 크기와 0.08~0.14 opacity를 사용하며, seed가 spiral arm/flattening/core, edge-on thickness/dust, elliptical axis profile에도 영향을 주도록 변형 폭을 넓혔습니다.
+
+### Changed
+- 기존 512×256 sky texture 해상도는 유지하면서 Milky Way 내부에 fine stellar grain과 micro-cloud fluctuation을 추가하고, full-sky rich/void 비대칭을 강화해 넓은 검은 영역의 정보 밀도를 높였습니다.
+- dark dust lane에 불연속적인 continuity, 폭 변화, 두 개의 희미한 branch를 추가하고 기존 sparse nebula 위에 저채도의 cyan/magenta/neutral broad haze를 겹쳐 띠·노이즈처럼 보이지 않는 중간 스케일 구조를 보강했습니다.
+- 기존 Pass 3의 bright-star 최대 밝기, neutral temperature palette, 24×24 shared PSF texture와 far/mid/near parallax hierarchy는 그대로 유지해 시뮬레이션 천체보다 배경이 앞서 보이지 않도록 했습니다.
+
+### Performance
+- deep-field는 기존 shared point texture를 재사용하는 단일 `THREE.Points` draw call로 구성하며 추가 position/color buffer는 약 32.8 KiB입니다. galaxy raw RGBA data는 48 KiB에서 128 KiB로 증가하지만 모두 renderer 초기화 시에만 생성합니다.
+- space texture와 galaxy texture 해상도는 각각 512×256 / 64×64로 유지하고, per-frame procedural noise·allocation·twinkle·raymarch·volumetric effect를 추가하지 않았습니다.
+
+### Verification
+- background regression이 기존 1,000-star foreground hierarchy 보존, 2,000~3,000 total star budget, faint deep-field constraints, local cluster 수, 6~10 galaxy/type/seed variation, Milky Way grain·branched dust·faint haze 존재, texture budget 및 deep-field dispose를 검증하도록 확장했습니다.
+
+### Unchanged
+- physics/solver/collision, mass/radius/velocity/trajectory, collision/tracking camera 로직, celestial body shader, collision/destruction VFX, ejecta/fragment/trail physics는 변경하지 않습니다.
+
 ## [0.23.0] - 2026-09-02
 
 ### Added
