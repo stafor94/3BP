@@ -6,6 +6,26 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.5] - 2026-09-02
+
+### Changed
+- 항성 photosphere를 단일한 밝은 구체처럼 보이게 하던 정적 표면 표현을 large convection cell, fine granule, micro breakup의 3단 procedural granulation으로 분리했습니다.
+- 항성 전용 `uTime`을 사용해 broad convection과 작은 granule이 서로 다른 방향으로 매우 느리게 drift하도록 해 rigid texture rotation 없이 살아 있는 플라즈마 표면처럼 보이도록 했습니다.
+- 항성 limb darkening을 강화하고 rim 발광을 낮춰 원형 흰 테두리보다 중심부의 자체 발광과 가장자리 감쇠가 먼저 읽히도록 조정했습니다.
+- 기존 inner/outer glow sprite와 texture 수는 유지하면서 shader 단계에서 inner glow의 중심 발광을 소폭 보강하고 outer corona에 낮은 진폭의 deterministic angular asymmetry를 추가해 단순한 원형 radial blur 인상을 줄였습니다.
+- 밝은 photosphere의 granulation이 최종 tone mapping에서 사라지지 않도록 tone mapping 직후 항성 RGB에만 동일 비율의 최대 ±5.5% bounded surface modulation을 적용해 기존 온도색을 보존하면서 모바일 픽셀에서도 표면 구조가 남도록 했습니다.
+
+### Performance
+- 새 texture, geometry, sprite, particle 또는 draw call을 추가하지 않습니다. photosphere는 기존 body shader의 procedural noise를 사용하고 corona는 기존 두 glow sprite material의 shader customization만 사용합니다.
+- planet/moon/fragment는 기존 non-stellar surface detail 및 lighting path를 그대로 사용하며 항성 전용 time/modulation 계산을 적용하지 않습니다.
+
+### Verification
+- stellar rendering regression에 3-scale granulation, 독립 slow drift, stronger limb darkening, post-tone-map bounded modulation, shader-based inner/outer corona와 non-stellar path 격리 계약을 추가했습니다.
+- main v0.24.4 (`ca5568cd7f6bac13f63680c45593e0c24913cc96`)와 동일한 두 main-sequence star 장면을 mobile 390×844에서 A/B 캡처하고 bright footprint, very-bright footprint, 평균 밝기와 local photosphere contrast를 검증합니다.
+
+### Unchanged
+- preset, `starColors.ts`의 temperature 기반 항성 색상, 질량·반지름·궤도·solver·collision 판정, collision VFX/remnant, planet/moon/fragment 시각 경로, camera/trail/UI 및 v0.24.4 dense temperature-diverse starfield background는 변경하지 않습니다.
+
 ## [0.24.4] - 2026-09-02
 
 ### Changed

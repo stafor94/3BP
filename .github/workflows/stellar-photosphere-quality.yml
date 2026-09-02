@@ -1,0 +1,57 @@
+name: Stellar Photosphere Quality
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/rendering/bodyLighting.ts'
+      - 'src/rendering/stellarRenderProfile.ts'
+      - 'scripts/stellarRenderingRegression.ts'
+      - 'scripts/stellarPhotosphereVisualRegression.py'
+      - '.github/workflows/stellar-photosphere-quality.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stellar-photosphere-corona-ab:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install
+      - name: Build and regression checks
+        run: npm run build
+      - name: Install browser visual regression runtime
+        run: python -m pip install --disable-pip-version-check --quiet selenium==4.35.0 pillow==11.3.0
+      - name: Start production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/3bp-stellar-preview.log 2>&1 &
+          echo $! > /tmp/3bp-stellar-preview.pid
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/3BP/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/3bp-stellar-preview.log
+          exit 1
+      - name: Capture main-sequence mobile A/B
+        env:
+          STELLAR_PHOTOSPHERE_BASELINE_REF: ca5568cd7f6bac13f63680c45593e0c24913cc96
+        run: python scripts/stellarPhotosphereVisualRegression.py
+      - name: Upload stellar photosphere/corona A/B captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-photosphere-corona-mobile-ab
+          path: stellar-photosphere-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7

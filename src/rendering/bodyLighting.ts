@@ -30,6 +30,13 @@ const stellarHeatClock = new Map<string, { token: string; startedAt: number }>()
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
+type StellarGlowLayer = 'inner' | 'outer'
+type StellarGlowUniformState = {
+  uStellarGlowTime: { value: number }
+  uStellarGlowSeed: { value: number }
+  uStellarGlowLayer: { value: number }
+}
+
 function nowMs() {
   return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }
@@ -102,6 +109,7 @@ const litBodyFragmentShader = `
   uniform vec3 uPolarColor;
   uniform float uSeed;
   uniform float uSurfaceSeed;
+  uniform float uTime;
   uniform float uDetailStrength;
   uniform float uRimStrength;
   uniform float uOpacity;
@@ -151,6 +159,31 @@ const litBodyFragmentShader = `
       ),
       u.z
     );
+  }
+
+  float drawStellarGranulation(vec3 objectNormal) {
+    vec3 seedOffset = vec3(
+      uSurfaceSeed * 0.051 + uSurfaceVariant * 2.17,
+      uSurfaceSeed * 0.089 - uSurfaceVariant * 1.61,
+      uSurfaceSeed * 0.137 + uSurfaceVariant * 1.31
+    );
+    float slowTime = uTime * 0.012;
+    vec3 convectionDrift = vec3(0.15, -0.10, 0.08) * slowTime;
+    vec3 granuleDrift = vec3(-0.08, 0.13, -0.11) * slowTime;
+    float convection = valueNoise(objectNormal * 4.2 + seedOffset + convectionDrift);
+    float granules = valueNoise(objectNormal * 15.5 - seedOffset * 1.31 + granuleDrift);
+    float micro = valueNoise(
+      objectNormal * 31.0 +
+      seedOffset * 0.57 -
+      convectionDrift * 0.6 +
+      granuleDrift * 0.35
+    );
+    float variation =
+      (convection - 0.5) * 0.11 +
+      (granules - 0.5) * 0.085 +
+      (micro - 0.5) * 0.035;
+
+    return clamp(1.0 + variation * uDetailStrength, 0.84, 1.16);
   }
 
   float drawBodySurfaceDetail(vec3 objectNormal) {
@@ -225,8 +258,8 @@ const litBodyFragmentShader = `
 
   float drawBodyEmission(vec3 worldNormal, vec3 viewDirection) {
     float limb = max(dot(worldNormal, viewDirection), 0.0);
-    float limbDarkening = 0.82 + 0.18 * pow(limb, 0.55);
-    float centerEmission = 1.10 + 0.24 * pow(limb, 0.72);
+    float limbDarkening = 0.74 + 0.26 * pow(limb, 0.52);
+    float centerEmission = 1.06 + 0.22 * pow(limb, 0.78);
     return limbDarkening * centerEmission;
   }
 
@@ -251,19 +284,23 @@ const litBodyFragmentShader = `
     vec3 objectNormal = normalize(vObjectNormal);
     vec3 normalWorld = normalize(vWorldNormal);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
-    float surfaceDetail = drawBodySurfaceDetail(objectNormal);
     float rim = drawBodyRim(normalWorld, viewDirection);
+    float stellarSurfaceModulation = 1.0;
     vec3 color;
 
     if (uSelfLuminous > 0.5) {
+      float granulation = drawStellarGranulation(objectNormal);
       float emission = drawBodyEmission(normalWorld, viewDirection);
-      float intensity = min((emission * surfaceDetail + rim) * uEmissionStrength, 1.22);
+      float intensity = min((emission * granulation + rim * 0.45) * uEmissionStrength, 1.22);
       vec3 stellarColor = toneMapStellarHuePreserving(uIdentityColor * intensity);
+      float granulationContrast = clamp((granulation - 1.0) * 1.75, -0.055, 0.055);
+      stellarSurfaceModulation = 1.0 + granulationContrast;
       float limb = max(dot(normalWorld, viewDirection), 0.0);
       float whiteHotCore = pow(limb, 14.0) * uWhiteHotMix;
       float peak = min(0.98, max(max(stellarColor.r, stellarColor.g), stellarColor.b) + 0.055);
       color = mix(stellarColor, vec3(peak), whiteHotCore);
     } else {
+      float surfaceDetail = drawBodySurfaceDetail(objectNormal);
       vec3 albedo = drawNonStellarAlbedo(objectNormal, surfaceDetail);
       vec3 litColor = albedo * uAmbientStrength;
       vec3 atmosphereLight = vec3(0.0);
@@ -297,6 +334,9 @@ const litBodyFragmentShader = `
 
     gl_FragColor = vec4(color, uOpacity);
     #include <tonemapping_fragment>
+    if (uSelfLuminous > 0.5) {
+      gl_FragColor.rgb *= stellarSurfaceModulation;
+    }
     #include <colorspace_fragment>
   }
 `
@@ -314,7 +354,7 @@ function setSurfaceProfile(material: THREE.ShaderMaterial, body: BodyState) {
     polarColor.set(resolved)
     material.uniforms.uBodyKind.value = 0
     material.uniforms.uDetailStrength.value = 1
-    material.uniforms.uRimStrength.value = 0.08
+    material.uniforms.uRimStrength.value = 0.045
     material.uniforms.uSpecularStrength.value = 0
     material.uniforms.uSpecularPower.value = 32
     material.uniforms.uAmbientStrength.value = 0
@@ -379,10 +419,84 @@ function updateTrailColor(scene: THREE.Scene, objectIndex: number, body: BodySta
   }
 }
 
-function configureStellarGlowMaterial(material: THREE.SpriteMaterial) {
+function configureStellarGlowMaterial(
+  material: THREE.SpriteMaterial,
+  layer: StellarGlowLayer,
+  seed: number,
+  timeSeconds: number,
+) {
   if (material.blending !== THREE.NormalBlending) {
     material.blending = THREE.NormalBlending
     material.needsUpdate = true
+  }
+
+  material.userData.stellarGlowTime = timeSeconds
+  material.userData.stellarGlowSeed = seed
+  material.userData.stellarGlowLayer = layer === 'outer' ? 1 : 0
+
+  if (!material.userData.stellarGlowShaderInstalled) {
+    material.userData.stellarGlowShaderInstalled = true
+    material.onBeforeCompile = (shader) => {
+      const uniforms: StellarGlowUniformState = {
+        uStellarGlowTime: { value: material.userData.stellarGlowTime ?? 0 },
+        uStellarGlowSeed: { value: material.userData.stellarGlowSeed ?? 0 },
+        uStellarGlowLayer: { value: material.userData.stellarGlowLayer ?? 0 },
+      }
+      shader.uniforms.uStellarGlowTime = uniforms.uStellarGlowTime
+      shader.uniforms.uStellarGlowSeed = uniforms.uStellarGlowSeed
+      shader.uniforms.uStellarGlowLayer = uniforms.uStellarGlowLayer
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+          uniform float uStellarGlowTime;
+          uniform float uStellarGlowSeed;
+          uniform float uStellarGlowLayer;`,
+        )
+        .replace(
+          '#include <map_fragment>',
+          `#include <map_fragment>
+          vec2 stellarGlowDelta = vMapUv - vec2(0.5);
+          float stellarGlowRadius = min(length(stellarGlowDelta) * 2.0, 1.5);
+          float stellarGlowAngle = atan(stellarGlowDelta.y, stellarGlowDelta.x);
+          float stellarOuter = step(0.5, uStellarGlowLayer);
+          float stellarEdgeWeight = smoothstep(0.12, 0.98, stellarGlowRadius);
+          float stellarAngularA = sin(
+            stellarGlowAngle * 5.0 +
+            uStellarGlowSeed * 0.071 +
+            uStellarGlowTime * 0.025
+          );
+          float stellarAngularB = sin(
+            stellarGlowAngle * 9.0 -
+            uStellarGlowSeed * 0.113 -
+            uStellarGlowTime * 0.018
+          );
+          float stellarVariation = mix(
+            stellarAngularA * 0.026,
+            stellarAngularA * 0.065 + stellarAngularB * 0.035,
+            stellarOuter
+          );
+          diffuseColor.a *= clamp(
+            1.0 + stellarVariation * stellarEdgeWeight,
+            0.88,
+            1.12
+          );
+          float stellarInnerLift =
+            (1.0 - stellarOuter) *
+            (1.0 - smoothstep(0.08, 0.62, stellarGlowRadius)) *
+            0.045;
+          diffuseColor.rgb *= 1.0 + stellarInnerLift;`,
+        )
+      material.userData.stellarGlowUniforms = uniforms
+    }
+    material.needsUpdate = true
+  }
+
+  const uniforms = material.userData.stellarGlowUniforms as StellarGlowUniformState | undefined
+  if (uniforms) {
+    uniforms.uStellarGlowTime.value = timeSeconds
+    uniforms.uStellarGlowSeed.value = seed
+    uniforms.uStellarGlowLayer.value = layer === 'outer' ? 1 : 0
   }
 }
 
@@ -414,17 +528,19 @@ function setBodyGlowVisibility(
     properties.surfaceTemperatureK,
   )
   const renderRadius = Math.max(body.radius, STELLAR_VISUAL_MIN_RADIUS)
+  const visualTimeSeconds = (nowMs() * 0.001) % 4096
+  const glowSeed = getBodySeed(body.id)
 
   if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
-    configureStellarGlowMaterial(glowInner.material)
+    configureStellarGlowMaterial(glowInner.material, 'inner', glowSeed, visualTimeSeconds)
     glowInner.visible = true
     glowInner.material.color.set(stellarColor)
-    glowInner.material.opacity = renderProfile.innerGlowOpacity
+    glowInner.material.opacity = Math.min(0.49, renderProfile.innerGlowOpacity * 1.07)
     glowInner.scale.setScalar(renderRadius * renderProfile.innerGlowScale)
   }
 
   if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
-    configureStellarGlowMaterial(glowOuter.material)
+    configureStellarGlowMaterial(glowOuter.material, 'outer', glowSeed, visualTimeSeconds)
     glowOuter.visible = true
     outerHaloColorScratch.set(stellarColor).lerp(whiteColor, renderProfile.outerHaloWhiteMix)
     glowOuter.material.color.copy(outerHaloColorScratch)
@@ -468,6 +584,7 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
   const isStar = bodyType === 'star'
   const isEffect = bodyType === 'effect'
   const selfLuminous = isStar || isEffect
+  const renderTimeSeconds = (nowMs() * 0.001) % 4096
 
   let emissionStrength = 0
   let whiteHotMix = 0
@@ -494,6 +611,7 @@ function updateBodyLighting(material: THREE.ShaderMaterial, scene: THREE.Scene, 
   material.uniforms.uSelfLuminous.value = selfLuminous ? 1 : 0
   material.uniforms.uEmissionStrength.value = emissionStrength
   material.uniforms.uWhiteHotMix.value = whiteHotMix
+  material.uniforms.uTime.value = isStar ? renderTimeSeconds : 0
   material.uniforms.uLightCount.value = lightingStars.length
   if (isEffect && material.uniforms.uOpacity) material.uniforms.uOpacity.value = effectOpacity
 
@@ -634,6 +752,7 @@ export function installBodyLighting() {
       uniforms: {
         ...values.uniforms,
         uSurfaceSeed: { value: values.uniforms.uSeed.value },
+        uTime: { value: 0 },
         uSecondaryColor: { value: new THREE.Color('#ffffff') },
         uPolarColor: { value: new THREE.Color('#ffffff') },
         uSelfLuminous: { value: 1 },
