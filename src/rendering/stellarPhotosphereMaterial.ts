@@ -182,11 +182,23 @@ export const stellarPhotosphereFragmentShader = `
     );
   }
 
-  float drawIntergranularLane(vec4 cellular) {
+  float getStellarNormalPixelFootprint(vec3 objectNormal) {
+    vec3 normalWidth = fwidth(objectNormal);
+    return max(max(normalWidth.x, normalWidth.y), max(normalWidth.z, 0.000001));
+  }
+
+  float getStellarFeaturePixels(float normalPixelFootprint, float frequency) {
+    return 1.0 / max(normalPixelFootprint * frequency, 0.0001);
+  }
+
+  float drawIntergranularLane(vec4 cellular, float laneLod) {
     float boundaryDistance = max(cellular.y - cellular.x, 0.0);
-    float lane = 1.0 - smoothstep(0.012, 0.075, boundaryDistance);
+    float lanePixelWidth = min(fwidth(boundaryDistance) * 0.35, 0.035);
+    float laneInner = max(0.0, 0.012 - lanePixelWidth * 0.35);
+    float laneOuter = 0.075 + lanePixelWidth;
+    float lane = 1.0 - smoothstep(laneInner, laneOuter, boundaryDistance);
     float mergeAffinity = 1.0 - smoothstep(0.060, 0.25, abs(cellular.z - cellular.w));
-    return lane * mix(1.0, 0.20, mergeAffinity);
+    return lane * mix(1.0, 0.20, mergeAffinity) * laneLod;
   }
 
   float drawStellarGranulation(vec3 objectNormal) {
@@ -196,16 +208,33 @@ export const stellarPhotosphereFragmentShader = `
       uSurfaceSeed * 0.137 + uSurfaceVariant * 1.31
     );
 
-    float slowTime = uTime * 0.010;
-    vec3 convectionWobble = vec3(
-      sin(slowTime * 0.73),
-      cos(slowTime * 0.61),
-      sin(slowTime * 0.47 + 1.7)
-    ) * 0.09;
+    float normalPixelFootprint = getStellarNormalPixelFootprint(objectNormal);
+    float convectionPixels = getStellarFeaturePixels(
+      normalPixelFootprint,
+      STELLAR_CONVECTION_FREQUENCY
+    );
+    float granulePixels = getStellarFeaturePixels(
+      normalPixelFootprint,
+      STELLAR_GRANULE_FREQUENCY
+    );
+    float finePixels = getStellarFeaturePixels(
+      normalPixelFootprint,
+      STELLAR_FINE_FREQUENCY
+    );
+    float convectionLod = mix(
+      0.72,
+      1.0,
+      smoothstep(0.65, 2.40, convectionPixels)
+    );
+    float granuleLod = smoothstep(0.90, 2.35, granulePixels);
+    float laneLod = smoothstep(1.35, 3.25, granulePixels);
+    float fineLod = smoothstep(1.15, 2.65, finePixels);
+
     float convection = valueNoise(
-      objectNormal * STELLAR_CONVECTION_FREQUENCY +
-      seedOffset * 0.41 +
-      convectionWobble
+      objectNormal * STELLAR_CONVECTION_FREQUENCY + seedOffset * 0.41
+    );
+    float convectionBreath = 1.0 + 0.025 * sin(
+      uTime * 0.0035 + uSurfaceSeed * 0.009
     );
 
     vec4 cellular = sampleStellarCellular(
@@ -215,33 +244,32 @@ export const stellarPhotosphereFragmentShader = `
     float boundaryDistance = max(cellular.y - cellular.x, 0.0);
     float granuleInterior = smoothstep(0.030, 0.17, boundaryDistance);
     float granuleCenter = 1.0 - smoothstep(0.30, 0.74, cellular.x);
-    float intergranularLane = drawIntergranularLane(cellular);
+    float intergranularLane = drawIntergranularLane(cellular, laneLod);
     float cellThermalBias = cellular.z - 0.5;
     float cellPulse = 0.5 + 0.5 * sin(
-      uTime * 0.018 +
+      uTime * 0.009 +
       cellular.z * 6.2831853 +
       uSurfaceSeed * 0.021
     );
 
-    vec3 fineWobble = vec3(
-      sin(slowTime * 0.37 + 0.4),
-      sin(slowTime * 0.31 + 2.1),
-      cos(slowTime * 0.29 - 0.8)
-    ) * 0.05;
     float fineBreakup = valueNoise(
-      objectNormal * STELLAR_FINE_FREQUENCY -
-      seedOffset * 0.57 +
-      fineWobble
+      objectNormal * STELLAR_FINE_FREQUENCY - seedOffset * 0.57
+    );
+    float fineBreath = 1.0 + 0.015 * sin(
+      uTime * 0.0055 + uSurfaceSeed * 0.013 + 1.1
     );
 
-    float convectionVariation = (convection - 0.5) * 0.035;
-    float granuleVariation =
+    float convectionVariation =
+      (convection - 0.5) * 0.035 * convectionLod * convectionBreath;
+    float granuleVariation = (
       (granuleInterior - 0.56) * 0.064 +
       granuleCenter * 0.016 +
-      cellThermalBias * 0.010 -
-      intergranularLane * 0.075;
-    float fineVariation = (fineBreakup - 0.5) * 0.008;
-    float temporalVariation = (cellPulse - 0.5) * granuleInterior * 0.006;
+      cellThermalBias * 0.010
+    ) * granuleLod - intergranularLane * 0.075;
+    float fineVariation =
+      (fineBreakup - 0.5) * 0.008 * fineLod * fineBreath;
+    float temporalVariation =
+      (cellPulse - 0.5) * granuleInterior * 0.006 * granuleLod;
     float variation =
       convectionVariation +
       granuleVariation +

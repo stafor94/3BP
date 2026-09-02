@@ -6,6 +6,25 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.8] - 2026-09-03
+
+### Changed
+- 항성 photosphere의 Pass 2 cellular topology는 유지하면서 `fwidth(objectNormal)`에서 계산한 screen-space footprint를 기준으로 fine breakup → intergranular lane → primary granule 순서가 연속적으로 약해지는 LOD를 추가했습니다. world distance나 CPU 계산 화면 반지름에 의존하지 않아 확대/축소와 viewport 변화에 직접 대응합니다.
+- primary granule이 픽셀 이하로 작아지기 전에 fine breakup과 얇은 lane을 먼저 감쇠하고, broad convection에는 비제로 detail floor를 남겨 작은 항성도 완전히 매끈한 발광 구체로 돌아가지 않도록 했습니다.
+- Pass 2의 `F2-F1` intergranular boundary는 그대로 사용하되 `fwidth(boundaryDistance)`로 lane edge feather 폭을 넓히고 별도의 derivative 기반 lane LOD를 적용해 작은 화면에서 검은 점·깨진 선·cracked/honeycomb shimmer로 변하는 현상을 줄였습니다.
+- 기존 좌표 자체를 시간에 따라 이동시키던 convection/fine wobble을 제거하고, 고정된 topology 위에서 broad convection·granule thermal pulse·fine breakup의 진폭만 서로 다른 매우 느린 주기로 변화하도록 변경해 표면 전체가 미끄러지는 texture처럼 보이지 않게 했습니다.
+
+### Performance
+- Pass 2와 동일하게 stellar sphere 1 draw call, cellular 3×3×3 neighborhood search 1회, broad/fine value-noise 각 1회를 유지합니다. 새 texture, geometry, sprite, material 재생성, per-frame CPU allocation 및 screen-size uniform은 추가하지 않습니다.
+- LOD와 lane anti-aliasing은 fragment derivative와 소수의 `smoothstep` 연산만 추가하며 cellular neighborhood search 횟수는 증가하지 않습니다.
+
+### Verification
+- stellar rendering regression에 derivative footprint, feature별 LOD 순서, lane anti-aliasing, nonzero convection floor, 단일 cellular sample, world-distance uniform 부재 및 non-sliding slow time evolution 계약을 추가했습니다.
+- mobile 390×844에서 Pass 2 merge(`901b2dd`)와 큰 확대/일반 게임 거리/작은 화면 크기를 A/B 캡처하고, brightness·bright footprint·temperature hue 안정성, high-frequency/lane 감소, low-frequency 구조 유지와 연속 zoom sweep의 고주파 spike를 검증합니다.
+
+### Unchanged
+- `starColors.ts` temperature mapping, stellar preset/evolution physics, mass/radius/orbit/velocity/timestep, collision 판정·결과, planet/moon/fragment/background/collision VFX, 기존 limb/chromosphere/hard silhouette, inner/outer glow·corona 및 HDR/tone-mapping 구조는 변경하지 않습니다.
+
 ## [0.24.7] - 2026-09-03
 
 ### Changed
@@ -401,7 +420,7 @@
 - high-headOn collision spark는 기존 `headOn` metadata로 directional presentation을 연속적으로 억제하고 매우 정면에서는 stretch/width를 isotropic으로 수렴시킨 뒤 tail과 visible alpha를 0으로 만들어 contactFlash가 impact 순간을 담당하도록 했습니다. grazing spark는 기존 directional envelope를 유지합니다.
 
 ### Added
-- 실제 high-energy small moon-moon collision의 persistent fragment를 사용해 physical radius 불변/fragment presentation radius/normal moon·planet floor를 검증하고, head-on spark physical direction·velocity·lifetime 불변과 directional suppression, grazing/stellar control을 함께 검증하는 non-stellar collision VFX regression을 보강했습니다.
+- 실제 high-energy small moon-moon collision의 persistent fragment를 사용해 physical radius 불변/fragment presentation radius/normal moon·planet floor를 검증하고, head-on spark physical direction·lifetime 불변과 directional suppression, grazing/stellar control을 함께 검증하는 non-stellar collision VFX regression을 보강했습니다.
 
 ### Unchanged
 - collision classification/threshold/contact distance, absorb/merge/disrupt/hitRun 판정, mass/ejecta fraction/momentum, physical fragment/remnant radius, ejecta velocity/direction/spawn/trajectory, `getEjectaDirection()`, fragment physical lifetime, PR #88 ownership/lineage, PR #89 rendered contact staging, tracking/camera, 일반 `MIN_BODY_RENDER_RADIUS`, stellar collision VFX는 변경하지 않았습니다.
@@ -591,7 +610,7 @@
 
 ### Fixed
 - 동일 질량 또는 일반 merge 충돌에서 두 원본 천체 모두 remnant의 명시적 tracking continuation으로 연결해, 기존 50% initial-mass rule을 통과하는 추적이 collision camera 종료 뒤에도 유지되도록 수정했습니다.
-- collision camera가 merge 이후 이미 해제된 tracking 상태를 잠시 가리고 있다가 종료 순간 천체가 화면 밖으로 이동하던 실제 원인을 수정했습니다.
+- collision camera가 merge 이후 이미 해제된 tracking 상태를 잠시 가리고 있다가 종료 순간 천체가 화면 밖으로 이동하던 문제를 수정했습니다.
 - merge로 원본 body id가 사라질 때 renderer가 해당 body의 과거 궤적까지 즉시 폐기하던 문제를 수정하고, 기존 trail duration이 끝날 때까지 충돌 전 궤적을 trail-only 상태로 유지하도록 했습니다.
 
 ### Added
@@ -950,7 +969,7 @@
 - 항성-항성 합체가 실제 물리 결과로 전환되기 전에 충분히 깊게 겹치는지 검증하는 물리 회귀 체크를 추가했습니다.
 
 ### Changed
-- 항성-항성 `merge` 충돌의 접촉 연출 시간을 0.045에서 0.06 시뮬레이션초로 늘려 `0.03×` 관찰에서 약 2초 동안 흡수 과정을 보여주도록 했습니다.
+- 항성-항성 `merge` 충돌의 접촉 연출 시간을 0.045에서 0.06 시뮬레이션초로 늘려 `0.03×` 충돌 관찰에서 약 2초 동안 흡수 과정을 보여주도록 했습니다.
 - 항성-항성 합체의 최대 시각적 겹침을 작은 항성 반지름의 18%에서 80%로 확대하고, 일반 합체와 `hit-and-run` 충돌은 기존 겹침 규칙을 유지했습니다.
 - 일반 추적 카메라에서 가장 큰 순간 중력 영향을 주는 천체는 카메라 시점 방향을 정하는 데만 사용하고, 줌 배율은 추적 대상 자체의 반지름을 기준으로 고정하도록 했습니다.
 - 충돌 관찰 카메라는 일반 추적 구도보다 최대 약 20%까지만 더 확대하고, 상대 천체를 함께 담아야 하는 경우에는 오히려 더 축소하도록 안전 범위를 적용했습니다.

@@ -11,6 +11,8 @@ on:
       - 'scripts/stellarPhotosphereVisualRegression.py'
       - 'scripts/stellarRenderPathVisualRegression.py'
       - 'scripts/stellarCellularPhotosphereVisualRegression.py'
+      - 'scripts/stellarGranulationLodVisualRegression.py'
+      - 'scripts/stellarGranulationLodScreenSizeAudit.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
@@ -50,11 +52,25 @@ jobs:
         env:
           STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
         run: python scripts/stellarCellularPhotosphereVisualRegression.py
+      - name: Pass 3 screen-space granulation LOD mobile regression
+        env:
+          STELLAR_GRANULATION_LOD_BASELINE_REF: 901b2dd596cb3a0f240853aa851981087f92ae04
+        run: python scripts/stellarGranulationLodVisualRegression.py
+      - name: Verify distinct mobile screen sizes and zoom coverage
+        run: python scripts/stellarGranulationLodScreenSizeAudit.py
       - name: Upload stellar photosphere A/B captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: stellar-photosphere-cellular-mobile-ab
           path: stellar-photosphere-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload screen-space LOD mobile captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-granulation-screen-space-lod
+          path: stellar-granulation-lod-artifacts
           if-no-files-found: warn
           retention-days: 7
