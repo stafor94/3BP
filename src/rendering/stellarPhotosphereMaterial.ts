@@ -283,20 +283,20 @@ export const stellarPhotosphereFragmentShader = `
     float viewMu = max(dot(worldNormal, viewDirection), 0.0);
     float broadLimb = pow(viewMu, 0.42);
     float centerLift = pow(viewMu, 1.85);
-    return 0.90 + broadLimb * 0.20 + centerLift * 0.16;
+    return 0.92 + broadLimb * 0.18 + centerLift * 0.16;
   }
 
   float drawStellarFringe(vec3 worldNormal, vec3 viewDirection) {
     float viewMu = max(dot(worldNormal, viewDirection), 0.0);
     float fresnel = 1.0 - viewMu;
-    float fringeRise = smoothstep(0.70, 0.91, fresnel);
-    float fringeFall = 1.0 - smoothstep(0.965, 0.998, fresnel);
+    float fringeRise = smoothstep(0.68, 0.88, fresnel);
+    float fringeFall = 1.0 - smoothstep(0.94, 0.995, fresnel);
     return fringeRise * fringeFall * uRimStrength;
   }
 
   float getStellarEdgeCoverage(vec3 worldNormal, vec3 viewDirection) {
     float viewMu = max(dot(worldNormal, viewDirection), 0.0);
-    float viewMuWidth = min(max(fwidth(viewMu) * 1.15, 0.0025), 0.12);
+    float viewMuWidth = min(max(fwidth(viewMu) * 1.65, 0.055), 0.24);
     return smoothstep(0.0, viewMuWidth, viewMu);
   }
 
@@ -320,7 +320,7 @@ export const stellarPhotosphereFragmentShader = `
     float emission = drawStellarEmission(normalWorld, viewDirection);
     float fringe = drawStellarFringe(normalWorld, viewDirection);
     float edgeCoverage = getStellarEdgeCoverage(normalWorld, viewDirection);
-    float intensity = min((emission * granulation + fringe * 0.32) * uEmissionStrength, 1.22);
+    float intensity = min((emission * granulation + fringe * 0.46) * uEmissionStrength, 1.22);
     vec3 stellarColor = toneMapStellarHuePreserving(uIdentityColor * intensity);
     float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.070, 0.047);
     float stellarSurfaceModulation = 1.0 + granulationContrast;
