@@ -6,6 +6,25 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.9] - 2026-09-03
+
+### Changed
+- 항성 photosphere의 단순 `limbDarkening * centerEmission`과 전체 Fresnel rim을 연속적인 view-angle 기반 limb 곡선으로 교체해 중앙에서 가장자리까지 밝기 전환을 완만하게 만들고, 실루엣 직전에도 충분한 발광 floor를 유지해 회색/검은 테두리가 생기지 않도록 했습니다.
+- 기존 `drawStellarRim()`을 제거하고 실루엣 바로 안쪽에서만 올라왔다가 정확한 경계에서는 다시 사라지는 좁은 emissive fringe로 축소해 두꺼운 ring 없이 photosphere 가장자리를 빛에 묻히게 했습니다.
+- `fwidth(viewMu)`로 화면상의 마지막 limb 폭을 계산하고 stellar material에 MSAA alpha-to-coverage를 적용해 물리 반지름과 sphere geometry를 바꾸지 않은 채 기존 draw call 내부에서 hard silhouette를 약 1px 수준으로 feather 처리합니다.
+- Pass 2/3의 cellular granulation, intergranular lane, convection modulation, screen-space LOD와 temperature-color/hue-preserving 경로는 그대로 유지합니다.
+
+### Performance
+- 기존 stellar sphere 1 draw call과 inner/outer glow Sprite 수를 유지합니다. 새 geometry, texture, material, sprite, per-frame allocation 또는 CPU screen-radius 계산을 추가하지 않습니다.
+- 추가 비용은 view-angle 기반 `pow`/`smoothstep`, 한 번의 `fwidth(viewMu)`와 MSAA alpha-to-coverage 상태뿐이며 cellular 3×3×3 neighborhood sample 횟수는 증가하지 않습니다.
+
+### Verification
+- stellar rendering regression에 밝은 limb floor, legacy full Fresnel rim 제거, thin fringe의 silhouette falloff, derivative 기반 edge coverage와 alpha-to-coverage material 계약을 추가하면서 Pass 2/3 granulation/LOD 계약을 그대로 유지합니다.
+- mobile 390×844에서 Pass 3 merge(`284d113`)와 일반 거리/확대 거리를 A/B 캡처해 hard-edge gradient, edge transition, bright photosphere radius, halo extent, limb 밝기, temperature hue와 granulation contrast를 비교합니다.
+
+### Unchanged
+- 기존 inner/outer glow Sprite와 corona 구조, HDR/tone mapping, `starColors.ts`, presets/evolution physics, mass/radius/orbit/velocity/timestep/collision, planet/moon/fragment/background/collision VFX는 변경하지 않습니다.
+
 ## [0.24.8] - 2026-09-03
 
 ### Changed
