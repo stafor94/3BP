@@ -21,8 +21,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 ROOT = Path.cwd()
 OUTPUT_DIR = Path('space-background-visual-artifacts')
 CURRENT_URL = os.environ.get('SPACE_BACKGROUND_CURRENT_URL', 'http://127.0.0.1:4173/3BP/')
-PASS3_REF = os.environ.get('SPACE_BACKGROUND_PASS3_REF', 'c4ed4833d1db74864479974363012ec2400c78fa')
-PASS4_REF = os.environ.get('SPACE_BACKGROUND_PASS4_REF', '732578c2439e631df97129590d413c42057a4c9a')
+BASELINE_REF = os.environ.get('SPACE_BACKGROUND_BASELINE_REF', 'a2246fa302364bd0c69e33a6f732149251e08523')
 VIEWPORTS = (
     ('mobile', 390, 844, True),
     ('desktop', 1280, 800, False),
@@ -35,9 +34,8 @@ VIEWPOINTS = (
     ('diagonal', 96, 68),
 )
 VARIANT_LABELS = {
-    'pass3': 'Pass 3 / 0.23.0',
-    'pass4': 'Pass 4 / 0.24.0',
-    'current': 'Current / 0.24.1',
+    'baseline': 'Baseline / 0.24.1',
+    'current': 'Pass 5 / 0.24.2',
 }
 
 
@@ -228,7 +226,7 @@ def summarize(metrics: dict[str, object]) -> dict[str, object]:
     summary: dict[str, object] = {}
     for viewport_name, *_ in VIEWPORTS:
         viewport_summary: dict[str, object] = {}
-        for label in ('pass3', 'pass4', 'current'):
+        for label in ('baseline', 'current'):
             values = list(metrics[label][viewport_name].values())  # type: ignore[index,union-attr]
             viewport_summary[label] = {
                 'mean_luma': round(sum(item['mean_luma'] for item in values) / len(values), 4),
@@ -236,13 +234,13 @@ def summarize(metrics: dict[str, object]) -> dict[str, object]:
                 'visible_low_mid_fraction': round(sum(item['visible_low_mid_fraction'] for item in values) / len(values), 6),
                 'bright_fraction': round(sum(item['bright_fraction'] for item in values) / len(values), 6),
             }
-        pass4 = viewport_summary['pass4']
+        baseline = viewport_summary['baseline']
         current = viewport_summary['current']
-        viewport_summary['current_vs_pass4'] = {
-            'near_black_fraction_delta': round(current['near_black_fraction'] - pass4['near_black_fraction'], 6),
-            'visible_low_mid_fraction_delta': round(current['visible_low_mid_fraction'] - pass4['visible_low_mid_fraction'], 6),
-            'mean_luma_delta': round(current['mean_luma'] - pass4['mean_luma'], 4),
-            'bright_fraction_delta': round(current['bright_fraction'] - pass4['bright_fraction'], 6),
+        viewport_summary['current_vs_baseline'] = {
+            'near_black_fraction_delta': round(current['near_black_fraction'] - baseline['near_black_fraction'], 6),
+            'visible_low_mid_fraction_delta': round(current['visible_low_mid_fraction'] - baseline['visible_low_mid_fraction'], 6),
+            'mean_luma_delta': round(current['mean_luma'] - baseline['mean_luma'], 4),
+            'bright_fraction_delta': round(current['bright_fraction'] - baseline['bright_fraction'], 6),
         }
         summary[viewport_name] = viewport_summary
     return summary
@@ -254,7 +252,7 @@ def make_contact_sheet(viewport_name: str) -> None:
     label_height = 24
     source_paths = {
         label: sorted((OUTPUT_DIR / label / viewport_name).glob('*.png'))
-        for label in ('pass3', 'pass4', 'current')
+        for label in ('baseline', 'current')
     }
     require(all(len(paths) == len(VIEWPOINTS) for paths in source_paths.values()), f'{viewport_name}: incomplete contact sheet sources')
     first = Image.open(source_paths['current'][0]).convert('RGB')
@@ -263,13 +261,13 @@ def make_contact_sheet(viewport_name: str) -> None:
     sheet = Image.new(
         'RGB',
         (
-            margin + 3 * (thumb_width + margin),
+            margin + 2 * (thumb_width + margin),
             margin + label_height + len(VIEWPOINTS) * (thumb_height + label_height + margin),
         ),
         (8, 10, 16),
     )
     draw = ImageDraw.Draw(sheet)
-    for column, label in enumerate(('pass3', 'pass4', 'current')):
+    for column, label in enumerate(('baseline', 'current')):
         x = margin + column * (thumb_width + margin)
         draw.text((x, margin), VARIANT_LABELS[label], fill=(230, 234, 242))
         for row, path in enumerate(source_paths[label]):
@@ -287,18 +285,15 @@ def main() -> None:
     driver = make_driver()
     try:
         capture_variant('current', CURRENT_URL, driver, metrics)
-        with baseline_preview('pass3', PASS3_REF, 4174) as pass3_url:
-            capture_variant('pass3', pass3_url, driver, metrics)
-        with baseline_preview('pass4', PASS4_REF, 4175) as pass4_url:
-            capture_variant('pass4', pass4_url, driver, metrics)
+        with baseline_preview('baseline', BASELINE_REF, 4174) as baseline_url:
+            capture_variant('baseline', baseline_url, driver, metrics)
     finally:
         driver.quit()
 
     summary = summarize(metrics)
     payload = {
         'refs': {
-            'pass3': PASS3_REF,
-            'pass4': PASS4_REF,
+            'baseline': BASELINE_REF,
             'current': os.environ.get('GITHUB_SHA', 'working-tree'),
         },
         'viewpoints': [name for name, *_ in VIEWPOINTS],

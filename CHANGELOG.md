@@ -6,6 +6,28 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.2] - 2026-09-02
+
+### Fixed
+- Pass 4/0.24.1에서 수치상 perceived-density가 개선됐지만 실제 모바일 화면에서는 작은 background star 다수가 사실상 사라지고 넓은 검은 패치가 남아 우주가 sparse하게 보이던 문제를 수정했습니다.
+
+### Changed
+- 기존 far/mid/near foreground 1,000-star hierarchy와 최대 밝기·parallax는 유지하고, background를 2,500개의 dense visible layer와 2,000개의 fine fill layer로 재구성했습니다. 총 stellar population은 5,500개입니다.
+- dense layer는 size 1.58, opacity 0.86, brightness 0.32~0.67로 모바일 screen-space에서 작은 점으로 지속적으로 읽히도록 했고, fine layer는 size 1.26, opacity 0.76, brightness 0.23~0.50으로 주력 layer 사이의 빈 공간을 채웁니다. 두 layer 모두 기존 far foreground peak 0.72보다 낮게 유지됩니다.
+- background star 분포를 cluster-first rejection에서 full-sky baseline 우선 방식으로 전환하고 낮은 강도의 Milky Way/지역 편차만 남겨 카메라 방향에 따라 큰 빈 영역이 반복되는 현상을 줄였습니다.
+- sky base를 RGB 5/7/13으로 올리고 Milky Way band, broad haze, mid/fine-scale variation을 강화했으며 dust suppression을 낮춰 OLED black crush에서도 은은한 공간 구조가 보이도록 조정했습니다. sky/galaxy texture 해상도는 그대로 유지됩니다.
+
+### Performance
+- v0.24.1 대비 background star는 1,850개에서 4,500개로 +2,650개 증가하며 position+color raw buffer 증가는 약 62.1 KiB입니다. 기존 2개의 background `THREE.Points` draw call을 그대로 재사용하므로 draw call 증가는 0입니다.
+- shared 24×24 star point texture, 512×256 sky texture, 64×64 galaxy texture를 그대로 사용하며 per-frame allocation, procedural noise, particle animation, bloom/volumetric/raymarching 비용을 추가하지 않습니다.
+
+### Verification
+- background regression을 Pass 5의 4,500~5,500 total-star budget, 두 background layer의 screen-space size/opacity/brightness 범위, full-sky baseline 분포, foreground brightness/depth hierarchy, sky floor/dust suppression, resource disposal을 검증하도록 갱신했습니다.
+- visual A/B를 main v0.24.1 (`a2246fa302364bd0c69e33a6f732149251e08523`)과 Pass 5만 직접 비교하도록 변경하고 동일 deterministic seed·5개 viewpoint에서 mobile 390×844 / desktop 1280×800 contact sheet와 luminance metrics를 남깁니다.
+
+### Unchanged
+- physics/solver/collision, body mass/radius/velocity, tracking/collision camera, destruction/fragment/ejecta physics, stellar collision VFX, celestial-body shader, overlay/UI behavior는 변경하지 않습니다.
+
 ## [0.24.1] - 2026-09-02
 
 ### Fixed
