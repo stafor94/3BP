@@ -10,6 +10,7 @@ on:
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
       - 'scripts/stellarRenderPathVisualRegression.py'
+      - 'scripts/stellarCellularPhotosphereVisualRegression.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
@@ -45,15 +46,15 @@ jobs:
           done
           cat /tmp/3bp-stellar-preview.log
           exit 1
-      - name: Capture main-sequence mobile A/B
+      - name: Capture Pass 1 vs Pass 2 main-sequence mobile A/B
         env:
-          STELLAR_PHOTOSPHERE_BASELINE_REF: 75532efafa4aec499b902d9c6113b4bdc002d213
-        run: python scripts/stellarRenderPathVisualRegression.py
-      - name: Upload stellar photosphere/corona A/B captures
+          STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
+        run: python scripts/stellarCellularPhotosphereVisualRegression.py
+      - name: Upload stellar photosphere A/B captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-photosphere-corona-mobile-ab
+          name: stellar-photosphere-cellular-mobile-ab
           path: stellar-photosphere-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
