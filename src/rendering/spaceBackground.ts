@@ -47,6 +47,12 @@ type DistantGalaxySpec = {
   seed: number
 }
 
+type StarClusterSpec = {
+  center: THREE.Vector3
+  threshold: number
+  strength: number
+}
+
 const SPACE_TEXTURE_WIDTH = 512
 const SPACE_TEXTURE_HEIGHT = 256
 const SPACE_SKY_RADIUS = 240
@@ -54,6 +60,7 @@ const STAR_POINT_TEXTURE_SIZE = 24
 const STAR_BRIGHTNESS_EXPONENT = 2.60
 const STAR_PARALLAX_SCALE = 0.05
 const STAR_PARALLAX_MAX_ANGLE_DEGREES = 0.24
+const DEEP_FIELD_STAR_COUNT = 1400
 const GALAXY_TEXTURE_SIZE = 64
 const DISTANT_GALAXY_RADIUS = 205
 const STAR_LAYOUT_SESSION_SALT = Math.floor(Math.random() * 0xffffffff) >>> 0
@@ -61,11 +68,39 @@ const STAR_LAYOUT_SESSION_SALT = Math.floor(Math.random() * 0xffffffff) >>> 0
 const SPACE_BACKDROP_STATES = new WeakMap<THREE.Camera, SpaceBackdropState>()
 
 const GALACTIC_NORMAL = new THREE.Vector3(0.26, 0.83, 0.49).normalize()
-const STAR_CLUSTER_CENTER = new THREE.Vector3(-0.44, 0.58, -0.68).normalize()
 const STAR_VOID_CENTER = new THREE.Vector3(0.63, -0.18, 0.76).normalize()
+const STAR_RICH_REGION_CENTER = new THREE.Vector3(-0.35, -0.41, 0.84).normalize()
+const DUST_BRANCH_CENTER_A = new THREE.Vector3(-0.82, 0.48, -0.22).normalize()
+const DUST_BRANCH_CENTER_B = new THREE.Vector3(0.57, -0.46, 0.68).normalize()
 const NEBULA_BLUE_CENTER = new THREE.Vector3(-0.72, 0.24, 0.65).normalize()
 const NEBULA_VIOLET_CENTER = new THREE.Vector3(0.58, -0.47, -0.67).normalize()
 const NEBULA_RED_CENTER = new THREE.Vector3(0.16, 0.52, -0.84).normalize()
+const NEBULA_CYAN_HAZE_CENTER = new THREE.Vector3(-0.28, -0.63, 0.72).normalize()
+const NEBULA_MAGENTA_HAZE_CENTER = new THREE.Vector3(0.77, 0.27, -0.58).normalize()
+const NEBULA_NEUTRAL_HAZE_CENTER = new THREE.Vector3(-0.66, -0.18, -0.73).normalize()
+
+const STAR_CLUSTERS: readonly StarClusterSpec[] = [
+  {
+    center: new THREE.Vector3(-0.44, 0.58, -0.68).normalize(),
+    threshold: 0.56,
+    strength: 0.13,
+  },
+  {
+    center: new THREE.Vector3(-0.84, 0.49, -0.23).normalize(),
+    threshold: 0.68,
+    strength: 0.10,
+  },
+  {
+    center: new THREE.Vector3(0.57, -0.46, 0.68).normalize(),
+    threshold: 0.72,
+    strength: 0.08,
+  },
+  {
+    center: new THREE.Vector3(-0.35, -0.41, 0.84).normalize(),
+    threshold: 0.77,
+    strength: 0.06,
+  },
+] as const
 
 const DISTANT_GALAXIES: readonly DistantGalaxySpec[] = [
   {
@@ -94,6 +129,51 @@ const DISTANT_GALAXIES: readonly DistantGalaxySpec[] = [
     opacity: 0.18,
     rotation: -0.12,
     seed: 71,
+  },
+  {
+    kind: 'spiral',
+    direction: new THREE.Vector3(-0.19, 0.83, -0.52).normalize(),
+    width: 2.7,
+    height: 1.45,
+    opacity: 0.14,
+    rotation: 0.48,
+    seed: 101,
+  },
+  {
+    kind: 'edgeOn',
+    direction: new THREE.Vector3(0.74, 0.52, 0.42).normalize(),
+    width: 2.8,
+    height: 0.64,
+    opacity: 0.12,
+    rotation: -0.58,
+    seed: 137,
+  },
+  {
+    kind: 'elliptical',
+    direction: new THREE.Vector3(-0.59, -0.73, 0.35).normalize(),
+    width: 2.25,
+    height: 1.65,
+    opacity: 0.11,
+    rotation: 0.16,
+    seed: 173,
+  },
+  {
+    kind: 'spiral',
+    direction: new THREE.Vector3(0.86, -0.31, -0.41).normalize(),
+    width: 1.95,
+    height: 1.02,
+    opacity: 0.09,
+    rotation: 0.76,
+    seed: 211,
+  },
+  {
+    kind: 'edgeOn',
+    direction: new THREE.Vector3(-0.28, -0.46, -0.84).normalize(),
+    width: 1.7,
+    height: 0.44,
+    opacity: 0.08,
+    rotation: -0.34,
+    seed: 257,
   },
 ] as const
 
@@ -168,11 +248,22 @@ function sampleStarDirection(random: () => number, target: THREE.Vector3) {
     const bandProximity = 1 - Math.abs(target.dot(GALACTIC_NORMAL))
     const bandDensity = Math.pow(bandProximity, 4.5)
     const broadPatch = 0.5 + 0.5 * Math.sin(theta * 2.3 + y * 4.7 + 1.2)
-    const cluster = smooth01((target.dot(STAR_CLUSTER_CENTER) - 0.56) / 0.44)
+    let clusterDensity = 0
+    for (const cluster of STAR_CLUSTERS) {
+      clusterDensity += smooth01(
+        (target.dot(cluster.center) - cluster.threshold) / (1 - cluster.threshold),
+      ) * cluster.strength
+    }
+    const richRegion = smooth01((target.dot(STAR_RICH_REGION_CENTER) - 0.08) / 0.92)
     const voidStrength = smooth01((target.dot(STAR_VOID_CENTER) - 0.48) / 0.52)
     const acceptance = THREE.MathUtils.clamp(
-      0.44 + bandDensity * 0.32 + broadPatch * 0.18 + cluster * 0.12 - voidStrength * 0.14,
-      0.18,
+      0.48 +
+        bandDensity * 0.30 +
+        broadPatch * 0.15 +
+        clusterDensity +
+        richRegion * 0.07 -
+        voidStrength * 0.11,
+      0.30,
       0.96,
     )
     if (random() <= acceptance) return target
@@ -294,6 +385,19 @@ function directionField(direction: THREE.Vector3, phase: number) {
   return THREE.MathUtils.clamp(0.5 + first * 0.24 + second * 0.16 + third * 0.10, 0, 1)
 }
 
+function fineDirectionField(direction: THREE.Vector3, phase: number) {
+  const first = Math.sin(
+    direction.x * 67.1 - direction.y * 53.7 + direction.z * 71.9 + phase,
+  )
+  const second = Math.sin(
+    direction.x * 109.3 + direction.y * 83.9 - direction.z * 97.7 - phase * 1.43,
+  )
+  const third = Math.sin(
+    direction.x * 149.9 - direction.y * 127.1 - direction.z * 137.3 + phase * 0.71,
+  )
+  return THREE.MathUtils.clamp(0.5 + first * 0.22 + second * 0.17 + third * 0.11, 0, 1)
+}
+
 function localizedCloud(direction: THREE.Vector3, center: THREE.Vector3, threshold: number) {
   const angular = smooth01((direction.dot(center) - threshold) / (1 - threshold))
   return angular * angular
@@ -323,16 +427,33 @@ function createSpaceTexture() {
       const innerBand = Math.exp(-Math.pow(planeDistance / 0.092, 2))
       const bandMottle = directionField(direction, 0.8)
       const fineMottle = directionField(direction, 2.4)
-      const longitudinalVariation = 0.82 + directionField(direction, 7.7) * 0.34
+      const stellarGrain = fineDirectionField(direction, 5.9)
+      const microClouds = fineDirectionField(direction, 10.7)
+      const longitudinalVariation = 0.77 + directionField(direction, 7.7) * 0.41
+      const richSide = localizedCloud(direction, STAR_RICH_REGION_CENTER, 0.02)
       const bandStrength = (
-        broadBand * (0.25 + bandMottle * 0.40) * longitudinalVariation +
-        innerBand * fineMottle * 0.23
+        broadBand * (0.23 + bandMottle * 0.40) * longitudinalVariation +
+        innerBand * fineMottle * 0.20 +
+        innerBand * stellarGrain * (0.055 + microClouds * 0.075) +
+        broadBand * richSide * 0.045
       )
 
-      const dustWarp = (directionField(direction, 4.7) - 0.5) * 0.052
-      const dustWidth = 0.033 + directionField(direction, 8.9) * 0.016
-      const dustLane = Math.exp(-Math.pow((signedPlaneDistance + dustWarp) / dustWidth, 2)) *
-        (0.31 + directionField(direction, 6.1) * 0.69)
+      const dustWarp = (directionField(direction, 4.7) - 0.5) * 0.058
+      const dustWidth = 0.026 + directionField(direction, 8.9) * 0.025
+      const dustContinuity = 0.22 + smooth01((directionField(direction, 12.8) - 0.18) / 0.72) * 0.78
+      const primaryDustLane = Math.exp(-Math.pow((signedPlaneDistance + dustWarp) / dustWidth, 2)) *
+        dustContinuity * (0.27 + directionField(direction, 6.1) * 0.73)
+      const branchWarpA = (directionField(direction, 15.1) - 0.5) * 0.032
+      const branchWarpB = (directionField(direction, 18.3) - 0.5) * 0.027
+      const dustBranchA = Math.exp(-Math.pow(
+        (signedPlaneDistance + 0.057 + branchWarpA) / 0.024,
+        2,
+      )) * localizedCloud(direction, DUST_BRANCH_CENTER_A, 0.52) * 0.54
+      const dustBranchB = Math.exp(-Math.pow(
+        (signedPlaneDistance - 0.049 + branchWarpB) / 0.021,
+        2,
+      )) * localizedCloud(direction, DUST_BRANCH_CENTER_B, 0.58) * 0.45
+      const dustLane = THREE.MathUtils.clamp(primaryDustLane + dustBranchA + dustBranchB, 0, 1)
 
       const blueCloud = localizedCloud(direction, NEBULA_BLUE_CENTER, 0.84) *
         (0.28 + directionField(direction, 1.9) * 0.72)
@@ -340,19 +461,33 @@ function createSpaceTexture() {
         (0.25 + directionField(direction, 3.6) * 0.75)
       const redCloud = localizedCloud(direction, NEBULA_RED_CENTER, 0.90) *
         (0.20 + directionField(direction, 5.2) * 0.80)
+      const cyanHaze = localizedCloud(direction, NEBULA_CYAN_HAZE_CENTER, 0.58) *
+        (0.38 + directionField(direction, 9.5) * 0.62)
+      const magentaHaze = localizedCloud(direction, NEBULA_MAGENTA_HAZE_CENTER, 0.63) *
+        (0.42 + directionField(direction, 11.1) * 0.58)
+      const neutralHaze = localizedCloud(direction, NEBULA_NEUTRAL_HAZE_CENTER, 0.54) *
+        (0.40 + directionField(direction, 13.7) * 0.60)
 
-      let red = 2.0 + bandStrength * 8.0
-      let green = 3.0 + bandStrength * 9.0
-      let blue = 7.0 + bandStrength * 13.0
+      const deepFieldVariation = (fineDirectionField(direction, 21.7) - 0.5) * 0.95
+      const darkRegion = localizedCloud(direction, STAR_VOID_CENTER, 0.34)
+      const regionalLift = richSide * 0.55 - darkRegion * 0.34
+
+      let red = 2.0 + bandStrength * 8.1 + deepFieldVariation * 0.42 + regionalLift * 0.42
+      let green = 3.0 + bandStrength * 9.2 + deepFieldVariation * 0.46 + regionalLift * 0.48
+      let blue = 7.0 + bandStrength * 13.4 + deepFieldVariation * 0.58 + regionalLift * 0.64
 
       red += blueCloud * 2.2 + violetCloud * 4.0 + redCloud * 7.0
       green += blueCloud * 4.2 + violetCloud * 2.0 + redCloud * 2.6
       blue += blueCloud * 8.0 + violetCloud * 7.0 + redCloud * 3.3
 
-      const dustSuppression = dustLane * innerBand
-      red -= dustSuppression * 5.8
-      green -= dustSuppression * 6.2
-      blue -= dustSuppression * 7.5
+      red += cyanHaze * 0.55 + magentaHaze * 1.05 + neutralHaze * 0.55
+      green += cyanHaze * 0.90 + magentaHaze * 0.48 + neutralHaze * 0.60
+      blue += cyanHaze * 1.35 + magentaHaze * 1.10 + neutralHaze * 0.68
+
+      const dustSuppression = dustLane * (0.38 + innerBand * 0.62)
+      red -= dustSuppression * 5.9
+      green -= dustSuppression * 6.3
+      blue -= dustSuppression * 7.7
 
       const offset = (y * SPACE_TEXTURE_WIDTH + x) * 4
       data[offset] = Math.round(THREE.MathUtils.clamp(red, 1, 28))
@@ -385,6 +520,7 @@ function galaxyPixelNoise(x: number, y: number, seed: number) {
 
 function createDistantGalaxyTexture(kind: DistantGalaxyKind, seed: number) {
   const data = new Uint8Array(GALAXY_TEXTURE_SIZE * GALAXY_TEXTURE_SIZE * 4)
+  const seedUnit = ((seed * 0.61803398875) % 1 + 1) % 1
 
   for (let y = 0; y < GALAXY_TEXTURE_SIZE; y += 1) {
     const ny = ((y + 0.5) / GALAXY_TEXTURE_SIZE) * 2 - 1
@@ -398,15 +534,21 @@ function createDistantGalaxyTexture(kind: DistantGalaxyKind, seed: number) {
       let blue = 0
 
       if (kind === 'spiral') {
-        const flattenedY = ny / 0.68
+        const flattening = 0.60 + seedUnit * 0.16
+        const flattenedY = ny / flattening
         const radius = Math.sqrt(nx * nx + flattenedY * flattenedY)
         const angle = Math.atan2(flattenedY, nx)
         const diskEdge = smooth01((1.06 - radius) / 0.30)
-        const disk = Math.exp(-radius * 2.75) * diskEdge
-        const armWave = 0.5 + 0.5 * Math.sin(angle * 2 - radius * 8.2 + noise * 0.42)
+        const disk = Math.exp(-radius * (2.55 + seedUnit * 0.42)) * diskEdge
+        const armCount = seed % 3 === 0 ? 3 : 2
+        const winding = 7.4 + seedUnit * 1.9
+        const armWave = 0.5 + 0.5 * Math.sin(
+          angle * armCount - radius * winding + seedUnit * Math.PI * 2 + noise * 0.42,
+        )
         const arms = Math.pow(armWave, 3.0) * disk
+        const coreWidth = 0.15 + seedUnit * 0.035
         const core = Math.exp(-(
-          Math.pow(nx / 0.17, 2) + Math.pow(ny / 0.115, 2)
+          Math.pow(nx / coreWidth, 2) + Math.pow(ny / (coreWidth * 0.68), 2)
         ) * 1.7)
         intensity = (disk * (0.22 + arms * 0.95) + core * 0.78) * (0.84 + noise * 0.16)
         const coolLift = THREE.MathUtils.clamp(core * 0.72 + arms * 0.28, 0, 1)
@@ -414,21 +556,26 @@ function createDistantGalaxyTexture(kind: DistantGalaxyKind, seed: number) {
         green = 132 + coolLift * 62
         blue = 172 + coolLift * 50
       } else if (kind === 'edgeOn') {
-        const disk = Math.exp(-Math.abs(nx) * 2.25 - Math.abs(ny) * 12.8) *
+        const verticalFalloff = 11.8 + seedUnit * 3.0
+        const disk = Math.exp(-Math.abs(nx) * (2.05 + seedUnit * 0.45) - Math.abs(ny) * verticalFalloff) *
           smooth01((1.02 - Math.abs(nx)) / 0.22)
+        const bulgeWidth = 0.21 + seedUnit * 0.055
         const bulge = Math.exp(-(
-          Math.pow(nx / 0.24, 2) + Math.pow(ny / 0.19, 2)
+          Math.pow(nx / bulgeWidth, 2) + Math.pow(ny / (0.17 + seedUnit * 0.045), 2)
         ) * 1.6)
-        const dustLane = Math.exp(-Math.pow(ny / 0.030, 2)) * Math.exp(-Math.abs(nx) * 1.8)
+        const dustThickness = 0.025 + seedUnit * 0.012
+        const dustLane = Math.exp(-Math.pow(ny / dustThickness, 2)) * Math.exp(-Math.abs(nx) * 1.8)
         intensity = Math.max(0, disk * 0.90 + bulge * 0.52 - dustLane * 0.30) *
           (0.88 + noise * 0.12)
         red = 118 + bulge * 24
         green = 137 + bulge * 28
         blue = 166 + bulge * 30
       } else {
-        const radius = Math.sqrt(Math.pow(nx / 0.78, 2) + Math.pow(ny / 0.62, 2))
+        const radiusX = 0.70 + seedUnit * 0.14
+        const radiusY = 0.55 + (1 - seedUnit) * 0.12
+        const radius = Math.sqrt(Math.pow(nx / radiusX, 2) + Math.pow(ny / radiusY, 2))
         const edge = smooth01((1.02 - radius) / 0.34)
-        const core = Math.exp(-radius * 3.35) * edge
+        const core = Math.exp(-radius * (3.05 + seedUnit * 0.60)) * edge
         intensity = core * (0.88 + noise * 0.12)
         red = 132 + core * 25
         green = 145 + core * 25
@@ -482,6 +629,21 @@ export function createSpaceBackdrop(scene: THREE.Scene, camera: THREE.Camera): S
   mesh.renderOrder = -1000
   scene.add(mesh)
 
+  const deepFieldLayer = createSpaceStarLayer({
+    scene,
+    camera,
+    count: DEEP_FIELD_STAR_COUNT,
+    minRadius: 118,
+    maxRadius: 218,
+    size: 0.78,
+    opacity: 0.54,
+    minBrightness: 0.10,
+    maxBrightness: 0.40,
+    follow: 0.012,
+    seed: 0x51f29a3,
+  })
+  deepFieldLayer.points.renderOrder = -950
+
   const galaxyGroup = new THREE.Group()
   const galaxyTextures: THREE.DataTexture[] = []
   const galaxyMaterials: THREE.SpriteMaterial[] = []
@@ -523,9 +685,12 @@ export function createSpaceBackdrop(scene: THREE.Scene, camera: THREE.Camera): S
     dispose() {
       scene.remove(mesh)
       scene.remove(galaxyGroup)
+      scene.remove(deepFieldLayer.points)
       geometry.dispose()
       material.dispose()
       texture.dispose()
+      deepFieldLayer.geometry.dispose()
+      deepFieldLayer.material.dispose()
       starPointTexture.dispose()
       for (const galaxyMaterial of galaxyMaterials) galaxyMaterial.dispose()
       for (const galaxyTexture of galaxyTextures) galaxyTexture.dispose()
