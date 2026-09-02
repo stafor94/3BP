@@ -51,7 +51,7 @@ const SPACE_TEXTURE_WIDTH = 512
 const SPACE_TEXTURE_HEIGHT = 256
 const SPACE_SKY_RADIUS = 240
 const STAR_POINT_TEXTURE_SIZE = 24
-const STAR_BRIGHTNESS_EXPONENT = 2.50
+const STAR_BRIGHTNESS_EXPONENT = 2.60
 const STAR_PARALLAX_SCALE = 0.05
 const STAR_PARALLAX_MAX_ANGLE_DEGREES = 0.24
 const GALAXY_TEXTURE_SIZE = 64
@@ -130,7 +130,7 @@ function createStarPointTexture() {
       const radiusSquared = nx * nx + ny * ny
       const radius = Math.sqrt(radiusSquared)
       const compactCore = Math.exp(-radiusSquared * 7.2)
-      const softShoulder = Math.exp(-radiusSquared * 2.5) * 0.16
+      const softShoulder = Math.exp(-radiusSquared * 2.5) * 0.22
       const edge = 1 - smooth01((radius - 0.72) / 0.28)
       const alpha = THREE.MathUtils.clamp((compactCore + softShoulder) * edge, 0, 1)
       const offset = (y * STAR_POINT_TEXTURE_SIZE + x) * 4
