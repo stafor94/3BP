@@ -136,8 +136,11 @@ def main() -> None:
         impact_components = regression.warm_components(impact, 24)
         regression.require(bool(impact_components), 'mobile impact capture has no collision body component')
 
-        regression.trigger(driver)
+        # The visual event timestamp is created when trigger() invokes the fixture,
+        # before React commit/stage polling completes. Start the wall-clock reference
+        # here as well so CI commit latency is not added to every requested offset.
         started_at = time.monotonic()
+        regression.trigger(driver)
         captures: dict[str, Path] = {'impact': impact}
         for name, target in regression.CAPTURES:
             regression.wait_until(started_at, target)

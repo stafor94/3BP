@@ -65,12 +65,24 @@ def warm_primary_pixels(path: Path) -> list[tuple[int, int]]:
     width, height = image.size
     x0, x1 = int(width * 0.30), int(width * 0.66)
     y0, y1 = int(height * 0.22), int(height * 0.78)
-    points: list[tuple[int, int]] = []
+    candidates: list[tuple[int, int]] = []
     for y in range(y0, y1):
         for x in range(x0, x1):
             r, g, b = image.getpixel((x, y))
             if r >= 42 and r >= g * 1.05 and r >= b * 1.10:
-                points.append((x, y))
+                candidates.append((x, y))
+
+    candidate_set = set(candidates)
+    points = [
+        (x, y)
+        for x, y in candidates
+        if any(
+            (x + dx, y + dy) in candidate_set
+            for dx in (-1, 0, 1)
+            for dy in (-1, 0, 1)
+            if dx != 0 or dy != 0
+        )
+    ]
     require(len(points) >= 500, f'not enough primary surface pixels in {path.name}')
     return points
 
