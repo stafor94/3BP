@@ -175,8 +175,11 @@ export const stellarPhotosphereFragmentShader = `
       1.0,
       smoothstep(0.65, 2.40, convectionPixels)
     );
-    float primaryLod = smoothstep(1.10, 3.10, primaryPixels);
-    float secondaryLod = smoothstep(0.90, 2.00, secondaryPixels);
+    // Pass 5: resolve the existing primary bands earlier in screen space so
+    // production mobile tracking has visible plasma structure by the enlarged
+    // framing. Fine breakup remains on the Pass 4 thresholds to avoid moire.
+    float primaryLod = smoothstep(0.70, 2.40, primaryPixels);
+    float secondaryLod = smoothstep(0.60, 1.55, secondaryPixels);
     float fineLod = smoothstep(1.65, 3.80, finePixels);
 
     float convectionA = valueNoise(
@@ -395,8 +398,9 @@ export function updateStellarPhotosphereMaterial(
 ) {
   const identityColor = material.uniforms.uIdentityColor?.value
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
-  // Pass 3 retains Pass 2 granulation while compressing it toward the limb.
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.4
+  // Pass 5 keeps the Pass 1-4 field intact and only gives resolved granulation
+  // a bounded strength lift for production mobile tracking/zoom framing.
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.35
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.025
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {

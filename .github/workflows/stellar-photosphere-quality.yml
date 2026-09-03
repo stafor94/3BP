@@ -10,6 +10,7 @@ on:
       - 'src/rendering/stellarCoronaMaterial.ts'
       - 'src/rendering/stellarRenderProfile.ts'
       - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
+      - 'src/visualRegression/productionCameraHandoffFixture.ts'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
       - 'scripts/stellarPhotospherePass1VisualRegression.py'
@@ -22,7 +23,10 @@ on:
       - 'scripts/stellarGranulationLodScreenSizeAudit.py'
       - 'scripts/stellarLimbVisualRegression.py'
       - 'scripts/stellarCoronaVisualRegression.py'
+      - 'scripts/stellarCoronaPass5CompatibilityRunner.py'
       - 'scripts/stellarHdrVisualRegression.py'
+      - 'scripts/stellarProductionIntegrationVisualRegression.py'
+      - 'scripts/stellarProductionIntegrationVisualRegressionRunner.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
@@ -60,6 +64,8 @@ jobs:
           done
           cat /tmp/3bp-stellar-preview.log
           exit 1
+      - name: Pass 5 production SimulationView mobile integration regression
+        run: python scripts/stellarProductionIntegrationVisualRegressionRunner.py
       - name: Pass 1 topology-removal regression
         env:
           STELLAR_PASS1_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
@@ -89,7 +95,7 @@ jobs:
       - name: Pass 4 stellar corona 3x3 outcome regression
         env:
           STELLAR_CORONA_BASELINE_REF: 4e7b58098d8fd5c96deb8e8caf4d823409eec359
-        run: python scripts/stellarCoronaVisualRegression.py
+        run: python scripts/stellarCoronaPass5CompatibilityRunner.py
       - name: Pass 6 stellar HDR and temperature-color mobile A/B regression
         env:
           STELLAR_HDR_BASELINE_REF: fe1d138268a40ce7707df64ac60a0ab384a995bc
@@ -156,5 +162,13 @@ jobs:
         with:
           name: stellar-hdr-pass6-mobile-ab
           path: stellar-hdr-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload Pass 5 production mobile integration captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-pass5-production-mobile-integration
+          path: stellar-production-pass5-artifacts
           if-no-files-found: warn
           retention-days: 7

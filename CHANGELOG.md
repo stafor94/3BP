@@ -6,6 +6,21 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.12] - 2026-09-04
+
+### Changed
+- 실제 production `App`/`SimulationView`와 모바일 UI, `BodyTrackingRail`, OrbitControls wheel zoom을 그대로 사용하는 항성 Pass 5 통합 검증 경로를 추가하고 0.35/1/8 M☉ 항성을 normal/enlarged/extreme 화면 크기에서 검증하도록 했습니다.
+- topology-free photosphere 구조는 유지하면서 primary/secondary granulation의 screen-space LOD가 확대 구도에서 더 일찍 해상되도록 조정하고, 최종 detail strength를 기존 회귀 여유를 보존하는 범위로 제한했습니다.
+- 8 M☉ blue-white 항성의 확대 구도에서 매끈한 밝은 구체처럼 보이던 문제를 완화하면서 center-to-limb emission, compact corona, temperature hue와 fine-detail anti-aliasing 경로는 유지합니다.
+
+### Verification
+- mobile 390×844 production renderer에서 0.35/1/8 M☉ × normal/enlarged/extreme 3×3 캡처와 8 M☉ continuous zoom sweep을 추가하고 실제 UI PNG 및 확대 캡처를 acceptance evidence로 남깁니다.
+- 기존 Pass 1 topology removal, Pass 2 multi-scale surface, Pass 3 radial emission/screen-space LOD, Pass 4 limb/corona, HDR/temperature regression을 함께 실행합니다.
+- Pass 4 corona 검증은 corona의 절대 밝기·extent·decay·edge/rebound·luminance response 기준을 그대로 유지하되, Pass 5에서 의도적으로 변경 가능한 photosphere LOD를 Pass 3와 동일 contrast로 강제하던 오래된 invariant만 현재 topology/detail envelope로 대체합니다.
+
+### Unchanged
+- preset, 질량/반지름/궤도/속도/timestep, collision 판정·결과/VFX, planet/moon/fragment 렌더링, `starColors.ts`, global ACES tone mapping/exposure, stellar corona shader/scale/opacity는 변경하지 않습니다.
+
 ## [0.24.11] - 2026-09-03
 
 ### Changed
