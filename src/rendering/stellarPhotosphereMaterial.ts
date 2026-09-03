@@ -318,20 +318,17 @@ export const stellarPhotosphereFragmentShader = `
     float surfaceVariation = clamp((granulation - 1.0) * 0.92, -0.095, 0.075);
     float linearIntensity = meanEmission * (1.0 + surfaceVariation);
 
-    // Near-neutral stellar colors lose both temperature separation and resolved
-    // surface contrast when every channel reaches the ACES shoulder together.
-    // Expand only their linear chroma around constant luminance, and compensate
-    // the same compressed surface signal without changing the mean emission.
+    // Near-neutral stellar colors put all three channels on the ACES shoulder at
+    // once. Reserve a bounded amount of pre-ACES headroom only for that case;
+    // warm and blue-biased stars retain the existing intensity calibration.
     float identityChannelFloor = min(min(uIdentityColor.r, uIdentityColor.g), uIdentityColor.b);
     float neutralHue01 = smoothstep(0.50, 0.78, identityChannelFloor);
-    float surfaceContrastGain = mix(1.08, 1.90, neutralHue01);
-    linearIntensity *= 1.0 + surfaceVariation * (surfaceContrastGain - 1.0);
+    linearIntensity *= mix(1.0, 0.72, neutralHue01);
 
-    float identityLuma = dot(uIdentityColor, vec3(0.2126, 0.7152, 0.0722));
-    float chromaExpansion = mix(1.0, 5.5, neutralHue01);
-    vec3 hdrIdentityColor = vec3(identityLuma) +
-      (uIdentityColor - vec3(identityLuma)) * chromaExpansion;
-    vec3 color = max(hdrIdentityColor, vec3(0.0)) * linearIntensity;
+    // Restore a small amount of the cellular signal lost to the ACES shoulder
+    // without changing granulation topology, LOD, limb, or corona parameters.
+    linearIntensity *= 1.0 + surfaceVariation * 0.08;
+    vec3 color = uIdentityColor * linearIntensity;
 
     float limb = max(dot(normalWorld, viewDirection), 0.0);
     float whiteHotCore = pow(limb, 18.0) * uWhiteHotMix;
