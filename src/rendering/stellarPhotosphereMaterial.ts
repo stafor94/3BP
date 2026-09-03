@@ -262,19 +262,21 @@ export const stellarPhotosphereFragmentShader = `
   }
 
   float drawStellarEmission(float viewMu) {
-    // Preserve the Pass 2 disk-average HDR energy while redistributing it into
-    // a smooth photospheric center-to-limb response. The broad term prevents a
-    // graphic hotspot; the bright floor keeps the limb self-luminous.
+    // Keep the Pass 2 disk-average HDR budget while making the center-to-limb
+    // depth more legible. The center peak is unchanged; energy is redistributed
+    // out of the outer disk instead of creating a separate bright core.
     float broadDepth = pow(viewMu, 0.32);
     float centerDepth = pow(viewMu, 1.35);
-    return 0.84 + broadDepth * 0.12 + centerDepth * 0.35;
+    return 0.81 + broadDepth * 0.14 + centerDepth * 0.36;
   }
 
   float getStellarDetailEnvelope(float viewMu) {
-    // Surface-space granulation remains unchanged. Only its luminance response
-    // is compressed toward the silhouette so the edge reads as emissive plasma,
-    // not a textured solid shell. A nonzero floor avoids a smooth radial ring.
-    return mix(0.26, 1.0, smoothstep(0.10, 0.60, viewMu));
+    // Compress granulation across a broad grazing-angle range, not only at the
+    // last few silhouette pixels. This preserves center/mid structure while
+    // preventing projection-compressed texture from becoming denser at the limb.
+    // A nonzero floor keeps the transition plasma-like rather than forming a
+    // smooth radial band.
+    return mix(0.18, 1.0, smoothstep(0.20, 0.82, viewMu));
   }
 
   float drawStellarFringe(float viewMu) {
