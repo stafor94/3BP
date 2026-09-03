@@ -28,10 +28,6 @@ on:
       - 'scripts/stellarProductionIntegrationVisualRegression.py'
       - 'scripts/stellarProductionIntegrationVisualRegressionRunner.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
-  # Temporary branch-only trigger for pre-PR visual acceptance. Remove before PR.
-  push:
-    branches:
-      - feat/stellar-pass5-production-integration
 
 permissions:
   contents: read
