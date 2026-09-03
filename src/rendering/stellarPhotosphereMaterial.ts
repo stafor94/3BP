@@ -400,7 +400,7 @@ export function updateStellarPhotosphereMaterial(
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
   // Pass 5 keeps the Pass 1-4 field intact and only gives resolved granulation
   // a bounded strength lift for production mobile tracking/zoom framing.
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.70
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.35
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.025
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
