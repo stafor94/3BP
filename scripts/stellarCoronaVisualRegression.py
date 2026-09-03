@@ -151,9 +151,12 @@ def validate_level(level: str, baseline: dict[str, float | int], current: dict[s
         for channel in ('hue_r', 'hue_g', 'hue_b')
     ) ** 0.5
     base.require(hue_delta <= 0.030, f'{level}: stellar temperature hue drifted: {hue_delta:.5f}')
+    # Pass 1 intentionally removes the old cellular lane contrast. Keep corona
+    # validation focused on corona/edge behavior while still preventing a flat
+    # photosphere regression.
     base.require(
-        float(current['surface_neighbor_contrast']) >= float(baseline['surface_neighbor_contrast']) * 0.70,
-        f'{level}: Pass 2/3 photosphere granulation regressed',
+        float(current['surface_neighbor_contrast']) >= 0.12,
+        f'{level}: photosphere became locally flat while validating corona behavior',
     )
     base.require(
         float(current['hard_edge_drop']) <= float(baseline['hard_edge_drop']) * 1.12 + 1.0,
