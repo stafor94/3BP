@@ -106,20 +106,14 @@ export const stellarPhotosphereFragmentShader = `
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
 
-  const float STELLAR_CONVECTION_FREQUENCY = 2.7;
-  const float STELLAR_GRANULE_FREQUENCY = 7.2;
-  const float STELLAR_FINE_FREQUENCY = 21.0;
+  const float STELLAR_CONVECTION_FREQUENCY = 2.3;
+  const float STELLAR_BREAKUP_FREQUENCY = 9.4;
+  const float STELLAR_FINE_FREQUENCY = 23.0;
 
   float hash31(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.yzx + 33.33);
     return fract((p.x + p.y) * p.z);
-  }
-
-  vec3 hash33(vec3 p) {
-    p = fract(p * vec3(0.1031, 0.1030, 0.0973));
-    p += dot(p, p.yxz + 33.33);
-    return fract((p.xxy + p.yxx) * p.zyx);
   }
 
   float valueNoise(vec3 p) {
@@ -142,46 +136,6 @@ export const stellarPhotosphereFragmentShader = `
     );
   }
 
-  vec4 sampleStellarCellular(vec3 p, vec3 seedOffset) {
-    vec3 lattice = floor(p);
-    vec3 local = fract(p);
-    float nearestDistanceSq = 9.0;
-    float secondDistanceSq = 9.0;
-    float nearestHeat = 0.5;
-    float secondHeat = 0.5;
-
-    for (int z = -1; z <= 1; z++) {
-      for (int y = -1; y <= 1; y++) {
-        for (int x = -1; x <= 1; x++) {
-          vec3 neighbor = vec3(float(x), float(y), float(z));
-          vec3 cell = lattice + neighbor;
-          vec3 jitter = 0.10 + hash33(cell + seedOffset) * 0.80;
-          vec3 delta = neighbor + jitter - local;
-          float heat = hash31(cell + seedOffset * 1.73 + vec3(7.31, -3.17, 5.83));
-          float cellSizeScale = 0.88 + heat * 0.28;
-          float distanceSq = dot(delta, delta) / (cellSizeScale * cellSizeScale);
-
-          if (distanceSq < nearestDistanceSq) {
-            secondDistanceSq = nearestDistanceSq;
-            secondHeat = nearestHeat;
-            nearestDistanceSq = distanceSq;
-            nearestHeat = heat;
-          } else if (distanceSq < secondDistanceSq) {
-            secondDistanceSq = distanceSq;
-            secondHeat = heat;
-          }
-        }
-      }
-    }
-
-    return vec4(
-      sqrt(nearestDistanceSq),
-      sqrt(secondDistanceSq),
-      nearestHeat,
-      secondHeat
-    );
-  }
-
   float getStellarNormalPixelFootprint(vec3 objectNormal) {
     vec3 normalWidth = fwidth(objectNormal);
     return max(max(normalWidth.x, normalWidth.y), max(normalWidth.z, 0.000001));
@@ -191,17 +145,7 @@ export const stellarPhotosphereFragmentShader = `
     return 1.0 / max(normalPixelFootprint * frequency, 0.0001);
   }
 
-  float drawIntergranularLane(vec4 cellular, float laneLod) {
-    float boundaryDistance = max(cellular.y - cellular.x, 0.0);
-    float lanePixelWidth = min(fwidth(boundaryDistance) * 0.35, 0.035);
-    float laneInner = max(0.0, 0.012 - lanePixelWidth * 0.35);
-    float laneOuter = 0.075 + lanePixelWidth;
-    float lane = 1.0 - smoothstep(laneInner, laneOuter, boundaryDistance);
-    float mergeAffinity = 1.0 - smoothstep(0.060, 0.25, abs(cellular.z - cellular.w));
-    return lane * mix(1.0, 0.20, mergeAffinity) * laneLod;
-  }
-
-  float drawStellarGranulation(vec3 objectNormal) {
+  float drawStellarSurfaceVariation(vec3 objectNormal) {
     vec3 seedOffset = vec3(
       uSurfaceSeed * 0.051 + uSurfaceVariant * 2.17,
       uSurfaceSeed * 0.089 - uSurfaceVariant * 1.61,
@@ -213,70 +157,68 @@ export const stellarPhotosphereFragmentShader = `
       normalPixelFootprint,
       STELLAR_CONVECTION_FREQUENCY
     );
-    float granulePixels = getStellarFeaturePixels(
+    float breakupPixels = getStellarFeaturePixels(
       normalPixelFootprint,
-      STELLAR_GRANULE_FREQUENCY
+      STELLAR_BREAKUP_FREQUENCY
     );
     float finePixels = getStellarFeaturePixels(
       normalPixelFootprint,
       STELLAR_FINE_FREQUENCY
     );
     float convectionLod = mix(
-      0.72,
+      0.74,
       1.0,
       smoothstep(0.65, 2.40, convectionPixels)
     );
-    float granuleLod = smoothstep(0.90, 2.35, granulePixels);
-    float laneLod = smoothstep(1.35, 3.25, granulePixels);
-    float fineLod = smoothstep(1.15, 2.65, finePixels);
+    float breakupLod = smoothstep(0.95, 2.55, breakupPixels);
+    float fineLod = smoothstep(1.20, 2.75, finePixels);
 
-    float convection = valueNoise(
+    float convectionA = valueNoise(
       objectNormal * STELLAR_CONVECTION_FREQUENCY + seedOffset * 0.41
     );
-    float convectionBreath = 1.0 + 0.025 * sin(
+    float convectionB = valueNoise(
+      objectNormal.yzx * STELLAR_CONVECTION_FREQUENCY -
+      seedOffset * 0.29 +
+      vec3(3.17, -5.31, 1.93)
+    );
+    float convection = mix(convectionA, convectionB, 0.38);
+    float convectionBreath = 1.0 + 0.018 * sin(
       uTime * 0.0035 + uSurfaceSeed * 0.009
     );
 
-    vec4 cellular = sampleStellarCellular(
-      objectNormal * STELLAR_GRANULE_FREQUENCY + seedOffset * 0.97,
-      seedOffset * 1.19 + vec3(11.7, -4.3, 6.9)
+    float breakupA = valueNoise(
+      objectNormal * STELLAR_BREAKUP_FREQUENCY +
+      seedOffset * 0.83 +
+      vec3(-2.7, 4.1, 7.3)
     );
-    float boundaryDistance = max(cellular.y - cellular.x, 0.0);
-    float granuleInterior = smoothstep(0.030, 0.17, boundaryDistance);
-    float granuleCenter = 1.0 - smoothstep(0.30, 0.74, cellular.x);
-    float intergranularLane = drawIntergranularLane(cellular, laneLod);
-    float cellThermalBias = cellular.z - 0.5;
-    float cellPulse = 0.5 + 0.5 * sin(
-      uTime * 0.009 +
-      cellular.z * 6.2831853 +
-      uSurfaceSeed * 0.021
+    float breakupB = valueNoise(
+      objectNormal.zxy * STELLAR_BREAKUP_FREQUENCY -
+      seedOffset * 0.61 +
+      vec3(6.4, 1.8, -3.9)
+    );
+    float irregularBreakup = breakupA - breakupB;
+    float breakupBreath = 1.0 + 0.010 * sin(
+      uTime * 0.0047 + uSurfaceSeed * 0.011 + 0.7
     );
 
     float fineBreakup = valueNoise(
-      objectNormal * STELLAR_FINE_FREQUENCY - seedOffset * 0.57
-    );
-    float fineBreath = 1.0 + 0.015 * sin(
-      uTime * 0.0055 + uSurfaceSeed * 0.013 + 1.1
+      objectNormal.yzx * STELLAR_FINE_FREQUENCY -
+      seedOffset * 0.57 +
+      vec3(9.2, -1.4, 5.6)
     );
 
     float convectionVariation =
-      (convection - 0.5) * 0.035 * convectionLod * convectionBreath;
-    float granuleVariation = (
-      (granuleInterior - 0.56) * 0.064 +
-      granuleCenter * 0.016 +
-      cellThermalBias * 0.010
-    ) * granuleLod - intergranularLane * 0.075;
+      (convection - 0.5) * 0.050 * convectionLod * convectionBreath;
+    float breakupVariation =
+      irregularBreakup * 0.013 * breakupLod * breakupBreath;
     float fineVariation =
-      (fineBreakup - 0.5) * 0.008 * fineLod * fineBreath;
-    float temporalVariation =
-      (cellPulse - 0.5) * granuleInterior * 0.006 * granuleLod;
+      (fineBreakup - 0.5) * 0.005 * fineLod;
     float variation =
       convectionVariation +
-      granuleVariation +
-      fineVariation +
-      temporalVariation;
+      breakupVariation +
+      fineVariation;
 
-    return clamp(1.0 + variation * uDetailStrength, 0.84, 1.13);
+    return clamp(1.0 + variation * uDetailStrength, 0.92, 1.08);
   }
 
   float drawStellarEmission(vec3 worldNormal, vec3 viewDirection) {
@@ -306,16 +248,16 @@ export const stellarPhotosphereFragmentShader = `
     vec3 objectNormal = normalize(vObjectNormal);
     vec3 normalWorld = normalize(vWorldNormal);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
-    float granulation = drawStellarGranulation(objectNormal);
+    float surfaceDetail = drawStellarSurfaceVariation(objectNormal);
     float emission = drawStellarEmission(normalWorld, viewDirection);
     float fringe = drawStellarFringe(normalWorld, viewDirection);
     float edgeCoverage = getStellarEdgeCoverage(normalWorld, viewDirection);
 
-    // Keep mean photosphere luminance independent from cellular contrast. The
-    // surface variation is applied once in linear/HDR space and then handed to
-    // the renderer's single global ACES tone-mapping pass.
+    // Keep mean photosphere luminance independent from procedural surface detail.
+    // The low-contrast variation is applied once in linear/HDR space and then
+    // handed to the renderer's single global ACES tone-mapping pass.
     float meanEmission = (emission + fringe * 0.52) * uEmissionStrength;
-    float surfaceVariation = clamp((granulation - 1.0) * 0.92, -0.095, 0.075);
+    float surfaceVariation = clamp((surfaceDetail - 1.0) * 0.92, -0.095, 0.075);
     float linearIntensity = meanEmission * (1.0 + surfaceVariation);
 
     // Near-neutral stellar colors put all three channels on the ACES shoulder at
@@ -325,8 +267,8 @@ export const stellarPhotosphereFragmentShader = `
     float neutralHue01 = smoothstep(0.50, 0.78, identityChannelFloor);
     linearIntensity *= mix(1.0, 0.72, neutralHue01);
 
-    // Restore a small amount of the cellular signal lost to the ACES shoulder
-    // without changing granulation topology, LOD, limb, or corona parameters.
+    // Recover only a small amount of surface contrast lost to the ACES shoulder;
+    // no topology-producing signal is introduced here.
     linearIntensity *= 1.0 + surfaceVariation * 0.08;
     vec3 color = uIdentityColor * linearIntensity;
 
