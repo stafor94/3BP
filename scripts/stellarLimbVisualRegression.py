@@ -192,12 +192,14 @@ def validate_level(level: str, baseline: dict[str, float | int], current: dict[s
     ) ** 0.5
     base.require(hue_delta <= 0.025, f'{level}: stellar temperature hue drifted: {hue_delta:.5f}')
 
-    base_contrast = float(baseline['surface_neighbor_contrast'])
+    # Pass 1 deliberately removes the high-contrast Pass 2/3 cellular lane network.
+    # Limb regression should ensure the photosphere still has nonzero local texture,
+    # not require retention of the obsolete cellular contrast amplitude.
     current_contrast = float(current['surface_neighbor_contrast'])
     base.require(
-        current_contrast >= base_contrast * 0.72,
-        f'{level}: Pass 2/3 granulation contrast was over-suppressed: '
-        f'baseline={base_contrast:.3f} current={current_contrast:.3f}',
+        current_contrast >= 0.12,
+        f'{level}: photosphere became locally flat while validating limb behavior: '
+        f'current={current_contrast:.3f}',
     )
 
 
