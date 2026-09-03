@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react'
 import { SimulationView } from '../components/SimulationView'
 import type { BodyState } from '../types'
 
-type VisualStage = 'separate' | 'peak' | 'remnant' | 'temperature'
+type VisualStage =
+  | 'separate'
+  | 'peak'
+  | 'remnant'
+  | 'temperature'
+  | 'temperature-cool'
+  | 'temperature-solar'
+  | 'temperature-hot'
 
 function makeStar(
   id: string,
@@ -22,6 +29,10 @@ function makeStar(
     bodyType: 'star',
   }
 }
+
+const COOL_STAR = makeStar('visual-cool', 0, '#ffffff', 0.35, 0.22)
+const SOLAR_STAR = makeStar('visual-solar', 0, '#ffffff', 1, 0.22)
+const HOT_STAR = makeStar('visual-hot', 0, '#ffffff', 8, 0.22)
 
 const STAGE_BODIES: Record<VisualStage, BodyState[]> = {
   separate: [
@@ -50,10 +61,25 @@ const STAGE_BODIES: Record<VisualStage, BodyState[]> = {
     makeStar('visual-solar', 0, '#ffffff', 1, 0.22),
     makeStar('visual-hot', 0.58, '#ffffff', 8, 0.22),
   ],
+  'temperature-cool': [COOL_STAR],
+  'temperature-solar': [SOLAR_STAR],
+  'temperature-hot': [HOT_STAR],
+}
+
+const TRACKED_BODY_BY_STAGE: Partial<Record<VisualStage, string>> = {
+  'temperature-cool': COOL_STAR.id,
+  'temperature-solar': SOLAR_STAR.id,
+  'temperature-hot': HOT_STAR.id,
 }
 
 function isVisualStage(value: string): value is VisualStage {
-  return value === 'separate' || value === 'peak' || value === 'remnant' || value === 'temperature'
+  return value === 'separate' ||
+    value === 'peak' ||
+    value === 'remnant' ||
+    value === 'temperature' ||
+    value === 'temperature-cool' ||
+    value === 'temperature-solar' ||
+    value === 'temperature-hot'
 }
 
 declare global {
@@ -97,7 +123,7 @@ export function StellarTopologyVisualHarness() {
         trailEnabled={false}
         trailDuration={8}
         trailSampleBatch={{ sequence: 0, samples: [] }}
-        trackedBodyId={null}
+        trackedBodyId={TRACKED_BODY_BY_STAGE[stage] ?? null}
         collisionCameraFocus={null}
       />
     </div>
