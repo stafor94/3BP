@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  apply-and-validate:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
@@ -20,24 +20,24 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: Apply Pass 5 implementation
+      - name: Repair generated regression literal
         run: |
-          python scripts/__pass5_apply.py
-          git restore .github/workflows/stellar-photosphere-quality.yml
-      - name: Commit implementation
-        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/stellarRenderingRegression.ts')
+          source = path.read_text(encoding='utf-8')
+          old = """bodyLightingSource.includes('glowOuter.visible = false
+              glowOuter.material.opacity = 0')"""
+          new = "bodyLightingSource.includes('glowOuter.visible = false\\n    glowOuter.material.opacity = 0')"
+          if old not in source:
+              raise SystemExit('expected generated regression literal was not found')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            src/rendering/bodyLighting.ts \
-            src/rendering/stellarRenderProfile.ts \
-            src/rendering/stellarCoronaMaterial.ts \
-            scripts/stellarRenderingRegression.ts \
-            scripts/stellarCoronaVisualRegression.py \
-            package.json \
-            CHANGELOG.md
+          git add scripts/stellarRenderingRegression.ts
           git diff --cached --check
-          git commit -m "feat: replace stellar glow with compact corona"
+          git commit -m "test: fix stellar corona regression literal"
           git push origin HEAD:feat/stellar-corona-compact
       - name: Install dependencies
         run: npm install
@@ -68,6 +68,7 @@ jobs:
       - name: Emit review image even after visual assertion failure
         if: always()
         run: |
+          python -m pip install --disable-pip-version-check --quiet pillow==11.3.0
           python - <<'PY'
           from pathlib import Path
           from PIL import Image, ImageDraw
@@ -95,8 +96,8 @@ jobs:
               y = margin + row * (first.height + label_h)
               draw.text((x, y), label, fill=(235,238,245))
               sheet.paste(Image.open(path).convert('RGB'), (x, y + label_h))
-          out = root / 'workflow-review-contact-sheet.jpg'
           sheet.thumbnail((820, 1180))
+          out = root / 'workflow-review-contact-sheet.jpg'
           sheet.save(out, quality=82, optimize=True)
           buffer = io.BytesIO()
           sheet.save(buffer, format='JPEG', quality=82, optimize=True)
