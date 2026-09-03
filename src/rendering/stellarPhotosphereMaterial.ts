@@ -106,9 +106,11 @@ export const stellarPhotosphereFragmentShader = `
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
 
-  const float STELLAR_CONVECTION_FREQUENCY = 2.3;
-  const float STELLAR_BREAKUP_FREQUENCY = 9.4;
-  const float STELLAR_FINE_FREQUENCY = 23.0;
+  const float STELLAR_CONVECTION_FREQUENCY = 2.1;
+  const float STELLAR_WARP_FREQUENCY = 4.6;
+  const float STELLAR_PRIMARY_FREQUENCY = 13.5;
+  const float STELLAR_PRIMARY_SECONDARY_FREQUENCY = 18.7;
+  const float STELLAR_FINE_FREQUENCY = 31.0;
 
   float hash31(vec3 p) {
     p = fract(p * 0.1031);
@@ -157,21 +159,26 @@ export const stellarPhotosphereFragmentShader = `
       normalPixelFootprint,
       STELLAR_CONVECTION_FREQUENCY
     );
-    float breakupPixels = getStellarFeaturePixels(
+    float primaryPixels = getStellarFeaturePixels(
       normalPixelFootprint,
-      STELLAR_BREAKUP_FREQUENCY
+      STELLAR_PRIMARY_FREQUENCY
+    );
+    float secondaryPixels = getStellarFeaturePixels(
+      normalPixelFootprint,
+      STELLAR_PRIMARY_SECONDARY_FREQUENCY
     );
     float finePixels = getStellarFeaturePixels(
       normalPixelFootprint,
       STELLAR_FINE_FREQUENCY
     );
     float convectionLod = mix(
-      0.74,
+      0.72,
       1.0,
       smoothstep(0.65, 2.40, convectionPixels)
     );
-    float breakupLod = smoothstep(0.95, 2.55, breakupPixels);
-    float fineLod = smoothstep(1.20, 2.75, finePixels);
+    float primaryLod = smoothstep(1.10, 3.10, primaryPixels);
+    float secondaryLod = smoothstep(1.35, 3.45, secondaryPixels);
+    float fineLod = smoothstep(1.65, 3.80, finePixels);
 
     float convectionA = valueNoise(
       objectNormal * STELLAR_CONVECTION_FREQUENCY + seedOffset * 0.41
@@ -182,43 +189,76 @@ export const stellarPhotosphereFragmentShader = `
       vec3(3.17, -5.31, 1.93)
     );
     float convection = mix(convectionA, convectionB, 0.38);
-    float convectionBreath = 1.0 + 0.018 * sin(
-      uTime * 0.0035 + uSurfaceSeed * 0.009
+    float convectionEvolution = 1.0 + 0.014 * sin(
+      uTime * 0.0031 + uSurfaceSeed * 0.009
     );
 
-    float breakupA = valueNoise(
-      objectNormal * STELLAR_BREAKUP_FREQUENCY +
-      seedOffset * 0.83 +
+    // A small, low-frequency coordinate distortion breaks the interpolation
+    // lattice without defining cells or edges. It is static in surface space;
+    // time only changes amplitudes below, so detail never slides over the star.
+    float warpA = valueNoise(
+      objectNormal * STELLAR_WARP_FREQUENCY +
+      seedOffset * 0.23 +
+      vec3(-4.7, 2.1, 6.3)
+    );
+    float warpB = valueNoise(
+      objectNormal.zxy * (STELLAR_WARP_FREQUENCY * 1.13) -
+      seedOffset * 0.19 +
+      vec3(1.8, 7.4, -3.2)
+    );
+    vec3 warpVector = vec3(
+      warpA - 0.5,
+      warpB - 0.5,
+      (warpA - warpB) * 0.72
+    );
+    vec3 warpedNormal = normalize(objectNormal + warpVector * 0.115);
+
+    // Primary granulation is a decorrelated signed band assembled from several
+    // nearby scales. No sample encodes a nearest point, boundary distance, or
+    // closed edge; dark structure is only the natural trough of this field.
+    float primaryA = valueNoise(
+      warpedNormal * STELLAR_PRIMARY_FREQUENCY +
+      seedOffset * 0.79 +
       vec3(-2.7, 4.1, 7.3)
     );
-    float breakupB = valueNoise(
-      objectNormal.zxy * STELLAR_BREAKUP_FREQUENCY -
-      seedOffset * 0.61 +
+    float primaryB = valueNoise(
+      warpedNormal.zxy * STELLAR_PRIMARY_SECONDARY_FREQUENCY -
+      seedOffset * 0.67 +
       vec3(6.4, 1.8, -3.9)
     );
-    float irregularBreakup = breakupA - breakupB;
-    float breakupBreath = 1.0 + 0.010 * sin(
-      uTime * 0.0047 + uSurfaceSeed * 0.011 + 0.7
+    float primaryC = valueNoise(
+      warpedNormal.yzx * (STELLAR_PRIMARY_FREQUENCY * 1.19) +
+      seedOffset * 0.53 +
+      vec3(8.6, -6.1, 2.7)
+    );
+    float primaryLow = (primaryA - 0.5) * 0.66 * primaryLod;
+    float primaryHigh = (primaryB - 0.5) * 0.43 * secondaryLod;
+    float primaryCross = (primaryC - 0.5) * 0.34 * secondaryLod;
+    float primaryGranulation = primaryLow - primaryHigh + primaryCross;
+    primaryGranulation +=
+      (primaryA - 0.5) * (primaryC - 0.5) * 0.22 * secondaryLod;
+    float primaryEvolution = 1.0 + 0.012 * sin(
+      uTime * 0.0043 + uSurfaceSeed * 0.011 + 0.7
     );
 
     float fineBreakup = valueNoise(
-      objectNormal.yzx * STELLAR_FINE_FREQUENCY -
+      warpedNormal.yzx * STELLAR_FINE_FREQUENCY -
       seedOffset * 0.57 +
       vec3(9.2, -1.4, 5.6)
     );
 
     float convectionVariation =
-      (convection - 0.5) * 0.050 * convectionLod * convectionBreath;
-    float breakupVariation =
-      irregularBreakup * 0.013 * breakupLod * breakupBreath;
+      (convection - 0.5) * 0.032 * convectionLod * convectionEvolution;
+    float primaryVariation =
+      primaryGranulation * 0.060 * primaryEvolution;
     float fineVariation =
-      (fineBreakup - 0.5) * 0.005 * fineLod;
+      (fineBreakup - 0.5) * 0.006 * fineLod;
     float variation =
       convectionVariation +
-      breakupVariation +
+      primaryVariation +
       fineVariation;
 
-    return clamp(1.0 + variation * uDetailStrength, 0.92, 1.08);
+    return clamp(1.0 + variation * uDetailStrength, 0.925, 1.075);
   }
 
   float drawStellarEmission(vec3 worldNormal, vec3 viewDirection) {
@@ -342,8 +382,8 @@ export function updateStellarPhotosphereMaterial(
 ) {
   const identityColor = material.uniforms.uIdentityColor?.value
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
-  // Pass 1 keeps the topology-free basis but needs enough linear contrast to survive ACES.
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.6
+  // Pass 2 keeps the surface contrast low while restoring resolved granulation.
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.4
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
