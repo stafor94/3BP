@@ -248,8 +248,9 @@ export const stellarPhotosphereFragmentShader = `
 
     float convectionVariation =
       (convection - 0.5) * 0.020 * convectionLod * convectionEvolution;
+    float resolvedGranulationBoost = mix(1.0, 1.70, secondaryLod);
     float primaryVariation =
-      primaryGranulation * 0.086 * primaryEvolution;
+      primaryGranulation * 0.086 * primaryEvolution * resolvedGranulationBoost;
     float fineVariation =
       (fineBreakup - 0.5) * 0.005 * fineLod;
     float variation =
