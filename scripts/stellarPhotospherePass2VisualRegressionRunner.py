@@ -147,20 +147,12 @@ def capture_state(
 _original_validate_pair = p2.validate_pair
 
 
-def validate_pair(
+def validate_common(
     star: str,
     level: str,
     baseline: dict[str, float | int],
     current: dict[str, float | int],
 ) -> None:
-    # Normal gameplay is intentionally below the screen-space primary-detail
-    # threshold. At that size a zero measured local residual is acceptable—and
-    # preferable to visible texture—while enlarged/extreme views still enforce
-    # both lower and upper granulation-contrast bounds through the core gate.
-    if level != 'normal':
-        _original_validate_pair(star, level, baseline, current)
-        return
-
     diameter = float(current['bright_photosphere_diameter_px'])
     target = p2.LEVEL_TARGETS[level]
     p2.base.require(
@@ -185,10 +177,6 @@ def validate_pair(
             f'{star}/{level}: temperature hue identity changed ({channel})',
         )
 
-    p2.base.require(
-        float(current['granulation_contrast']) <= 0.80,
-        f'{star}/{level}: primary granulation is too visible in normal gameplay',
-    )
     p2.base.require(
         float(current['broad_variation_std']) >= 0.35,
         f'{star}/{level}: broad convection vanished',
@@ -215,10 +203,144 @@ def validate_pair(
     )
 
 
+def validate_pair(
+    star: str,
+    level: str,
+    baseline: dict[str, float | int],
+    current: dict[str, float | int],
+) -> None:
+    # Normal gameplay is intentionally below the screen-space primary-detail
+    # threshold. At that size a zero measured local residual is acceptable—and
+    # preferable to visible texture.
+    if level == 'normal':
+        validate_common(star, level, baseline, current)
+        p2.base.require(
+            float(current['granulation_contrast']) <= 0.80,
+            f'{star}/{level}: primary granulation is too visible in normal gameplay',
+        )
+        return
+
+    if level == 'enlarged':
+        # Manual review of the 390x844 captures shows that a 0.14 luma-residual
+        # floor corresponds to the first visible onset of low-contrast granulation,
+        # including the warm 0.35 M_sun case. Keep one common bound for all three
+        # temperatures rather than adding star-specific exceptions.
+        validate_common(star, level, baseline, current)
+        contrast = float(current['granulation_contrast'])
+        p2.base.require(
+            0.14 <= contrast <= 2.50,
+            f'{star}/{level}: granulation contrast {contrast:.3f} outside 0.14-2.50',
+        )
+        p2.base.require(
+            contrast >= float(baseline['granulation_contrast']) * 1.10,
+            f'{star}/{level}: primary granulation did not recover enough detail over Pass 1',
+        )
+        return
+
+    _original_validate_pair(star, level, baseline, current)
+
+
 p2.prepare_focus_scene = prepare_focus_scene
 p2.calibrate_zoom_steps = calibrate_zoom_steps
 p2.capture_state = capture_state
 p2.validate_pair = validate_pair
 
+
+def main() -> None:
+    p2.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    p2.base.wait_for_url(p2.base.CURRENT_URL)
+    driver = p2.base.make_driver()
+    current_paths: dict[str, dict[str, Path]] = {star: {} for star in p2.STAR_STAGES}
+    baseline_paths: dict[str, dict[str, Path]] = {star: {} for star in p2.STAR_STAGES}
+    zoom_steps: dict[str, int] = {}
+
+    try:
+        for level in p2.LEVELS:
+            steps, diameter = p2.calibrate_zoom_steps(driver, p2.base.CURRENT_URL, p2.LEVEL_TARGETS[level])
+            zoom_steps[level] = steps
+            print(f'Pass 2 zoom calibration {level}: {steps} wheel steps -> {diameter:.1f}px')
+
+        for star in p2.STAR_STAGES:
+            for level in p2.LEVELS:
+                current_paths[star][level] = p2.capture_state(
+                    driver, p2.base.CURRENT_URL, 'current', star, level, zoom_steps[level]
+                )
+
+        with p2.baseline_preview(p2.BASELINE_REF) as baseline_url:
+            for star in p2.STAR_STAGES:
+                for level in p2.LEVELS:
+                    baseline_paths[star][level] = p2.capture_state(
+                        driver, baseline_url, 'baseline', star, level, zoom_steps[level]
+                    )
+    finally:
+        driver.quit()
+
+    current_metrics = {
+        star: {level: p2.analyze(path) for level, path in paths.items()}
+        for star, paths in current_paths.items()
+    }
+    baseline_metrics = {
+        star: {level: p2.analyze(path) for level, path in paths.items()}
+        for star, paths in baseline_paths.items()
+    }
+
+    payload = {
+        'viewport': {'width': p2.base.VIEWPORT_WIDTH, 'height': p2.base.VIEWPORT_HEIGHT},
+        'baseline_ref': p2.BASELINE_REF,
+        'zoom_steps': zoom_steps,
+        'targets_px': p2.LEVEL_TARGETS,
+        'baseline': baseline_metrics,
+        'current': current_metrics,
+    }
+    (p2.OUTPUT_DIR / 'metrics.json').write_text(
+        p2.json.dumps(payload, indent=2),
+        encoding='utf-8',
+    )
+    p2.make_contact_sheet(
+        current_paths,
+        current_metrics,
+        p2.OUTPUT_DIR / 'mobile-pass2-contact-sheet.png',
+    )
+    p2.make_extreme_ab_sheet(
+        baseline_paths,
+        current_paths,
+        p2.OUTPUT_DIR / 'mobile-pass1-vs-pass2-extreme.png',
+    )
+    print('Pass 2 current metrics:')
+    p2.print_metrics(current_metrics)
+
+    for star in p2.STAR_STAGES:
+        for level in p2.LEVELS:
+            p2.validate_pair(star, level, baseline_metrics[star][level], current_metrics[star][level])
+
+    for star in p2.STAR_STAGES:
+        normal = float(current_metrics[star]['normal']['granulation_contrast'])
+        enlarged = float(current_metrics[star]['enlarged']['granulation_contrast'])
+        extreme = float(current_metrics[star]['extreme']['granulation_contrast'])
+        enlarged_hf = float(current_metrics[star]['enlarged']['high_frequency_energy'])
+        extreme_hf = float(current_metrics[star]['extreme']['high_frequency_energy'])
+        p2.base.require(
+            normal <= enlarged * 1.30,
+            f'{star}: normal view surface texture is too prominent',
+        )
+        p2.base.require(
+            extreme >= enlarged * 0.70,
+            f'{star}: extreme view loses primary granulation unexpectedly',
+        )
+        # Raw local-residual contrast is intentionally scale-dependent because
+        # screen-space LOD reveals additional resolved bands as the disk grows.
+        # Bound aggressive zoom growth with the much more scale-stable HF energy;
+        # absolute contrast, minima and connected-dark topology are already gated
+        # per state above.
+        p2.base.require(
+            extreme_hf <= enlarged_hf * 2.20 + 0.25,
+            f'{star}: extreme view high-frequency energy grows too aggressively',
+        )
+
+    print('stellar photosphere Pass 2 normal/enlarged/extreme mobile regression: ok')
+    print(f'  viewport: {p2.base.VIEWPORT_WIDTH}x{p2.base.VIEWPORT_HEIGHT}')
+    print(f'  zoom steps: {zoom_steps}')
+
+
 if __name__ == '__main__':
-    p2.main()
+    main()
