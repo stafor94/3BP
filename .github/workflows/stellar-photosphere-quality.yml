@@ -1,8 +1,6 @@
 name: Stellar Photosphere Quality
 
 on:
-  push:
-    branches: [feat/stellar-photosphere-pass2-granulation]
   pull_request:
     branches: [main]
     paths:
