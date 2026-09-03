@@ -139,18 +139,27 @@ def validate(metrics: dict[str, dict[str, dict[str, dict[str, float]]]]) -> None
                 f'{level}/{star}: broad photosphere variation collapsed toward a flat sphere: '
                 f"{before['broad_std']:.3f} -> {after['broad_std']:.3f}",
             )
+            # Do not require a percentage of the old one-pixel contrast: that metric
+            # was dominated by the very cellular crack network this Pass removes.
+            # Instead require a small nonzero residual and measurable unblurred detail
+            # beyond the broad component so the photosphere is not a flat sphere.
             base.require(
-                after['surface_neighbor_contrast'] >= max(before['surface_neighbor_contrast'] * 0.20, 0.08),
-                f'{level}/{star}: all local photosphere inhomogeneity disappeared: '
+                after['surface_neighbor_contrast'] >= 0.12,
+                f'{level}/{star}: weak local photosphere inhomogeneity disappeared: '
+                f"{after['surface_neighbor_contrast']:.3f}",
+            )
+            base.require(
+                after['luma_std'] >= after['broad_std'] + 0.03,
+                f'{level}/{star}: no measurable small-scale breakup remains beyond broad convection: '
+                f"std={after['luma_std']:.3f}, broad={after['broad_std']:.3f}",
+            )
+            base.require(
+                after['surface_neighbor_contrast'] <= before['surface_neighbor_contrast'] * 0.20 + 0.08,
+                f'{level}/{star}: legacy crack-scale contrast did not fall enough: '
                 f"{before['surface_neighbor_contrast']:.3f} -> {after['surface_neighbor_contrast']:.3f}",
             )
             base.require(
-                after['surface_neighbor_contrast'] <= before['surface_neighbor_contrast'] * 1.05 + 0.08,
-                f'{level}/{star}: local contrast increased while removing cellular cracks: '
-                f"{before['surface_neighbor_contrast']:.3f} -> {after['surface_neighbor_contrast']:.3f}",
-            )
-            base.require(
-                after['local_minima_fraction'] <= before['local_minima_fraction'] * 0.82 + 0.0025,
+                after['local_minima_fraction'] <= before['local_minima_fraction'] * 0.30 + 0.0025,
                 f'{level}/{star}: lane-like local minima did not fall enough after cellular removal: '
                 f"{before['local_minima_fraction']:.5f} -> {after['local_minima_fraction']:.5f}",
             )
