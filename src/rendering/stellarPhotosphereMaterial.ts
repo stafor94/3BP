@@ -250,7 +250,7 @@ export const stellarPhotosphereFragmentShader = `
     float convectionVariation =
       (convection - 0.5) * 0.020 * convectionLod * convectionEvolution;
     float primaryVariation =
-      primaryGranulation * 0.072 * primaryEvolution;
+      primaryGranulation * 0.086 * primaryEvolution;
     float fineVariation =
       (fineBreakup - 0.5) * 0.005 * fineLod;
     float variation =
