@@ -60,8 +60,8 @@ export function configureStellarCoronaMaterial(
           uniform float uCoronaOuterWhiteMix;`,
         )
         // SpriteMaterial uses the standard map_fragment chunk. Override alpha
-        // immediately after its shared texture sample so the legacy radial glow
-        // texture no longer determines stellar halo shape.
+        // immediately after its shared texture sample so one existing Sprite can
+        // carry both the photosphere-adjacent glow and the faint diffuse corona.
         .replace(
           '#include <map_fragment>',
           `#include <map_fragment>
@@ -75,33 +75,58 @@ export function configureStellarCoronaMaterial(
           float coronaAngularA = sin(coronaAngle * 5.0 + uCoronaSeed * 0.071 + coronaPhase);
           float coronaAngularB = sin(coronaAngle * 9.0 - uCoronaSeed * 0.113 - coronaPhase * 0.73);
           float coronaAngularWarp = coronaAngularA * 0.050 + coronaAngularB * 0.024;
-          float coronaWarpWeight = smoothstep(0.05, 0.88, coronaDistance01);
+          coronaAngularWarp *= 0.42;
+          float coronaWarpWeight = smoothstep(0.10, 0.90, coronaDistance01);
           float warpedDistance01 = max(
             coronaDistance01 * (1.0 + coronaAngularWarp * coronaWarpWeight),
             0.0
           );
+
+          // The corona begins at the silhouette, not over the photosphere. A tiny
+          // derivative-independent overlap prevents a dark seam without washing
+          // out Pass 2 granulation or Pass 3 center-to-limb depth.
           float coronaOutsideMask = smoothstep(
-            coronaPhotosphereRadius - 0.010,
-            coronaPhotosphereRadius + 0.014,
+            coronaPhotosphereRadius - 0.002,
+            coronaPhotosphereRadius + 0.018,
             coronaRadius
           );
+
+          // Retain the compact Pass 5 core as a reference component, then broaden
+          // it with a soft shoulder so the immediate glow is not a neon outline.
           float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));
+          float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.30, 1.65));
+          float coronaNearRegion = coronaNearLimb * 0.52 + coronaNearShoulder * 0.48;
+
+          // Keep the historical fast tail present for continuity, but make the
+          // visible outer region come primarily from a much weaker, slower diffuse
+          // component. It rises after the near-limb shoulder and is forced to zero
+          // before the Sprite edge so it cannot read as a separate circular halo.
           float coronaOuter =
             exp(-warpedDistance01 * 5.4) *
             (1.0 - smoothstep(0.72, 1.0, warpedDistance01));
+          float coronaOuterRise = smoothstep(0.10, 0.28, warpedDistance01);
+          float coronaOuterDiffuse =
+            exp(-warpedDistance01 * 2.65) *
+            coronaOuterRise *
+            (1.0 - smoothstep(0.78, 0.98, warpedDistance01));
+          float coronaOuterRegion = coronaOuter * 0.16 + coronaOuterDiffuse * 0.84;
+
           float coronaAngularBrightness = clamp(
-            1.0 + coronaAngularA * 0.040 + coronaAngularB * 0.018,
-            0.92,
-            1.08
+            1.0 + coronaAngularA * 0.018 + coronaAngularB * 0.008,
+            0.96,
+            1.04
           );
-          float coronaSpriteEdge = 1.0 - smoothstep(0.91, 1.0, coronaRadius);
+          float coronaSpriteEdge = 1.0 - smoothstep(0.90, 0.985, coronaRadius);
           float coronaAlpha =
             coronaOutsideMask *
-            (coronaNearLimb * 0.84 + coronaOuter * 0.16) *
+            (coronaNearRegion * 0.74 + coronaOuterRegion * 0.26) *
             coronaAngularBrightness *
             coronaSpriteEdge;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);
-          float coronaOuterColorWeight = smoothstep(0.14, 0.78, warpedDistance01);
+
+          // Preserve temperature identity through most of the corona. Only the
+          // weakest outer tail receives the already tightly bounded desaturation.
+          float coronaOuterColorWeight = smoothstep(0.28, 0.84, warpedDistance01);
           float coronaPeak = max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b);
           diffuseColor.rgb = mix(
             diffuseColor.rgb,
