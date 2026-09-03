@@ -12,10 +12,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 import stellarPhotosphereVisualRegression as base
 
-OUTPUT_DIR = Path('stellar-granulation-lod-artifacts')
+OUTPUT_DIR = Path('stellar-surface-lod-artifacts')
 BASELINE_REF = os.environ.get(
-    'STELLAR_GRANULATION_LOD_BASELINE_REF',
-    '901b2dd596cb3a0f240853aa851981087f92ae04',
+    'STELLAR_SURFACE_LOD_BASELINE_REF',
+    '09153897130cd25d35820174b2b81b5dea5b80c7',
 )
 ZOOM_LEVELS = {
     'large': -8,
@@ -136,7 +136,7 @@ def analyze(path: Path) -> dict[str, float | int]:
     neighbor_delta_count = 0
     high_frequency_sum = 0.0
     high_frequency_count = 0
-    lane_pixels = 0
+    local_minima = 0
     hue_r = 0.0
     hue_g = 0.0
     hue_b = 0.0
@@ -184,7 +184,7 @@ def analyze(path: Path) -> dict[str, float | int]:
                 high_frequency_count += 1
                 brighter_neighbors = sum(value >= current_luma + 2.0 for value in neighbors)
                 if neighbor_mean >= current_luma + 2.5 and brighter_neighbors >= 3:
-                    lane_pixels += 1
+                    local_minima += 1
 
             if current_luma >= 145:
                 low_luma = luma(blur_pixels[x, y])
@@ -208,7 +208,7 @@ def analyze(path: Path) -> dict[str, float | int]:
         'bright_mean_luma': bright_luma_sum / max(bright_pixels, 1),
         'surface_neighbor_contrast': neighbor_delta_sum / max(neighbor_delta_count, 1),
         'high_frequency_energy': high_frequency_sum / max(high_frequency_count, 1),
-        'lane_presence': lane_pixels / max(high_frequency_count, 1),
+        'local_minima_fraction': local_minima / max(high_frequency_count, 1),
         'low_frequency_std': math.sqrt(low_variance),
         'hue_r': hue_r / max(hue_count, 1),
         'hue_g': hue_g / max(hue_count, 1),
@@ -222,21 +222,21 @@ def validate_level(level: str, baseline: dict[str, float | int], current: dict[s
         ('bright_fraction', 0.12, 0.0025),
         ('very_bright_fraction', 0.14, 0.0025),
     ):
-        baseline_value = float(baseline[metric])
-        current_value = float(current[metric])
-        tolerance = max(abs(baseline_value) * relative_tolerance, absolute_tolerance)
+        before = float(baseline[metric])
+        after = float(current[metric])
+        tolerance = max(abs(before) * relative_tolerance, absolute_tolerance)
         base.require(
-            abs(current_value - baseline_value) <= tolerance,
-            f'{level}: {metric} drifted beyond Pass 3 budget: '
-            f'baseline={baseline_value:.6f} current={current_value:.6f} tolerance={tolerance:.6f}',
+            abs(after - before) <= tolerance,
+            f'{level}: {metric} drifted beyond the surface-only budget: '
+            f'baseline={before:.6f} current={after:.6f} tolerance={tolerance:.6f}',
         )
 
-    baseline_luma = float(baseline['bright_mean_luma'])
-    current_luma = float(current['bright_mean_luma'])
+    before_luma = float(baseline['bright_mean_luma'])
+    after_luma = float(current['bright_mean_luma'])
     base.require(
-        abs(current_luma - baseline_luma) <= max(abs(baseline_luma) * 0.10, 4.0),
+        abs(after_luma - before_luma) <= max(abs(before_luma) * 0.10, 4.0),
         f'{level}: photosphere mean brightness changed too much: '
-        f'baseline={baseline_luma:.3f} current={current_luma:.3f}',
+        f'baseline={before_luma:.3f} current={after_luma:.3f}',
     )
 
     hue_delta = sum(
@@ -262,37 +262,33 @@ def validate(metrics: dict[str, dict[str, dict[str, float | int]]]):
     large_base = metrics['baseline']['large']
     large_current = metrics['current']['large']
     base.require(
-        float(large_current['high_frequency_energy']) >= float(large_base['high_frequency_energy']) * 0.55,
-        'large: resolved close-up granulation lost too much Pass 2 fine structure',
+        float(large_current['high_frequency_energy']) >= max(float(large_base['high_frequency_energy']) * 0.18, 0.05),
+        'large: all resolved small-scale surface inhomogeneity disappeared',
     )
     base.require(
-        float(large_current['lane_presence']) >= float(large_base['lane_presence']) * 0.45,
-        'large: resolved close-up intergranular lanes were over-suppressed',
+        float(large_current['local_minima_fraction']) <= float(large_base['local_minima_fraction']) * 0.85 + 0.003,
+        'large: lane-like local minima did not fall after removing cellular topology',
     )
 
     normal_current = metrics['current']['normal']
     base.require(
-        float(normal_current['surface_neighbor_contrast']) >= 0.55,
-        'normal: cellular photosphere became too smooth to read as surface structure',
+        float(normal_current['surface_neighbor_contrast']) >= 0.08,
+        'normal: photosphere became completely smooth',
     )
     base.require(
-        float(normal_current['low_frequency_std']) >= 4.0,
-        'normal: low-frequency photosphere structure is not measurable',
+        float(normal_current['low_frequency_std']) >= 0.75,
+        'normal: broad photosphere variation is not measurable',
     )
 
-    small_base = metrics['baseline']['small']
     small_current = metrics['current']['small']
     base.require(
-        float(small_current['high_frequency_energy']) <= float(small_base['high_frequency_energy']) * 0.98 + 0.05,
-        'small: derivative LOD did not reduce unresolved high-frequency energy versus Pass 2',
+        float(small_current['low_frequency_std']) >= 0.40,
+        'small: photosphere collapsed to a flat luminous sphere',
     )
     base.require(
-        float(small_current['lane_presence']) <= float(small_base['lane_presence']) * 1.05 + 0.002,
-        'small: thin lane minima became more prominent instead of anti-aliased',
-    )
-    base.require(
-        float(small_current['low_frequency_std']) >= 2.0,
-        'small: photosphere collapsed to a completely smooth luminous sphere',
+        float(small_current['high_frequency_energy']) <=
+        max(float(large_current['high_frequency_energy']) * 1.40, 0.25),
+        'small: unresolved high-frequency energy grows excessively while zooming out',
     )
 
 
@@ -307,7 +303,7 @@ def capture_zoom_sweep(driver, root_url: str):
         sweep.append({
             'index': index,
             'high_frequency_energy': metric['high_frequency_energy'],
-            'lane_presence': metric['lane_presence'],
+            'local_minima_fraction': metric['local_minima_fraction'],
             'equivalent_core_diameter_px': metric['equivalent_core_diameter_px'],
         })
         if index < 12:
@@ -318,8 +314,12 @@ def capture_zoom_sweep(driver, root_url: str):
         current_hf = float(current['high_frequency_energy'])
         base.require(
             current_hf <= previous_hf * 1.45 + 0.35,
-            'zoom sweep: high-frequency energy spikes while zooming out, indicating shimmer/popping: '
+            'zoom sweep: high-frequency surface energy spikes while zooming out: '
             f'{previous_hf:.4f} -> {current_hf:.4f}',
+        )
+        base.require(
+            abs(float(current['local_minima_fraction']) - float(previous['local_minima_fraction'])) <= 0.075,
+            'zoom sweep: local-minima visibility pops between adjacent zoom samples',
         )
     return sweep
 
@@ -337,8 +337,8 @@ def make_contact_sheet(paths: dict[str, dict[str, Path]]):
     draw = ImageDraw.Draw(sheet)
     for row, level in enumerate(('large', 'normal', 'small')):
         y = margin + row * row_height
-        draw.text((margin, y), f'Pass 2 baseline / {level}', fill=(235, 238, 245))
-        draw.text((margin * 2 + first.width, y), f'Pass 3 screen-space LOD / {level}', fill=(235, 238, 245))
+        draw.text((margin, y), f'Baseline main cellular / {level}', fill=(235, 238, 245))
+        draw.text((margin * 2 + first.width, y), f'Pass 1 surface LOD / {level}', fill=(235, 238, 245))
         baseline = Image.open(paths['baseline'][level]).convert('RGB')
         current = Image.open(paths['current'][level]).convert('RGB')
         sheet.paste(baseline, (margin, y + label_height))
@@ -393,20 +393,16 @@ def main():
     }
     (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
 
-    print('stellar screen-space granulation LOD mobile regression: ok')
+    print('stellar surface screen-space LOD mobile regression: ok')
     for level in ('large', 'normal', 'small'):
         baseline = metrics['baseline'][level]
         current = metrics['current'][level]
         print(
             f"  {level}: diameter {current['equivalent_core_diameter_px']:.1f}px, "
             f"HF {baseline['high_frequency_energy']:.3f}->{current['high_frequency_energy']:.3f}, "
-            f"lanes {baseline['lane_presence']:.5f}->{current['lane_presence']:.5f}, "
+            f"local minima {baseline['local_minima_fraction']:.5f}->{current['local_minima_fraction']:.5f}, "
             f"low-freq std {current['low_frequency_std']:.3f}"
         )
-    print(
-        '  zoom sweep HF: ' +
-        ' -> '.join(f"{float(item['high_frequency_energy']):.3f}" for item in zoom_sweep)
-    )
 
 
 if __name__ == '__main__':

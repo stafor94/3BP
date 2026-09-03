@@ -41,8 +41,6 @@ def baseline_preview(ref: str):
         base.require(node_modules.exists(), 'root node_modules is required for baseline build')
         os.symlink(node_modules, worktree / 'node_modules', target_is_directory=True)
 
-        # Use the current deterministic temperature fixture on both renderers so
-        # the A/B changes only the Pass 5 vs Pass 6 rendering implementation.
         harness = Path('src/visualRegression/StellarTopologyVisualHarness.tsx')
         shutil.copy2(base.ROOT / harness, worktree / harness)
 
@@ -238,10 +236,13 @@ def validate(metrics: dict[str, dict[str, dict[str, dict[str, float]]]]) -> None
                 f'{level}/{star}: photosphere mean luminance drifted too far: '
                 f"{before['mean_luma']:.2f} -> {after['mean_luma']:.2f}",
             )
+            # Pass 1 intentionally removes the old cellular lane contrast. HDR
+            # validation still requires visible local inhomogeneity, while the
+            # dedicated Pass 1 gate verifies crack/minima removal and broad detail.
             base.require(
-                after['surface_neighbor_contrast'] >= before['surface_neighbor_contrast'] * 0.68,
-                f'{level}/{star}: resolved granulation contrast collapsed after HDR calibration: '
-                f"{before['surface_neighbor_contrast']:.3f} -> {after['surface_neighbor_contrast']:.3f}",
+                after['surface_neighbor_contrast'] >= 0.12,
+                f'{level}/{star}: photosphere became locally flat after HDR calibration: '
+                f"{after['surface_neighbor_contrast']:.3f}",
             )
             base.require(
                 after['white_blob_fraction'] <= min(0.38, before['white_blob_fraction'] + 0.10),
@@ -359,16 +360,8 @@ def main() -> None:
                 f"    {star}: luma {before['mean_luma']:.1f}->{after['mean_luma']:.1f}, "
                 f"contrast {before['surface_neighbor_contrast']:.3f}->{after['surface_neighbor_contrast']:.3f}, "
                 f"chroma {before['mean_chroma']:.3f}->{after['mean_chroma']:.3f}, "
-                f"white {before['white_blob_fraction']:.4f}->{after['white_blob_fraction']:.4f}, "
-                f"center-white {before['center_white_fraction']:.4f}->{after['center_white_fraction']:.4f}, "
-                f"radius {before['equivalent_radius_px']:.2f}px->{after['equivalent_radius_px']:.2f}px, "
-                f"hue ({after['hue_r']:.4f},{after['hue_g']:.4f},{after['hue_b']:.4f})"
+                f"white {before['white_blob_fraction']:.3f}->{after['white_blob_fraction']:.3f}"
             )
-        current = metrics['current'][level]
-        print(
-            f"    hue distances: cool/solar={hue_distance(current['cool'], current['solar']):.5f}, "
-            f"solar/hot={hue_distance(current['solar'], current['hot']):.5f}"
-        )
 
 
 if __name__ == '__main__':
