@@ -34,11 +34,11 @@ export function getStellarRenderProfile(
   return {
     photosphereIntensity: 0.92 + luminosity01 * 0.10 + temperature01 * 0.035,
     whiteHotMix: 0.008 + temperature01 * 0.032 + luminosity01 * 0.012,
-    // The corona carrier stays close to the photosphere. A sprite scale near 2.8
-    // puts the photosphere boundary around 0.7 in radial sprite UV, leaving only
-    // a compact band for the shader-controlled near-limb and outer corona.
-    coronaScale: 2.72 + luminosity01 * 0.24,
-    coronaOpacity: 0.235 + luminosity01 * 0.095,
+    // Keep one bounded carrier Sprite, but leave enough radial room for the
+    // shader's near-limb shoulder and weaker diffuse outer corona. Luminosity
+    // only nudges the scale across a deliberately compressed range.
+    coronaScale: 2.90 + luminosity01 * 0.10,
+    coronaOpacity: 0.255 + luminosity01 * 0.075,
     // Only the faint outer tail may desaturate, and even there very slightly.
     coronaOuterWhiteMix: 0.014 + luminosity01 * 0.020,
   }
