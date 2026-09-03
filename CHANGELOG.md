@@ -6,6 +6,26 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.10] - 2026-09-03
+
+### Changed
+- 기존 항성당 `inner glow + outer glow` Sprite 2장 구조를 단일 compact corona 경로로 교체했습니다. 기존 inner Sprite 하나만 corona carrier로 재사용하고 outer Sprite는 항성 렌더 직전에 비활성화해 두 겹의 큰 동심원 blur를 제거합니다.
+- 새 stellar corona shader가 Sprite UV에서 photosphere 경계를 직접 계산해 바로 바깥에는 얇고 비교적 강한 near-limb glow를 만들고, 그 밖에는 지수적으로 빠르게 감쇠하는 희미한 corona만 남깁니다. 기존 radial glow texture의 alpha 분포는 항성 halo 형상을 더 이상 결정하지 않습니다.
+- 항성 seed와 매우 느린 time phase로 corona 반경/밝기에 작은 angular variation을 주어 외곽이 완전한 동심원으로 읽히지 않게 하되 flare·ray·prominence처럼 보이는 방향성 효과는 추가하지 않습니다.
+- corona 색은 기존 temperature-derived stellar color를 그대로 사용하고, photosphere에서 충분히 떨어진 희미한 outer tail에서만 최대 약 3% 수준으로 약하게 desaturate합니다.
+- `stellarRenderProfile`의 기존 3.65–4.5× inner / 7.1–8.85× outer glow scale을 약 2.72–2.96×의 단일 corona carrier로 축소해 photosphere가 화면의 주 피사체로 유지되도록 했습니다.
+
+### Performance
+- 항성의 정상 렌더 draw 구조를 `photosphere sphere 1 + inner glow Sprite 1 + outer glow Sprite 1`에서 `photosphere sphere 1 + compact corona Sprite 1`로 줄여 항성당 draw call을 3개에서 2개로 감소시킵니다.
+- shared `VisualBody`의 기존 Sprite 객체는 non-stellar 경로 호환을 위해 그대로 재사용하지만 stellar outer Sprite는 `visible=false`로 제출하지 않습니다. 새 texture, geometry, sprite 또는 per-frame material/object 생성은 추가하지 않습니다.
+
+### Verification
+- stellar rendering regression에 단일 corona carrier, outer Sprite 비활성화, compact scale/opacity, 빠른 radial falloff, seed/slow-time asymmetry, temperature-color 유지 및 Pass 2/3/4 shader 계약 보존을 추가했습니다.
+- mobile 390×844에서 Pass 4 merge(`93bb0d4`)와 일반 거리/확대 거리를 동일 seed·동일 harness로 A/B 캡처해 halo extent, halo/core luminance, corona boundary variation, edge luminance, temperature hue, granulation contrast와 Pass 4 edge transition을 비교합니다.
+
+### Unchanged
+- Pass 2 cellular granulation, Pass 3 screen-space LOD, Pass 4 limb/silhouette shader, HDR/tone mapping, `starColors.ts`, presets/evolution physics, mass/radius/orbit/velocity/timestep/collision, planet/moon/fragment/background/collision VFX는 변경하지 않습니다.
+
 ## [0.24.9] - 2026-09-03
 
 ### Changed

@@ -9,6 +9,10 @@ const stellarMaterialSource = readFileSync(
   resolve(process.cwd(), 'src/rendering/stellarPhotosphereMaterial.ts'),
   'utf8',
 )
+const stellarCoronaSource = readFileSync(
+  resolve(process.cwd(), 'src/rendering/stellarCoronaMaterial.ts'),
+  'utf8',
+)
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -71,8 +75,8 @@ function testLuminosityIsCompressedForDisplay() {
 
   assert(physicalRatio > 1000, 'regression pair must span several orders of physical luminosity')
   assert(photosphereRatio < 1.25, 'photosphere luminance must compress physical luminosity instead of scaling linearly')
-  assert(hot.render.innerGlowOpacity > cool.render.innerGlowOpacity, 'higher luminosity must still read through stronger inner glow')
-  assert(hot.render.outerGlowScale > cool.render.outerGlowScale, 'higher luminosity must still read through a larger halo')
+  assert(hot.render.coronaOpacity > cool.render.coronaOpacity, 'higher luminosity must still read through a slightly stronger compact corona')
+  assert(hot.render.coronaScale > cool.render.coronaScale, 'higher luminosity may still read through a subtly larger compact corona')
 }
 
 function testCoreAndHaloHierarchy() {
@@ -87,10 +91,9 @@ function testCoreAndHaloHierarchy() {
   samples.forEach(({ render }) => {
     assert(render.photosphereIntensity >= 0.9 && render.photosphereIntensity <= 1.1, 'photosphere must stay in the hue-preserving luminance shoulder')
     assert(render.whiteHotMix <= 0.06, 'white-hot treatment must remain confined to a small center contribution')
-    assert(render.innerGlowOpacity < 0.5, 'inner glow must not become an opaque white disc')
-    assert(render.outerGlowOpacity < render.innerGlowOpacity, 'outer halo must remain weaker than inner glow')
-    assert(render.outerGlowScale > render.innerGlowScale, 'outer halo must remain spatially outside inner glow')
-    assert(render.outerHaloWhiteMix <= 0.1, 'outer halo desaturation must remain subtle')
+    assert(render.coronaScale >= 2.7 && render.coronaScale <= 3.0, 'single corona carrier must remain compact around the photosphere')
+    assert(render.coronaOpacity < 0.35, 'compact corona must stay subordinate to the photosphere')
+    assert(render.coronaOuterWhiteMix <= 0.035, 'outer corona desaturation must remain very subtle')
   })
 }
 
@@ -101,8 +104,8 @@ function testMassChangesImmediatelyChangeRenderInputs() {
 
   assert(gainedMass.stellar.displayColor !== before.stellar.displayColor, 'mass gain must immediately change equilibrium display color')
   assert(stripped.stellar.displayColor !== before.stellar.displayColor, 'mass stripping must immediately change equilibrium display color')
-  assert(gainedMass.render.innerGlowOpacity !== before.render.innerGlowOpacity, 'mass gain must immediately change luminosity-driven glow')
-  assert(stripped.render.innerGlowOpacity !== before.render.innerGlowOpacity, 'mass stripping must immediately change luminosity-driven glow')
+  assert(gainedMass.render.coronaOpacity !== before.render.coronaOpacity, 'mass gain must immediately change luminosity-driven corona')
+  assert(stripped.render.coronaOpacity !== before.render.coronaOpacity, 'mass stripping must immediately change luminosity-driven corona')
 }
 
 function testDedicatedStellarMaterialPathIsStructurallySeparated() {
@@ -258,12 +261,22 @@ function testStellarUpdateContractOwnsRenderInputs() {
 }
 
 function testCoronaUsesSubtleShaderBasedAsymmetry() {
-  assert(bodyLightingSource.includes('uStellarGlowTime'), 'stellar glow shader must receive a slow time input')
-  assert(bodyLightingSource.includes('uStellarGlowSeed'), 'stellar glow asymmetry must remain deterministic per body')
-  assert(bodyLightingSource.includes('stellarAngularA * 0.065 + stellarAngularB * 0.035'), 'outer corona variation must stay subtle rather than flare-like')
-  assert(bodyLightingSource.includes("configureStellarGlowMaterial(\n      glowInner.material,\n      'inner'"), 'inner stellar glow must use the existing shader customization')
-  assert(bodyLightingSource.includes("configureStellarGlowMaterial(\n      glowOuter.material,\n      'outer'"), 'outer stellar corona must use the existing shader customization')
-  assert(!bodyLightingSource.includes('new THREE.CanvasTexture'), 'stellar photosphere work must not add a new per-body texture path')
+  assert(stellarCoronaSource.includes("export const STELLAR_CORONA_RENDER_PATH = 'stellar-corona-pass5'"), 'Pass 5 must use a dedicated compact corona shader customization')
+  assert(stellarCoronaSource.includes('uniform float uCoronaTime;'), 'stellar corona shader must receive a slow time input')
+  assert(stellarCoronaSource.includes('uniform float uCoronaSeed;'), 'stellar corona asymmetry must remain deterministic per body')
+  assert(stellarCoronaSource.includes('float coronaPhase = uCoronaTime * 0.0016;'), 'corona time evolution must remain nearly imperceptible')
+  assert(stellarCoronaSource.includes('coronaAngularA * 0.050 + coronaAngularB * 0.024'), 'corona radius variation must stay subtle rather than flare-like')
+  assert(stellarCoronaSource.includes('float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));'), 'corona must concentrate a thin near-limb glow immediately outside the photosphere')
+  assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 5.4)'), 'outer corona must decay rapidly instead of filling a large radial blur')
+  assert(stellarCoronaSource.includes('diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);'), 'stellar corona shader must replace the legacy radial texture alpha shape')
+  assert(stellarCoronaSource.includes('uCoronaOuterWhiteMix * coronaOuterColorWeight'), 'only the faint outer corona may weakly desaturate')
+  assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'existing inner Sprite must be reused as the single corona carrier')
+  assert(bodyLightingSource.includes('glowOuter.visible = false
+    glowOuter.material.opacity = 0'), 'legacy outer Sprite must be disabled for stars to remove one draw call')
+  assert(!bodyLightingSource.includes('configureStellarGlowMaterial'), 'legacy dual-layer stellar glow shader path must be removed')
+  assert(!stellarCoronaSource.includes('new THREE.CanvasTexture'), 'Pass 5 must not add a new texture path')
+  assert(!stellarCoronaSource.includes('new THREE.Sprite'), 'Pass 5 must not allocate a new sprite')
+  assert(!stellarCoronaSource.includes('new THREE.BufferGeometry'), 'Pass 5 must not add geometry')
 }
 
 function testNonStellarSurfacePathRemainsSeparated() {

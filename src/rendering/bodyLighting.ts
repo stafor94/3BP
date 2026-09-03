@@ -14,6 +14,7 @@ import {
   updateStellarPhotosphereMaterial,
   type StellarPhotosphereFrame,
 } from './stellarPhotosphereMaterial'
+import { configureStellarCoronaMaterial } from './stellarCoronaMaterial'
 
 export { getCollisionEffectProfile } from './collisionEffectProfile'
 export type { CollisionEffectProfile } from './collisionEffectProfile'
@@ -24,21 +25,12 @@ const STELLAR_VISUAL_MIN_RADIUS = 0.025
 const EFFECT_MESH_EPSILON = 0.0001
 const GENERIC_BODY_RENDER_PATH = 'generic-body'
 const trailColorScratch = new THREE.Color()
-const outerHaloColorScratch = new THREE.Color()
-const whiteColor = new THREE.Color('#ffffff')
 
 let installed = false
 let bodyBySeed = new Map<string, BodyState>()
 let lightingStars: BodyState[] = []
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
-
-type StellarGlowLayer = 'inner' | 'outer'
-type StellarGlowUniformState = {
-  uStellarGlowTime: { value: number }
-  uStellarGlowSeed: { value: number }
-  uStellarGlowLayer: { value: number }
-}
 
 function nowMs() {
   return typeof performance !== 'undefined' ? performance.now() : Date.now()
@@ -361,87 +353,6 @@ function updateTrailColor(scene: THREE.Scene, objectIndex: number, body: BodySta
   }
 }
 
-function configureStellarGlowMaterial(
-  material: THREE.SpriteMaterial,
-  layer: StellarGlowLayer,
-  seed: number,
-  timeSeconds: number,
-) {
-  if (material.blending !== THREE.NormalBlending) {
-    material.blending = THREE.NormalBlending
-    material.needsUpdate = true
-  }
-
-  material.userData.stellarGlowTime = timeSeconds
-  material.userData.stellarGlowSeed = seed
-  material.userData.stellarGlowLayer = layer === 'outer' ? 1 : 0
-
-  if (!material.userData.stellarGlowShaderInstalled) {
-    material.userData.stellarGlowShaderInstalled = true
-    material.onBeforeCompile = (shader) => {
-      const uniforms: StellarGlowUniformState = {
-        uStellarGlowTime: { value: material.userData.stellarGlowTime ?? 0 },
-        uStellarGlowSeed: { value: material.userData.stellarGlowSeed ?? 0 },
-        uStellarGlowLayer: { value: material.userData.stellarGlowLayer ?? 0 },
-      }
-      shader.uniforms.uStellarGlowTime = uniforms.uStellarGlowTime
-      shader.uniforms.uStellarGlowSeed = uniforms.uStellarGlowSeed
-      shader.uniforms.uStellarGlowLayer = uniforms.uStellarGlowLayer
-      shader.fragmentShader = shader.fragmentShader
-        .replace(
-          '#include <common>',
-          `#include <common>
-          uniform float uStellarGlowTime;
-          uniform float uStellarGlowSeed;
-          uniform float uStellarGlowLayer;`,
-        )
-        .replace(
-          '#include <map_fragment>',
-          `#include <map_fragment>
-          vec2 stellarGlowDelta = vMapUv - vec2(0.5);
-          float stellarGlowRadius = min(length(stellarGlowDelta) * 2.0, 1.5);
-          float stellarGlowAngle = atan(stellarGlowDelta.y, stellarGlowDelta.x);
-          float stellarOuter = step(0.5, uStellarGlowLayer);
-          float stellarEdgeWeight = smoothstep(0.12, 0.98, stellarGlowRadius);
-          float stellarAngularA = sin(
-            stellarGlowAngle * 5.0 +
-            uStellarGlowSeed * 0.071 +
-            uStellarGlowTime * 0.025
-          );
-          float stellarAngularB = sin(
-            stellarGlowAngle * 9.0 -
-            uStellarGlowSeed * 0.113 -
-            uStellarGlowTime * 0.018
-          );
-          float stellarVariation = mix(
-            stellarAngularA * 0.026,
-            stellarAngularA * 0.065 + stellarAngularB * 0.035,
-            stellarOuter
-          );
-          diffuseColor.a *= clamp(
-            1.0 + stellarVariation * stellarEdgeWeight,
-            0.88,
-            1.12
-          );
-          float stellarInnerLift =
-            (1.0 - stellarOuter) *
-            (1.0 - smoothstep(0.08, 0.62, stellarGlowRadius)) *
-            0.045;
-          diffuseColor.rgb *= 1.0 + stellarInnerLift;`,
-        )
-      material.userData.stellarGlowUniforms = uniforms
-    }
-    material.needsUpdate = true
-  }
-
-  const uniforms = material.userData.stellarGlowUniforms as StellarGlowUniformState | undefined
-  if (uniforms) {
-    uniforms.uStellarGlowTime.value = timeSeconds
-    uniforms.uStellarGlowSeed.value = seed
-    uniforms.uStellarGlowLayer.value = layer === 'outer' ? 1 : 0
-  }
-}
-
 function setBodyGlowVisibility(
   scene: THREE.Scene,
   objectIndex: number,
@@ -466,33 +377,29 @@ function setBodyGlowVisibility(
 
   const renderProfile = stellarFrame.renderProfile
   const renderRadius = Math.max(body.radius, STELLAR_VISUAL_MIN_RADIUS)
-  const glowSeed = getBodySeed(body.id)
+  const coronaSeed = getBodySeed(body.id)
 
+  // Pass 5 reuses the existing inner glow Sprite as the only stellar corona carrier.
+  // Its shader draws only the photosphere-adjacent band; the old radial texture
+  // alpha no longer defines the stellar halo shape.
   if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
-    configureStellarGlowMaterial(
-      glowInner.material,
-      'inner',
-      glowSeed,
-      stellarFrame.animationTimeSeconds,
-    )
+    configureStellarCoronaMaterial(glowInner.material, {
+      seed: coronaSeed,
+      timeSeconds: stellarFrame.animationTimeSeconds,
+      photosphereRadiusUv: 2 / renderProfile.coronaScale,
+      outerWhiteMix: renderProfile.coronaOuterWhiteMix,
+    })
     glowInner.visible = true
     glowInner.material.color.set(stellarFrame.displayColor)
-    glowInner.material.opacity = Math.min(0.49, renderProfile.innerGlowOpacity * 1.07)
-    glowInner.scale.setScalar(renderRadius * renderProfile.innerGlowScale)
+    glowInner.material.opacity = renderProfile.coronaOpacity
+    glowInner.scale.setScalar(renderRadius * renderProfile.coronaScale)
   }
 
+  // Keep the shared VisualBody allocation/layout intact for planets/fragments, but
+  // stellar rendering no longer submits the legacy second halo Sprite draw call.
   if (glowOuter instanceof THREE.Sprite && glowOuter.material instanceof THREE.SpriteMaterial) {
-    configureStellarGlowMaterial(
-      glowOuter.material,
-      'outer',
-      glowSeed,
-      stellarFrame.animationTimeSeconds,
-    )
-    glowOuter.visible = true
-    outerHaloColorScratch.set(stellarFrame.displayColor).lerp(whiteColor, renderProfile.outerHaloWhiteMix)
-    glowOuter.material.color.copy(outerHaloColorScratch)
-    glowOuter.material.opacity = renderProfile.outerGlowOpacity
-    glowOuter.scale.setScalar(renderRadius * renderProfile.outerGlowScale)
+    glowOuter.visible = false
+    glowOuter.material.opacity = 0
   }
 }
 
