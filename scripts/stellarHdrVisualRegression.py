@@ -5,7 +5,6 @@ import json
 import math
 import os
 import shutil
-import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -37,8 +36,6 @@ def baseline_preview(ref: str):
 
     base.run(['git', 'fetch', 'origin', 'main', '--depth=50'])
     base.run(['git', 'worktree', 'add', '--detach', str(worktree), ref])
-    process: subprocess.Popen[str] | None = None
-    log_handle = None
     try:
         node_modules = base.ROOT / 'node_modules'
         base.require(node_modules.exists(), 'root node_modules is required for baseline build')
@@ -50,32 +47,15 @@ def baseline_preview(ref: str):
         shutil.copy2(base.ROOT / harness, worktree / harness)
 
         base.run([str(node_modules / '.bin' / 'vite'), 'build'], cwd=worktree)
-        log_handle = log_path.open('w', encoding='utf-8')
-        process = subprocess.Popen(
-            ['npm', 'run', 'preview', '--', '--host', '127.0.0.1', '--port', str(base.BASELINE_PORT)],
-            cwd=worktree,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        root_url = f'http://127.0.0.1:{base.BASELINE_PORT}/3BP/'
-        base.wait_for_url(root_url, process)
-        yield root_url
+        with base.preview_server(worktree, base.BASELINE_PORT, log_path) as root_url:
+            yield root_url
     finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-        if log_handle is not None:
-            log_handle.close()
         try:
             if (worktree / 'node_modules').is_symlink():
                 (worktree / 'node_modules').unlink()
         except FileNotFoundError:
             pass
-        subprocess.run(
+        base.subprocess.run(
             ['git', 'worktree', 'remove', '--force', str(worktree)],
             cwd=base.ROOT,
             check=False,
@@ -379,8 +359,16 @@ def main() -> None:
                 f"    {star}: luma {before['mean_luma']:.1f}->{after['mean_luma']:.1f}, "
                 f"contrast {before['surface_neighbor_contrast']:.3f}->{after['surface_neighbor_contrast']:.3f}, "
                 f"chroma {before['mean_chroma']:.3f}->{after['mean_chroma']:.3f}, "
-                f"white {before['white_blob_fraction']:.4f}->{after['white_blob_fraction']:.4f}"
+                f"white {before['white_blob_fraction']:.4f}->{after['white_blob_fraction']:.4f}, "
+                f"center-white {before['center_white_fraction']:.4f}->{after['center_white_fraction']:.4f}, "
+                f"radius {before['equivalent_radius_px']:.2f}px->{after['equivalent_radius_px']:.2f}px, "
+                f"hue ({after['hue_r']:.4f},{after['hue_g']:.4f},{after['hue_b']:.4f})"
             )
+        current = metrics['current'][level]
+        print(
+            f"    hue distances: cool/solar={hue_distance(current['cool'], current['solar']):.5f}, "
+            f"solar/hot={hue_distance(current['solar'], current['hot']):.5f}"
+        )
 
 
 if __name__ == '__main__':
