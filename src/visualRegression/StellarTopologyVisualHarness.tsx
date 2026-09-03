@@ -2,15 +2,21 @@ import { useEffect, useState } from 'react'
 import { SimulationView } from '../components/SimulationView'
 import type { BodyState } from '../types'
 
-type VisualStage = 'separate' | 'peak' | 'remnant'
+type VisualStage = 'separate' | 'peak' | 'remnant' | 'temperature'
 
-function makeStar(id: string, x: number, color: string): BodyState {
+function makeStar(
+  id: string,
+  x: number,
+  color: string,
+  mass = 1,
+  radius = 0.3,
+): BodyState {
   return {
     id,
     name: id,
     color,
-    mass: 1,
-    radius: 0.3,
+    mass,
+    radius,
     position: { x, y: 0, z: 0 },
     velocity: { x: 0, y: 0, z: 0 },
     bodyType: 'star',
@@ -39,10 +45,15 @@ const STAGE_BODIES: Record<VisualStage, BodyState[]> = {
       stellarCollisionOutcome: 'merge',
     },
   ],
+  temperature: [
+    makeStar('visual-cool', -0.58, '#ffffff', 0.35, 0.22),
+    makeStar('visual-solar', 0, '#ffffff', 1, 0.22),
+    makeStar('visual-hot', 0.58, '#ffffff', 8, 0.22),
+  ],
 }
 
 function isVisualStage(value: string): value is VisualStage {
-  return value === 'separate' || value === 'peak' || value === 'remnant'
+  return value === 'separate' || value === 'peak' || value === 'remnant' || value === 'temperature'
 }
 
 declare global {
@@ -81,7 +92,7 @@ export function StellarTopologyVisualHarness() {
     >
       <SimulationView
         bodies={STAGE_BODIES[stage]}
-        simulationTime={stage === 'separate' ? 0 : stage === 'peak' ? 0.02 : 0.04}
+        simulationTime={stage === 'separate' ? 0 : stage === 'peak' ? 0.02 : stage === 'remnant' ? 0.04 : 0.01}
         trailVersion={0}
         trailEnabled={false}
         trailDuration={8}

@@ -9,6 +9,7 @@ on:
       - 'src/rendering/stellarPhotosphereMaterial.ts'
       - 'src/rendering/stellarCoronaMaterial.ts'
       - 'src/rendering/stellarRenderProfile.ts'
+      - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
       - 'scripts/stellarRenderPathVisualRegression.py'
@@ -17,6 +18,7 @@ on:
       - 'scripts/stellarGranulationLodScreenSizeAudit.py'
       - 'scripts/stellarLimbVisualRegression.py'
       - 'scripts/stellarCoronaVisualRegression.py'
+      - 'scripts/stellarHdrVisualRegression.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
@@ -72,6 +74,10 @@ jobs:
         env:
           STELLAR_CORONA_BASELINE_REF: 93bb0d481464e633d6c15e91ecbcac51040c3555
         run: python scripts/stellarCoronaVisualRegression.py
+      - name: Pass 6 stellar HDR and temperature-color mobile A/B regression
+        env:
+          STELLAR_HDR_BASELINE_REF: fe1d138268a40ce7707df64ac60a0ab384a995bc
+        run: python scripts/stellarHdrVisualRegression.py
       - name: Upload stellar photosphere A/B captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -102,5 +108,13 @@ jobs:
         with:
           name: stellar-corona-pass5-mobile-ab
           path: stellar-corona-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload stellar HDR temperature A/B captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-hdr-pass6-mobile-ab
+          path: stellar-hdr-artifacts
           if-no-files-found: warn
           retention-days: 7
