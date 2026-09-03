@@ -25,6 +25,7 @@ on:
       - 'scripts/stellarCoronaVisualRegression.py'
       - 'scripts/stellarHdrVisualRegression.py'
       - 'scripts/stellarProductionIntegrationVisualRegression.py'
+      - 'scripts/stellarProductionIntegrationVisualRegressionRunner.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
   # Temporary branch-only trigger for pre-PR visual acceptance. Remove before PR.
   push:
@@ -67,7 +68,7 @@ jobs:
           cat /tmp/3bp-stellar-preview.log
           exit 1
       - name: Pass 5 production SimulationView mobile integration regression
-        run: python scripts/stellarProductionIntegrationVisualRegression.py
+        run: python scripts/stellarProductionIntegrationVisualRegressionRunner.py
       - name: Pass 1 topology-removal regression
         env:
           STELLAR_PASS1_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
