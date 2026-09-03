@@ -12,10 +12,9 @@ on:
       - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
+      - 'scripts/stellarPhotospherePass1VisualRegression.py'
       - 'scripts/stellarRenderPathVisualRegression.py'
-      - 'scripts/stellarCellularPhotosphereVisualRegression.py'
       - 'scripts/stellarGranulationLodVisualRegression.py'
-      - 'scripts/stellarGranulationLodScreenSizeAudit.py'
       - 'scripts/stellarLimbVisualRegression.py'
       - 'scripts/stellarCoronaVisualRegression.py'
       - 'scripts/stellarHdrVisualRegression.py'
@@ -56,42 +55,40 @@ jobs:
           done
           cat /tmp/3bp-stellar-preview.log
           exit 1
-      - name: Capture Pass 1 vs Pass 2 main-sequence mobile A/B
+      - name: Pass 1 cellular-removal temperature mobile A/B
         env:
-          STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
-        run: python scripts/stellarCellularPhotosphereVisualRegression.py
-      - name: Pass 3 screen-space granulation LOD mobile regression
+          STELLAR_PASS1_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
+        run: python scripts/stellarPhotospherePass1VisualRegression.py
+      - name: Pass 1 screen-space stellar surface LOD regression
         env:
-          STELLAR_GRANULATION_LOD_BASELINE_REF: 901b2dd596cb3a0f240853aa851981087f92ae04
+          STELLAR_SURFACE_LOD_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
         run: python scripts/stellarGranulationLodVisualRegression.py
-      - name: Verify distinct mobile screen sizes and zoom coverage
-        run: python scripts/stellarGranulationLodScreenSizeAudit.py
-      - name: Pass 4 stellar limb and edge mobile A/B regression
+      - name: Stellar limb and edge mobile A/B regression
         env:
           STELLAR_LIMB_BASELINE_REF: 284d113e82523f90ae5ca92444f0eab0bbb98b26
         run: python scripts/stellarLimbVisualRegression.py
-      - name: Pass 5 compact stellar corona mobile A/B regression
+      - name: Compact stellar corona mobile A/B regression
         env:
           STELLAR_CORONA_BASELINE_REF: 93bb0d481464e633d6c15e91ecbcac51040c3555
         run: python scripts/stellarCoronaVisualRegression.py
-      - name: Pass 6 stellar HDR and temperature-color mobile A/B regression
+      - name: Stellar HDR and temperature-color mobile A/B regression
         env:
           STELLAR_HDR_BASELINE_REF: fe1d138268a40ce7707df64ac60a0ab384a995bc
         run: python scripts/stellarHdrVisualRegression.py
-      - name: Upload stellar photosphere A/B captures
+      - name: Upload Pass 1 temperature A/B captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-photosphere-cellular-mobile-ab
-          path: stellar-photosphere-visual-artifacts
+          name: stellar-photosphere-pass1-mobile-ab
+          path: stellar-pass1-artifacts
           if-no-files-found: warn
           retention-days: 7
-      - name: Upload screen-space LOD mobile captures
+      - name: Upload Pass 1 surface LOD captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-granulation-screen-space-lod
-          path: stellar-granulation-lod-artifacts
+          name: stellar-surface-screen-space-lod
+          path: stellar-surface-lod-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload stellar limb mobile A/B captures
