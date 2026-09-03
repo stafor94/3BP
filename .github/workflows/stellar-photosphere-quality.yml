@@ -10,6 +10,7 @@ on:
       - 'src/rendering/stellarCoronaMaterial.ts'
       - 'src/rendering/stellarRenderProfile.ts'
       - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
+      - 'src/visualRegression/productionCameraHandoffFixture.ts'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
       - 'scripts/stellarPhotospherePass1VisualRegression.py'
@@ -23,7 +24,12 @@ on:
       - 'scripts/stellarLimbVisualRegression.py'
       - 'scripts/stellarCoronaVisualRegression.py'
       - 'scripts/stellarHdrVisualRegression.py'
+      - 'scripts/stellarProductionIntegrationVisualRegression.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
+  # Temporary branch-only trigger for pre-PR visual acceptance. Remove before PR.
+  push:
+    branches:
+      - feat/stellar-pass5-production-integration
 
 permissions:
   contents: read
@@ -94,6 +100,8 @@ jobs:
         env:
           STELLAR_HDR_BASELINE_REF: fe1d138268a40ce7707df64ac60a0ab384a995bc
         run: python scripts/stellarHdrVisualRegression.py
+      - name: Pass 5 production SimulationView mobile integration regression
+        run: python scripts/stellarProductionIntegrationVisualRegression.py
       - name: Upload stellar photosphere A/B captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -156,5 +164,13 @@ jobs:
         with:
           name: stellar-hdr-pass6-mobile-ab
           path: stellar-hdr-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload Pass 5 production mobile integration captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-pass5-production-mobile-integration
+          path: stellar-production-pass5-artifacts
           if-no-files-found: warn
           retention-days: 7
