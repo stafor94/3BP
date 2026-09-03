@@ -20,8 +20,11 @@ export function configureStellarCoronaMaterial(
   material: THREE.SpriteMaterial,
   frame: StellarCoronaFrame,
 ) {
-  if (material.blending !== THREE.NormalBlending) {
-    material.blending = THREE.NormalBlending
+  // Preserve the existing additive stellar-light compositing. Normal blending can
+  // make the carrier quad itself perceptible over a dark background even when the
+  // intended corona is faint.
+  if (material.blending !== THREE.AdditiveBlending) {
+    material.blending = THREE.AdditiveBlending
     material.needsUpdate = true
   }
 
@@ -56,9 +59,12 @@ export function configureStellarCoronaMaterial(
           uniform float uCoronaPhotosphereRadiusUv;
           uniform float uCoronaOuterWhiteMix;`,
         )
+        // SpriteMaterial uses map_particle_fragment, not the mesh map_fragment
+        // chunk. Override alpha immediately after its shared texture sample so the
+        // legacy radial glow texture no longer determines stellar halo shape.
         .replace(
-          '#include <map_fragment>',
-          `#include <map_fragment>
+          '#include <map_particle_fragment>',
+          `#include <map_particle_fragment>
           vec2 coronaDelta = vMapUv - vec2(0.5);
           float coronaRadius = length(coronaDelta) * 2.0;
           float coronaAngle = atan(coronaDelta.y, coronaDelta.x);
