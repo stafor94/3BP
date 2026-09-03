@@ -342,7 +342,8 @@ export function updateStellarPhotosphereMaterial(
 ) {
   const identityColor = material.uniforms.uIdentityColor?.value
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 1
+  // Pass 1 keeps the topology-free basis but needs enough linear contrast to survive ACES.
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.6
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
