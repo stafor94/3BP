@@ -1,11 +1,9 @@
 export type StellarRenderProfile = {
   photosphereIntensity: number
   whiteHotMix: number
-  innerGlowScale: number
-  outerGlowScale: number
-  innerGlowOpacity: number
-  outerGlowOpacity: number
-  outerHaloWhiteMix: number
+  coronaScale: number
+  coronaOpacity: number
+  coronaOuterWhiteMix: number
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
@@ -34,16 +32,14 @@ export function getStellarRenderProfile(
   )
 
   return {
-    // The photosphere stays near display-white luminance, while luminosity is
-    // communicated mostly through halo extent/opacity and illumination.
     photosphereIntensity: 0.92 + luminosity01 * 0.10 + temperature01 * 0.035,
-    // Only a very small central patch is allowed to trend white-hot.
     whiteHotMix: 0.008 + temperature01 * 0.032 + luminosity01 * 0.012,
-    innerGlowScale: 3.65 + luminosity01 * 0.85,
-    outerGlowScale: 7.10 + luminosity01 * 1.75,
-    innerGlowOpacity: 0.28 + luminosity01 * 0.16,
-    outerGlowOpacity: 0.07 + luminosity01 * 0.09,
-    // The far halo may desaturate slightly while the core/inner glow retain hue.
-    outerHaloWhiteMix: 0.055 + luminosity01 * 0.045,
+    // The corona carrier stays close to the photosphere. A sprite scale near 2.8
+    // puts the photosphere boundary around 0.7 in radial sprite UV, leaving only
+    // a compact band for the shader-controlled near-limb and outer corona.
+    coronaScale: 2.72 + luminosity01 * 0.24,
+    coronaOpacity: 0.235 + luminosity01 * 0.095,
+    // Only the faint outer tail may desaturate, and even there very slightly.
+    coronaOuterWhiteMix: 0.014 + luminosity01 * 0.020,
   }
 }

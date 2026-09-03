@@ -721,12 +721,17 @@ function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTim
 
   visual.glowInner.position.copy(visual.mesh.position)
   visual.glowOuter.position.copy(visual.mesh.position)
-  visual.glowInner.scale.setScalar(
-    renderRadius * (isFragment ? RENDER_TUNING.fragment.innerGlowScale : RENDER_TUNING.body.innerGlowScale),
-  )
-  visual.glowOuter.scale.setScalar(
-    renderRadius * (isFragment ? RENDER_TUNING.fragment.outerGlowScale : RENDER_TUNING.body.outerGlowScale),
-  )
+  // Stellar glow scale is owned by bodyLighting's Pass 5 corona path. Keeping
+  // the generic 5.4x/12x write here would overwrite the compact carrier before
+  // matrix evaluation and recreate the old oversized halo footprint.
+  if (body.bodyType !== 'star') {
+    visual.glowInner.scale.setScalar(
+      renderRadius * (isFragment ? RENDER_TUNING.fragment.innerGlowScale : RENDER_TUNING.body.innerGlowScale),
+    )
+    visual.glowOuter.scale.setScalar(
+      renderRadius * (isFragment ? RENDER_TUNING.fragment.outerGlowScale : RENDER_TUNING.body.outerGlowScale),
+    )
+  }
 
   const identityColor = visual.bodyMaterial.uniforms.uIdentityColor.value as THREE.Color
   identityColor.set(stellarColor)
@@ -762,12 +767,16 @@ function updateBodyAppearance(visual: VisualBody, body: BodyState, simulationTim
     RENDER_TUNING.body.outerGlowOpacityMax,
     glowProminence,
   )
-  visual.glowInnerMaterial.opacity = innerGlowOpacity * (
-    isFragment ? RENDER_TUNING.fragment.innerGlowOpacityScale : 1
-  ) * debrisOpacity
-  visual.glowOuterMaterial.opacity = outerGlowOpacity * (
-    isFragment ? RENDER_TUNING.fragment.outerGlowOpacityScale : 1
-  ) * debrisOpacity
+  // Stellar corona opacity is likewise owned by bodyLighting. Planet/moon/
+  // fragment/effect glow behavior remains on the existing generic path.
+  if (body.bodyType !== 'star') {
+    visual.glowInnerMaterial.opacity = innerGlowOpacity * (
+      isFragment ? RENDER_TUNING.fragment.innerGlowOpacityScale : 1
+    ) * debrisOpacity
+    visual.glowOuterMaterial.opacity = outerGlowOpacity * (
+      isFragment ? RENDER_TUNING.fragment.outerGlowOpacityScale : 1
+    ) * debrisOpacity
+  }
 
   ;(visual.trailMaterial.uniforms.uColor.value as THREE.Color).set(stellarColor)
   ;(visual.trailRibbon.material.uniforms.uColor.value as THREE.Color).set(stellarColor)

@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - 'src/rendering/bodyLighting.ts'
+      - 'src/rendering/simulationRenderer.ts'
       - 'src/rendering/stellarPhotosphereMaterial.ts'
+      - 'src/rendering/stellarCoronaMaterial.ts'
       - 'src/rendering/stellarRenderProfile.ts'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
@@ -14,6 +16,7 @@ on:
       - 'scripts/stellarGranulationLodVisualRegression.py'
       - 'scripts/stellarGranulationLodScreenSizeAudit.py'
       - 'scripts/stellarLimbVisualRegression.py'
+      - 'scripts/stellarCoronaVisualRegression.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
@@ -35,6 +38,8 @@ jobs:
         run: npm install
       - name: Build and regression checks
         run: npm run build
+      - name: Stellar rendering structural regression
+        run: npx --yes tsx@4.20.5 scripts/stellarRenderingRegression.ts
       - name: Install browser visual regression runtime
         run: python -m pip install --disable-pip-version-check --quiet selenium==4.35.0 pillow==11.3.0
       - name: Start production preview
@@ -63,6 +68,10 @@ jobs:
         env:
           STELLAR_LIMB_BASELINE_REF: 284d113e82523f90ae5ca92444f0eab0bbb98b26
         run: python scripts/stellarLimbVisualRegression.py
+      - name: Pass 5 compact stellar corona mobile A/B regression
+        env:
+          STELLAR_CORONA_BASELINE_REF: 93bb0d481464e633d6c15e91ecbcac51040c3555
+        run: python scripts/stellarCoronaVisualRegression.py
       - name: Upload stellar photosphere A/B captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -85,5 +94,13 @@ jobs:
         with:
           name: stellar-limb-pass4-mobile-ab
           path: stellar-limb-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload compact stellar corona A/B captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-corona-pass5-mobile-ab
+          path: stellar-corona-artifacts
           if-no-files-found: warn
           retention-days: 7
