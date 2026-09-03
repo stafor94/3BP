@@ -6,6 +6,25 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.11] - 2026-09-03
+
+### Changed
+- 항성 photosphere의 로컬 `toneMapStellarHuePreserving()` 압축과 tone mapping 이후 `stellarSurfaceModulation` 보정을 제거하고, 평균 emission과 cellular granulation contrast를 linear/HDR 단계에서 분리해 한 번만 결합한 뒤 기존 renderer ACES tone mapping에 맡기도록 정리했습니다.
+- photosphere 평균 luminance는 기존 `stellarRenderProfile.photosphereIntensity` 계약을 유지하고, granule/lane 편차는 별도의 bounded linear surface variation으로 적용해 항성 전체 밝기를 올리지 않아도 표면 구조가 남도록 조정했습니다.
+- white-hot 보정은 고정 SDR peak를 만드는 대신 현재 HDR peak를 사용하고 중심 exponent를 14에서 18로 좁혀, 높은 밝기에서도 temperature hue가 원반 전체에서 유지되고 중심의 제한된 영역만 약하게 백색화되도록 했습니다.
+- Pass 2 cellular granulation, Pass 3 derivative LOD, Pass 4 limb/edge coverage와 Pass 5 compact corona 구조 및 scale/opacity는 그대로 유지합니다.
+
+### Performance
+- stellar photosphere의 기존 draw call과 uniform 수를 유지하며 새 texture, geometry, sprite, material, draw call 또는 per-frame CPU allocation을 추가하지 않습니다.
+- Pass 5의 항성당 `photosphere sphere 1 + compact corona Sprite 1` 구조를 그대로 유지합니다.
+
+### Verification
+- stellar rendering regression에 local pre-tone-map compressor 제거, post-tone-map RGB modulation 제거, linear/HDR contrast 결합, 단일 Three.js tone-mapping chunk, 제한된 white-hot core 및 global ACES/exposure 1 불변 계약을 추가했습니다.
+- mobile 390×844 전용 deterministic fixture에서 같은 화면 크기의 cool/orange(0.35 M☉), solar-like(1 M☉), hot/blue-white(8 M☉) 항성을 일반 거리와 확대 거리로 렌더링하고 Pass 5 main(`fe1d138`)과 luminance, local surface contrast, hue/chroma, white-blob fraction, photosphere footprint를 A/B 비교합니다.
+
+### Unchanged
+- global renderer `ACESFilmicToneMapping`/exposure 1, `starColors.ts`, Pass 2~5 topology·LOD·limb·corona, presets/evolution physics, mass/radius/orbit/velocity/timestep/collision, planet/moon/fragment/background/collision VFX는 변경하지 않습니다.
+
 ## [0.24.10] - 2026-09-03
 
 ### Changed
@@ -639,7 +658,7 @@
 
 ### Fixed
 - collision camera가 종료되고 일반 tracking camera가 제어권을 되찾는 첫 프레임에 collision camera가 실제로 렌더한 camera position/target/distance 대신 일반 tracking framing을 즉시 적용해 화면 transform과 zoom이 점프하던 문제를 수정했습니다.
-- collision camera의 마지막 transform을 tracking transition의 시작값으로 보존하고 첫 release frame의 progress를 0으로 시작한 뒤 기존 18-frame settle 구간 안에서 정상 tracking composition으로 연속적으로 수렴하도록 변경했습니다. 기존 tracking identity, 50% initial-mass rule, 충돌 물리/VFX, trail lifetime 정책은 변경하지 않았습니다.
+- collision camera의 마지막 transform을 tracking transition의 시작값으로 보존하고 첫 release frame의 progress를 0으로 시작한 뒤 기존 18-frame settle 구간 안에서 정상 tracking composition으로 연속적으로 수렴하도록 변경했습니다. 기존 tracking identity, 50% initial-mass rule, 충돌 물리/VFX, trail lifetime 정책은 변경하지 않습니다.
 
 ### Added
 - camera writer, 최종 writer, desired target/position/distance, transition start/destination/progress, `controls.update()` overwrite 여부를 기록하는 renderer camera telemetry를 추가했습니다.
@@ -1489,7 +1508,7 @@
 
 ### Changed
 - 4~6체 프리셋이 서로 비슷한 왕관형 배치에 치우치지 않도록 다체 시스템 구성을 다양화했습니다.
-- 프리셋 명칭을 실제 시스템 구조와 관찰 특성이 드러나도록 정리했습니다.
+- 프리셋 명칭을 실제 시스템 구조와 관찰 특성에 맞게 정리했습니다.
 
 ## [0.5.0] - 2026-08-24
 
