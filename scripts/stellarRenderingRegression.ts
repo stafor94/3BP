@@ -249,8 +249,24 @@ function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
     'mean photosphere luminance must be computed without baking in cellular contrast',
   )
   assert(
+    stellarMaterialSource.includes('float identityChannelFloor = min(min(uIdentityColor.r, uIdentityColor.g), uIdentityColor.b);'),
+    'neutral stellar headroom must derive from the lowest linear identity-color channel',
+  )
+  assert(
+    stellarMaterialSource.includes('float neutralHue01 = smoothstep(0.50, 0.78, identityChannelFloor);'),
+    'neutral stellar headroom must fade continuously rather than use a temperature branch',
+  )
+  assert(
+    stellarMaterialSource.includes('linearIntensity *= mix(1.0, 0.72, neutralHue01);'),
+    'near-neutral stars must reserve bounded pre-ACES intensity headroom without dimming warm or blue stars',
+  )
+  assert(
+    stellarMaterialSource.includes('linearIntensity *= 1.0 + surfaceVariation * 0.08;'),
+    'surface-contrast compensation must remain small and linear before ACES',
+  )
+  assert(
     stellarMaterialSource.includes('vec3 color = uIdentityColor * linearIntensity;'),
-    'temperature color must stay in linear HDR space until renderer tone mapping',
+    'temperature identity color must remain unchanged in linear HDR space until renderer tone mapping',
   )
   assert(
     stellarMaterialSource.includes('float whiteHotCore = pow(limb, 18.0) * uWhiteHotMix;'),
@@ -262,11 +278,11 @@ function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
   )
   assert(
     !stellarMaterialSource.includes('toneMapStellarHuePreserving'),
-    'Pass 6 must remove the stellar-local pre-tone-map shoulder compressor',
+    'stellar photosphere must not restore a local pre-tone-map shoulder compressor',
   )
   assert(
     !stellarMaterialSource.includes('min((emission * granulation + fringe * 0.52) * uEmissionStrength, 1.22)'),
-    'Pass 6 must remove the legacy hard stellar intensity ceiling',
+    'stellar photosphere must not restore the legacy hard stellar intensity ceiling',
   )
   const toneMappingChunks = stellarMaterialSource.match(/#include <tonemapping_fragment>/g) ?? []
   assert(toneMappingChunks.length === 1, 'stellar photosphere must execute exactly one renderer tone-mapping chunk')
@@ -280,7 +296,7 @@ function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
   )
   assert(
     simulationRendererSource.includes('renderer.toneMappingExposure = 1'),
-    'Pass 6 must not change global renderer exposure',
+    'stellar HDR correction must not change global renderer exposure',
   )
 }
 

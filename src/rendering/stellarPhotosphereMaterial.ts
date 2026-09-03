@@ -317,6 +317,17 @@ export const stellarPhotosphereFragmentShader = `
     float meanEmission = (emission + fringe * 0.52) * uEmissionStrength;
     float surfaceVariation = clamp((granulation - 1.0) * 0.92, -0.095, 0.075);
     float linearIntensity = meanEmission * (1.0 + surfaceVariation);
+
+    // Near-neutral stellar colors put all three channels on the ACES shoulder at
+    // once. Reserve a bounded amount of pre-ACES headroom only for that case;
+    // warm and blue-biased stars retain the existing intensity calibration.
+    float identityChannelFloor = min(min(uIdentityColor.r, uIdentityColor.g), uIdentityColor.b);
+    float neutralHue01 = smoothstep(0.50, 0.78, identityChannelFloor);
+    linearIntensity *= mix(1.0, 0.72, neutralHue01);
+
+    // Restore a small amount of the cellular signal lost to the ACES shoulder
+    // without changing granulation topology, LOD, limb, or corona parameters.
+    linearIntensity *= 1.0 + surfaceVariation * 0.08;
     vec3 color = uIdentityColor * linearIntensity;
 
     float limb = max(dot(normalWorld, viewDirection), 0.0);
