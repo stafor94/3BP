@@ -271,8 +271,7 @@ function testCoronaUsesSubtleShaderBasedAsymmetry() {
   assert(stellarCoronaSource.includes('diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);'), 'stellar corona shader must replace the legacy radial texture alpha shape')
   assert(stellarCoronaSource.includes('uCoronaOuterWhiteMix * coronaOuterColorWeight'), 'only the faint outer corona may weakly desaturate')
   assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'existing inner Sprite must be reused as the single corona carrier')
-  assert(bodyLightingSource.includes('glowOuter.visible = false
-    glowOuter.material.opacity = 0'), 'legacy outer Sprite must be disabled for stars to remove one draw call')
+  assert(bodyLightingSource.includes('glowOuter.visible = false\n    glowOuter.material.opacity = 0'), 'legacy outer Sprite must be disabled for stars to remove one draw call')
   assert(!bodyLightingSource.includes('configureStellarGlowMaterial'), 'legacy dual-layer stellar glow shader path must be removed')
   assert(!stellarCoronaSource.includes('new THREE.CanvasTexture'), 'Pass 5 must not add a new texture path')
   assert(!stellarCoronaSource.includes('new THREE.Sprite'), 'Pass 5 must not allocate a new sprite')
