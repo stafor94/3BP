@@ -16,6 +16,7 @@ on:
       - 'scripts/stellarPhotosphereVisualRegression.py'
       - 'scripts/stellarPhotospherePass1VisualRegression.py'
       - 'scripts/stellarPhotospherePass2VisualRegression.py'
+      - 'scripts/stellarPhotospherePass2VisualRegressionRunner.py'
       - 'scripts/stellarRenderPathVisualRegression.py'
       - 'scripts/stellarCellularPhotosphereVisualRegression.py'
       - 'scripts/stellarGranulationLodVisualRegression.py'
@@ -67,7 +68,7 @@ jobs:
       - name: Pass 2 normal enlarged extreme photosphere regression
         env:
           STELLAR_PASS2_BASELINE_REF: 3b023b49bef317ab841f7758b6ddf69fa10812b1
-        run: python scripts/stellarPhotospherePass2VisualRegression.py
+        run: python scripts/stellarPhotospherePass2VisualRegressionRunner.py
       - name: Capture Pass 1 vs Pass 2 main-sequence mobile A/B
         env:
           STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
