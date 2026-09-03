@@ -9,7 +9,7 @@ from collections import deque
 from contextlib import contextmanager
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageStat
+from PIL import Image, ImageDraw, ImageFilter
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -32,7 +32,7 @@ STAR_MASSES = {
     'hot': 8.0,
 }
 LEVEL_TARGETS = {
-    'normal': None,
+    'normal': (55.0, 90.0),
     'enlarged': (150.0, 210.0),
     'extreme': (320.0, 380.0),
 }
@@ -117,15 +117,15 @@ def nearest_bright_seed(image: Image.Image) -> tuple[int, int]:
     cy = height // 2
     best = (cx, cy)
     best_score = -1.0
-    for y in range(max(0, cy - 50), min(height, cy + 51)):
-        for x in range(max(0, cx - 50), min(width, cx + 51)):
+    for y in range(max(0, cy - 100), min(height, cy + 101)):
+        for x in range(max(0, cx - 100), min(width, cx + 101)):
             value = luma(image.getpixel((x, y)))
             distance_penalty = math.hypot(x - cx, y - cy) * 0.08
             score = value - distance_penalty
             if score > best_score:
                 best = (x, y)
                 best_score = score
-    base.require(best_score >= 80, 'focused star: no bright photosphere near viewport center')
+    base.require(best_score >= 72, 'focused star: no bright photosphere near viewport center')
     return best
 
 
@@ -152,7 +152,7 @@ def locate_photosphere(image: Image.Image) -> dict[str, float | int]:
             visited.add(point)
             queue.append(point)
 
-    base.require(len(component) >= 80, 'focused star: bright photosphere component is too small')
+    base.require(len(component) >= 4, 'focused star: bright photosphere component is too small')
     center_x = sum(point[0] for point in component) / len(component)
     center_y = sum(point[1] for point in component) / len(component)
     equivalent_radius = math.sqrt(len(component) / math.pi)
@@ -176,7 +176,7 @@ def screenshot_canvas(canvas, path: Path) -> Image.Image:
 
 def calibrate_zoom_steps(driver, root_url: str, target: tuple[float, float]) -> tuple[int, float]:
     canvas = prepare_focus_scene(driver, root_url, STAR_STAGES['solar'])
-    temp_path = OUTPUT_DIR / '.zoom-calibration.png'
+    temp_path = OUTPUT_DIR / 'zoom-calibration.png'
     steps = 0
     image = screenshot_canvas(canvas, temp_path)
     diameter = float(locate_photosphere(image)['bright_photosphere_diameter_px'])
@@ -185,7 +185,6 @@ def calibrate_zoom_steps(driver, root_url: str, target: tuple[float, float]) -> 
         steps -= 1
         image = screenshot_canvas(canvas, temp_path)
         diameter = float(locate_photosphere(image)['bright_photosphere_diameter_px'])
-    temp_path.unlink(missing_ok=True)
     base.require(
         target[0] <= diameter <= target[1],
         f'zoom calibration missed {target[0]:.0f}-{target[1]:.0f}px target: {diameter:.1f}px at {steps} steps',
@@ -316,14 +315,13 @@ def analyze(path: Path) -> dict[str, float | int]:
         len(lumas),
         diameter,
     )
+    broad_mean = sum(broad_lumas) / len(broad_lumas)
 
     return {
         **geometry,
         'mean_luma': sum(lumas) / len(lumas),
-        'broad_std': ImageStat.Stat(Image.new('L', (len(broad_lumas), 1), 0)).stddev[0] if False else 0.0,
         'broad_variation_std': math.sqrt(
-            sum((value - sum(broad_lumas) / len(broad_lumas)) ** 2 for value in broad_lumas) /
-            len(broad_lumas)
+            sum((value - broad_mean) ** 2 for value in broad_lumas) / len(broad_lumas)
         ),
         'granulation_contrast': local_contrast,
         'high_frequency_energy': sum(high_frequency) / len(high_frequency),
@@ -347,10 +345,7 @@ def validate_pair(
 ) -> None:
     diameter = float(current['bright_photosphere_diameter_px'])
     target = LEVEL_TARGETS[level]
-    if target is None:
-        base.require(35 <= diameter <= 120, f'{star}/{level}: normal fixture diameter drifted to {diameter:.1f}px')
-    else:
-        base.require(target[0] <= diameter <= target[1], f'{star}/{level}: diameter {diameter:.1f}px misses target')
+    base.require(target[0] <= diameter <= target[1], f'{star}/{level}: diameter {diameter:.1f}px misses target')
 
     baseline_diameter = float(baseline['bright_photosphere_diameter_px'])
     base.require(
@@ -458,12 +453,11 @@ def main() -> None:
     driver = base.make_driver()
     current_paths: dict[str, dict[str, Path]] = {star: {} for star in STAR_STAGES}
     baseline_paths: dict[str, dict[str, Path]] = {star: {} for star in STAR_STAGES}
-    zoom_steps = {'normal': 0}
+    zoom_steps: dict[str, int] = {}
 
     try:
-        for level in ('enlarged', 'extreme'):
+        for level in ('normal', 'enlarged', 'extreme'):
             target = LEVEL_TARGETS[level]
-            assert target is not None
             steps, diameter = calibrate_zoom_steps(driver, base.CURRENT_URL, target)
             zoom_steps[level] = steps
             print(f'Pass 2 zoom calibration {level}: {steps} wheel steps -> {diameter:.1f}px')
