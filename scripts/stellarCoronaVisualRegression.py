@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import base64
-import io
 import json
 import math
 import os
@@ -21,6 +19,7 @@ BASELINE_REF = os.environ.get(
 )
 STAR_ORDER = ('cool', 'solar', 'hot')
 LEVEL_ORDER = ('normal', 'enlarged', 'extreme')
+BRIGHT_THRESHOLD = 82.0
 
 
 def luma(rgb: tuple[int, int, int]) -> float:
@@ -32,7 +31,7 @@ def sample_luma(image: Image.Image, x: float, y: float) -> float:
     ix = min(width - 1, max(0, int(round(x))))
     iy = min(height - 1, max(0, int(round(y))))
     pixels = image.load()
-    values: list[float] = []
+    values = []
     for oy in (-1, 0, 1):
         for ox in (-1, 0, 1):
             sx = min(width - 1, max(0, ix + ox))
@@ -41,53 +40,30 @@ def sample_luma(image: Image.Image, x: float, y: float) -> float:
     return statistics.fmean(values)
 
 
-def point_inside(image: Image.Image, x: float, y: float, margin: float = 2.0) -> bool:
+def point_inside(image: Image.Image, x: float, y: float, margin: float = 3.0) -> bool:
     return margin <= x < image.width - margin and margin <= y < image.height - margin
 
 
 def background_luma(image: Image.Image, cx: float, cy: float, radius: float) -> float:
     pixels = image.load()
-    values: list[float] = []
-    min_radius_sq = (radius * 1.48) ** 2
+    values = []
+    minimum_radius_sq = (radius * 1.55) ** 2
     for y in range(0, image.height, 3):
         dy = y - cy
         for x in range(0, image.width, 3):
             dx = x - cx
-            if dx * dx + dy * dy < min_radius_sq:
+            if dx * dx + dy * dy < minimum_radius_sq:
                 continue
             values.append(luma(pixels[x, y]))
     p2.base.require(len(values) >= 80, 'corona background sample is too small')
     return statistics.median(values)
 
 
-def annulus_excess(
-    image: Image.Image,
-    cx: float,
-    cy: float,
-    radius: float,
-    inner_scale: float,
-    outer_scale: float,
-    background: float,
-) -> float:
-    values: list[float] = []
-    for angle_index in range(48):
-        angle = math.tau * angle_index / 48.0
-        for radial_index in range(4):
-            scale = inner_scale + (outer_scale - inner_scale) * (radial_index + 0.5) / 4.0
-            x = cx + math.cos(angle) * radius * scale
-            y = cy + math.sin(angle) * radius * scale
-            if not point_inside(image, x, y):
-                continue
-            values.append(max(0.0, sample_luma(image, x, y) - background))
-    p2.base.require(values, f'empty annulus sample {inner_scale:.2f}-{outer_scale:.2f}')
-    return statistics.fmean(values)
-
-
 def core_luma(image: Image.Image, cx: float, cy: float, radius: float) -> float:
-    values: list[float] = []
+    values = []
     for angle_index in range(36):
         angle = math.tau * angle_index / 36.0
-        for radial_scale in (0.28, 0.40, 0.52, 0.64):
+        for radial_scale in (0.30, 0.45, 0.60):
             x = cx + math.cos(angle) * radius * radial_scale
             y = cy + math.sin(angle) * radius * radial_scale
             if point_inside(image, x, y):
@@ -96,45 +72,50 @@ def core_luma(image: Image.Image, cx: float, cy: float, radius: float) -> float:
     return statistics.fmean(values)
 
 
-def radial_extent_fraction(
+def silhouette_radius(
     image: Image.Image,
     cx: float,
     cy: float,
     radius: float,
-    background: float,
-    core: float,
-) -> tuple[float, float]:
-    extents: list[float] = []
-    threshold = max(1.15, core * 0.0055)
-    for angle_index in range(48):
-        angle = math.tau * angle_index / 48.0
-        samples: list[tuple[float, float]] = []
-        for step in range(1, 73):
-            scale = 1.0 + step * 0.008
-            if scale > 1.56:
-                break
-            x = cx + math.cos(angle) * radius * scale
-            y = cy + math.sin(angle) * radius * scale
-            if not point_inside(image, x, y):
-                break
-            samples.append((scale, max(0.0, sample_luma(image, x, y) - background)))
-        if len(samples) < 12:
+    angle: float,
+) -> float | None:
+    # Equivalent component radius sits inside the anti-aliased disk at normal
+    # mobile scale. Find the actual per-angle threshold crossing, then measure
+    # corona only outside that rendered silhouette.
+    samples: list[tuple[float, float]] = []
+    current = radius * 0.72
+    stop = radius * 1.35
+    while current <= stop:
+        x = cx + math.cos(angle) * current
+        y = cy + math.sin(angle) * current
+        if not point_inside(image, x, y):
+            break
+        samples.append((current, sample_luma(image, x, y)))
+        current += 0.5
+
+    last_above: float | None = None
+    for index, (distance, value) in enumerate(samples):
+        if value >= BRIGHT_THRESHOLD:
+            last_above = distance
             continue
+        if last_above is None:
+            continue
+        following = [sample[1] for sample in samples[index:index + 3]]
+        if len(following) >= 2 and all(sample < BRIGHT_THRESHOLD for sample in following):
+            return last_above
+    return last_above
 
-        last_visible = 1.0
-        consecutive_below = 0
-        for scale, excess in samples:
-            if excess >= threshold:
-                last_visible = scale
-                consecutive_below = 0
-            else:
-                consecutive_below += 1
-                if consecutive_below >= 4 and last_visible > 1.0:
-                    break
-        extents.append(max(0.0, last_visible - 1.0))
 
-    p2.base.require(len(extents) >= 12, 'not enough unclipped corona extent directions')
-    return statistics.fmean(extents), statistics.pstdev(extents)
+def percentile(values: list[float], q01: float) -> float:
+    p2.base.require(values, 'percentile sample is empty')
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * q01
+    low = int(math.floor(position))
+    high = int(math.ceil(position))
+    if low == high:
+        return ordered[low]
+    weight = position - low
+    return ordered[low] * (1.0 - weight) + ordered[high] * weight
 
 
 def analyze_corona(path: Path) -> dict[str, float]:
@@ -146,31 +127,87 @@ def analyze_corona(path: Path) -> dict[str, float]:
     background = background_luma(image, cx, cy, radius)
     core = core_luma(image, cx, cy, radius)
 
-    near = annulus_excess(image, cx, cy, radius, 1.018, 1.12, background)
-    outer = annulus_excess(image, cx, cy, radius, 1.16, 1.31, background)
-    far = annulus_excess(image, cx, cy, radius, 1.34, 1.46, background)
-    ring = annulus_excess(image, cx, cy, radius, 1.002, 1.045, background)
-    shoulder = annulus_excess(image, cx, cy, radius, 1.055, 1.105, background)
-    extent_mean, extent_std = radial_extent_fraction(image, cx, cy, radius, background, core)
+    profiles: list[list[tuple[float, float]]] = []
+    for angle_index in range(72):
+        angle = math.tau * angle_index / 72.0
+        edge = silhouette_radius(image, cx, cy, radius, angle)
+        if edge is None:
+            continue
+
+        far_x = cx + math.cos(angle) * (edge + radius * 0.46)
+        far_y = cy + math.sin(angle) * (edge + radius * 0.46)
+        if not point_inside(image, far_x, far_y):
+            continue
+
+        profile: list[tuple[float, float]] = []
+        fraction = 0.02
+        while fraction <= 0.4601:
+            distance = edge + radius * fraction
+            x = cx + math.cos(angle) * distance
+            y = cy + math.sin(angle) * distance
+            excess = max(0.0, sample_luma(image, x, y) - background)
+            profile.append((fraction, excess))
+            fraction += 0.02
+        profiles.append(profile)
+
+    p2.base.require(len(profiles) >= 24, 'not enough unclipped corona directions')
+
+    def region(inner: float, outer: float) -> list[float]:
+        return [
+            excess
+            for profile in profiles
+            for fraction, excess in profile
+            if inner - 1e-9 <= fraction <= outer + 1e-9
+        ]
+
+    near_luma = statistics.fmean(region(0.02, 0.10))
+    outer_luma = statistics.fmean(region(0.14, 0.28))
+    far_luma = statistics.fmean(region(0.32, 0.44))
+
+    extent_threshold = max(1.15, core * 0.0055)
+    extents: list[float] = []
+    edge_to_shoulder: list[float] = []
+    radial_rebounds: list[float] = []
+    for profile in profiles:
+        values = [excess for _, excess in profile]
+        shoulder = statistics.fmean(values[2:5])
+        edge_to_shoulder.append(values[0] / max(shoulder, 0.01))
+        radial_rebounds.append(
+            max([0.0, *[
+                values[index + 1] - values[index]
+                for index in range(len(values) - 1)
+            ]]) / max(core, 1.0)
+        )
+
+        last_visible = 0.0
+        consecutive_below = 0
+        for fraction, excess in profile:
+            if excess >= extent_threshold:
+                last_visible = fraction
+                consecutive_below = 0
+            else:
+                consecutive_below += 1
+                if consecutive_below >= 3 and last_visible > 0.0:
+                    break
+        extents.append(last_visible)
 
     return {
         'photosphere_radius_px': radius,
         'background_luma': background,
         'core_luma': core,
-        'near_excess_luma': near,
-        'outer_excess_luma': outer,
-        'far_excess_luma': far,
-        'ring_excess_luma': ring,
-        'shoulder_excess_luma': shoulder,
-        'near_to_core': near / max(core, 1.0),
-        'outer_to_core': outer / max(core, 1.0),
-        'far_to_core': far / max(core, 1.0),
-        'outer_to_near': outer / max(near, 0.01),
-        'far_to_outer': far / max(outer, 0.01),
-        'ring_to_core': ring / max(core, 1.0),
-        'ring_to_shoulder': ring / max(shoulder, 0.01),
-        'extent_fraction': extent_mean,
-        'extent_std_fraction': extent_std,
+        'near_excess_luma': near_luma,
+        'outer_excess_luma': outer_luma,
+        'far_excess_luma': far_luma,
+        'near_to_core': near_luma / max(core, 1.0),
+        'outer_to_core': outer_luma / max(core, 1.0),
+        'far_to_core': far_luma / max(core, 1.0),
+        'outer_to_near': outer_luma / max(near_luma, 0.01),
+        'far_to_outer': far_luma / max(outer_luma, 0.01),
+        'extent_fraction': statistics.fmean(extents),
+        'extent_std_fraction': statistics.pstdev(extents),
+        'edge_to_shoulder_p90': percentile(edge_to_shoulder, 0.90),
+        'radial_rebound_p90': percentile(radial_rebounds, 0.90),
+        'unclipped_direction_count': float(len(profiles)),
     }
 
 
@@ -179,59 +216,62 @@ def validate_state(
     level: str,
     baseline_surface: dict[str, float | int],
     current_surface: dict[str, float | int],
+    baseline_corona: dict[str, float],
     corona: dict[str, float],
 ) -> None:
     near = corona['near_to_core']
     outer = corona['outer_to_core']
     far = corona['far_to_core']
     extent = corona['extent_fraction']
-    extent_std = corona['extent_std_fraction']
 
-    minimum_near = 0.018 if level == 'normal' else 0.014
-    minimum_outer = 0.0035 if level == 'normal' else 0.0025
     p2.base.require(
-        near >= minimum_near,
-        f'{star}/{level}: near-limb corona is not visibly present ({near:.4f})',
+        0.080 <= near <= 0.20,
+        f'{star}/{level}: near-limb glow outside bounded visibility range ({near:.4f})',
     )
     p2.base.require(
-        outer >= minimum_outer,
-        f'{star}/{level}: diffuse outer corona is below minimum visibility ({outer:.4f})',
+        0.015 <= outer <= 0.055,
+        f'{star}/{level}: diffuse outer corona outside bounded visibility range ({outer:.4f})',
     )
     p2.base.require(
-        near <= 0.20,
-        f'{star}/{level}: near-limb corona competes with the photosphere ({near:.4f})',
+        far <= 0.014,
+        f'{star}/{level}: excessive far outer haze ({far:.4f})',
     )
     p2.base.require(
-        outer <= 0.075,
-        f'{star}/{level}: diffuse outer corona is too bright ({outer:.4f})',
-    )
-    p2.base.require(
-        far <= 0.026,
-        f'{star}/{level}: excessive outer haze remains far from the photosphere ({far:.4f})',
-    )
-    p2.base.require(
-        0.10 <= corona['outer_to_near'] <= 0.58,
+        0.12 <= corona['outer_to_near'] <= 0.40,
         f"{star}/{level}: near/outer balance is unnatural ({corona['outer_to_near']:.3f})",
     )
     p2.base.require(
-        corona['far_to_outer'] <= 0.78,
-        f"{star}/{level}: outer corona does not decay enough ({corona['far_to_outer']:.3f})",
+        corona['far_to_outer'] <= 0.35,
+        f"{star}/{level}: diffuse corona does not decay enough ({corona['far_to_outer']:.3f})",
     )
     p2.base.require(
-        0.10 <= extent <= 0.48,
-        f'{star}/{level}: corona extent outside bounded range ({extent:.3f} R)',
+        0.24 <= extent <= 0.44,
+        f'{star}/{level}: corona extent outside 0.24-0.44 photosphere radii ({extent:.3f})',
     )
     p2.base.require(
-        extent_std <= 0.075,
-        f'{star}/{level}: angular corona variation is too strong/spiky ({extent_std:.3f} R)',
+        corona['extent_std_fraction'] <= 0.060,
+        f"{star}/{level}: corona boundary is too angular/spiky ({corona['extent_std_fraction']:.3f})",
+    )
+
+    edge_ratio_limit = 3.35 if level == 'normal' else 2.25
+    p2.base.require(
+        corona['edge_to_shoulder_p90'] <= edge_ratio_limit,
+        f"{star}/{level}: corona collapses into a narrow bright outline "
+        f"({corona['edge_to_shoulder_p90']:.3f})",
     )
     p2.base.require(
-        corona['ring_to_core'] <= 0.22,
-        f"{star}/{level}: bright neon ring detected ({corona['ring_to_core']:.4f})",
+        corona['radial_rebound_p90'] <= 0.060,
+        f"{star}/{level}: outer radial profile contains ring/ray rebound "
+        f"({corona['radial_rebound_p90']:.4f})",
+    )
+
+    p2.base.require(
+        extent >= baseline_corona['extent_fraction'] + 0.08,
+        f'{star}/{level}: Pass 4 did not materially broaden corona visibility',
     )
     p2.base.require(
-        corona['ring_to_shoulder'] <= 1.75,
-        f"{star}/{level}: corona collapses into a narrow edge outline ({corona['ring_to_shoulder']:.3f})",
+        outer >= baseline_corona['outer_to_core'] * 2.5 + 0.006,
+        f'{star}/{level}: Pass 4 diffuse outer corona did not materially improve',
     )
 
     baseline_diameter = float(baseline_surface['bright_photosphere_diameter_px'])
@@ -240,12 +280,14 @@ def validate_state(
         abs(current_diameter - baseline_diameter) / max(baseline_diameter, 1.0) <= 0.035,
         f'{star}/{level}: photosphere footprint changed while tuning corona',
     )
+
     baseline_luma = float(baseline_surface['mean_luma'])
     current_luma = float(current_surface['mean_luma'])
     p2.base.require(
         abs(current_luma - baseline_luma) / max(baseline_luma, 1.0) <= 0.035,
         f'{star}/{level}: photosphere luminance changed while tuning corona',
     )
+
     hue_delta = sum(
         (float(current_surface[channel]) - float(baseline_surface[channel])) ** 2
         for channel in ('hue_r', 'hue_g', 'hue_b')
@@ -268,26 +310,33 @@ def validate_state(
         )
 
 
-def validate_luminosity_response(corona_metrics: dict[str, dict[str, dict[str, float]]]) -> None:
+def validate_luminosity_response(
+    corona_metrics: dict[str, dict[str, dict[str, float]]],
+) -> None:
     for level in LEVEL_ORDER:
         cool = corona_metrics['cool'][level]
         hot = corona_metrics['hot'][level]
         p2.base.require(
-            hot['near_to_core'] <= cool['near_to_core'] * 1.45 + 0.015,
-            f'{level}: luminosity makes the near corona too much stronger',
+            hot['near_to_core'] <= cool['near_to_core'] * 1.35 + 0.015,
+            f'{level}: luminosity makes near corona too much stronger',
         )
         p2.base.require(
-            hot['extent_fraction'] <= cool['extent_fraction'] + 0.11,
+            hot['outer_to_core'] <= cool['outer_to_core'] * 1.40 + 0.010,
+            f'{level}: luminosity makes diffuse corona too much brighter',
+        )
+        p2.base.require(
+            hot['extent_fraction'] <= cool['extent_fraction'] + 0.08,
             f'{level}: luminosity expands corona extent too aggressively',
         )
 
 
 def make_contact_sheet(paths: dict[str, dict[str, Path]], output: Path) -> Path:
     first = Image.open(paths['cool']['normal']).convert('RGB')
+    crop_height = min(first.height, 560)
     margin = 10
     label_height = 28
     cell_width = first.width
-    cell_height = first.height + label_height
+    cell_height = crop_height + label_height
     sheet = Image.new(
         'RGB',
         (cell_width * 3 + margin * 4, cell_height * 3 + margin * 4),
@@ -304,21 +353,10 @@ def make_contact_sheet(paths: dict[str, dict[str, Path]], output: Path) -> Path:
                 fill=(235, 238, 245),
             )
             image = Image.open(paths[star][level]).convert('RGB')
-            sheet.paste(image, (x, y + label_height))
+            top = max(0, (image.height - crop_height) // 2)
+            sheet.paste(image.crop((0, top, image.width, top + crop_height)), (x, y + label_height))
     sheet.save(output)
     return output
-
-
-def print_review_image(path: Path) -> None:
-    image = Image.open(path).convert('RGB')
-    image.thumbnail((760, 1500))
-    buffer = io.BytesIO()
-    image.save(buffer, format='JPEG', quality=72, optimize=True)
-    encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
-    print('STELLAR_CORONA_PASS4_REVIEW_JPEG_BASE64_BEGIN')
-    for index in range(0, len(encoded), 120):
-        print(encoded[index:index + 120])
-    print('STELLAR_CORONA_PASS4_REVIEW_JPEG_BASE64_END')
 
 
 def main() -> None:
@@ -366,29 +404,26 @@ def main() -> None:
         driver.quit()
 
     current_surface = {
-        star: {level: p2.analyze(path) for level, path in levels.items()}
-        for star, levels in current_paths.items()
+        star: {level: p2.analyze(path) for level, path in paths.items()}
+        for star, paths in current_paths.items()
     }
     baseline_surface = {
-        star: {level: p2.analyze(path) for level, path in levels.items()}
-        for star, levels in baseline_paths.items()
+        star: {level: p2.analyze(path) for level, path in paths.items()}
+        for star, paths in baseline_paths.items()
     }
-    corona_metrics = {
-        star: {level: analyze_corona(path) for level, path in levels.items()}
-        for star, levels in current_paths.items()
+    current_corona = {
+        star: {level: analyze_corona(path) for level, path in paths.items()}
+        for star, paths in current_paths.items()
+    }
+    baseline_corona = {
+        star: {level: analyze_corona(path) for level, path in paths.items()}
+        for star, paths in baseline_paths.items()
     }
 
-    for star in STAR_ORDER:
-        for level in LEVEL_ORDER:
-            validate_state(
-                star,
-                level,
-                baseline_surface[star][level],
-                current_surface[star][level],
-                corona_metrics[star][level],
-            )
-    validate_luminosity_response(corona_metrics)
-
+    contact_sheet = make_contact_sheet(
+        current_paths,
+        OUTPUT_DIR / 'current-pass4-corona-3x3.png',
+    )
     payload = {
         'baseline_ref': BASELINE_REF,
         'viewport': {
@@ -396,31 +431,40 @@ def main() -> None:
             'height': p2.base.VIEWPORT_HEIGHT,
             'mobile': True,
         },
-        'stars_mass_solar': p2.STAR_MASSES,
         'zoom_steps': zoom_steps,
         'current_surface': current_surface,
         'baseline_surface': baseline_surface,
-        'corona': corona_metrics,
+        'current_corona': current_corona,
+        'baseline_corona': baseline_corona,
+        'contact_sheet': str(contact_sheet),
     }
-    (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
-
-    contact_sheet = make_contact_sheet(
-        current_paths,
-        OUTPUT_DIR / 'mobile-pass4-corona-3x3.png',
+    (OUTPUT_DIR / 'metrics.json').write_text(
+        json.dumps(payload, indent=2),
+        encoding='utf-8',
     )
-    print('Pass 4 corona metrics:')
+
     for star in STAR_ORDER:
         for level in LEVEL_ORDER:
-            metric = corona_metrics[star][level]
+            corona = current_corona[star][level]
             print(
-                f"  {star}/{level}: near={metric['near_to_core']:.4f} "
-                f"outer={metric['outer_to_core']:.4f} far={metric['far_to_core']:.4f} "
-                f"extent={metric['extent_fraction']:.3f}R "
-                f"angularStd={metric['extent_std_fraction']:.3f}R "
-                f"ring={metric['ring_to_core']:.4f}"
+                f'Pass 4 corona {star}/{level}: '
+                f"near={corona['near_to_core']:.4f} "
+                f"outer={corona['outer_to_core']:.4f} "
+                f"far={corona['far_to_core']:.4f} "
+                f"extent={corona['extent_fraction']:.3f}R "
+                f"edge/shoulder-p90={corona['edge_to_shoulder_p90']:.3f}"
             )
-    print_review_image(contact_sheet)
-    print('stellar corona Pass 4 0.35/1/8 M_sun normal/enlarged/extreme regression: ok')
+            validate_state(
+                star,
+                level,
+                baseline_surface[star][level],
+                current_surface[star][level],
+                baseline_corona[star][level],
+                corona,
+            )
+
+    validate_luminosity_response(current_corona)
+    print('stellar corona Pass 4 0.35/1/8 M_sun x normal/enlarged/extreme regression: ok')
 
 
 if __name__ == '__main__':
