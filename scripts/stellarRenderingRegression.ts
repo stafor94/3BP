@@ -22,6 +22,12 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
 
+function readShaderConstant(name: string) {
+  const match = stellarMaterialSource.match(new RegExp(`const float ${name} = ([0-9.]+);`))
+  assert(match, `missing stellar shader constant: ${name}`)
+  return Number(match[1])
+}
+
 function makeStar(
   mass: number,
   stage: StellarEvolutionStage = 'mainSequence',
@@ -137,10 +143,17 @@ function testDedicatedStellarMaterialPathIsStructurallySeparated() {
 
 function testPhotosphereRemovesExplicitCellularTopology() {
   assert(stellarMaterialSource.includes('uniform float uTime;'), 'stellar photosphere shader must retain its slow animation contract')
-  assert(stellarMaterialSource.includes('const float STELLAR_CONVECTION_FREQUENCY = 2.3;'), 'broad convection scale must remain explicitly bounded')
-  assert(stellarMaterialSource.includes('const float STELLAR_BREAKUP_FREQUENCY = 9.4;'), 'weak irregular breakup must have its own smaller scale')
-  assert(stellarMaterialSource.includes('const float STELLAR_FINE_FREQUENCY = 23.0;'), 'fine breakup must remain a subordinate scale')
-  assert(stellarMaterialSource.includes('float drawStellarSurfaceVariation(vec3 objectNormal)'), 'stellar photosphere must expose the temporary Pass 1 surface basis')
+  assert(stellarMaterialSource.includes('float drawStellarSurfaceVariation(vec3 objectNormal)'), 'stellar photosphere must keep a dedicated procedural surface basis')
+
+  const convectionFrequency = readShaderConstant('STELLAR_CONVECTION_FREQUENCY')
+  const warpFrequency = readShaderConstant('STELLAR_WARP_FREQUENCY')
+  const primaryFrequency = readShaderConstant('STELLAR_PRIMARY_FREQUENCY')
+  const secondaryFrequency = readShaderConstant('STELLAR_PRIMARY_SECONDARY_FREQUENCY')
+  const fineFrequency = readShaderConstant('STELLAR_FINE_FREQUENCY')
+  assert(convectionFrequency < warpFrequency, 'domain distortion must remain subordinate in scale to broad convection')
+  assert(warpFrequency < primaryFrequency, 'primary granulation must be finer than the domain distortion')
+  assert(primaryFrequency < secondaryFrequency, 'primary granulation must contain decorrelated nearby scales')
+  assert(secondaryFrequency < fineFrequency, 'fine breakup must remain the smallest-scale signal')
 
   for (const forbidden of [
     'sampleStellarCellular',
@@ -153,17 +166,21 @@ function testPhotosphereRemovesExplicitCellularTopology() {
     'granuleCenter',
     'cellThermalBias',
     'cellPulse',
+    'distanceToCellEdge',
+    'polygonEdge',
   ]) {
-    assert(!stellarMaterialSource.includes(forbidden), `explicit cellular/Voronoi topology must be removed: ${forbidden}`)
+    assert(!stellarMaterialSource.includes(forbidden), `explicit cellular/Voronoi topology must remain absent: ${forbidden}`)
   }
 
-  assert(stellarMaterialSource.includes('float convectionA = valueNoise('), 'broad surface variation must remain procedural')
-  assert(stellarMaterialSource.includes('float convectionB = valueNoise('), 'broad variation must use a decorrelated second sample instead of one enlarged noise field')
-  assert(stellarMaterialSource.includes('float irregularBreakup = breakupA - breakupB;'), 'mid-scale breakup must be zero-centered and non-cellular')
-  assert(stellarMaterialSource.includes('(convection - 0.5) * 0.050'), 'broad convection must remain low contrast')
-  assert(stellarMaterialSource.includes('irregularBreakup * 0.013'), 'mid-scale breakup must stay weaker than broad convection')
-  assert(stellarMaterialSource.includes('(fineBreakup - 0.5) * 0.005'), 'fine breakup must stay very subtle')
-  assert(stellarMaterialSource.includes('return clamp(1.0 + variation * uDetailStrength, 0.92, 1.08);'), 'temporary surface basis must stay tightly bounded around mean luminance')
+  assert(!stellarMaterialSource.includes('sampler2D'), 'stellar granulation must not add a texture-backed surface path')
+  assert(stellarMaterialSource.includes('vec3 warpedNormal = normalize(objectNormal + warpVector'), 'primary granulation must decorrelate the value-noise lattice with bounded domain distortion')
+  assert(stellarMaterialSource.includes('float primaryGranulation ='), 'Pass 2 must provide an explicit primary granulation field')
+  assert(stellarMaterialSource.includes('convectionVariation +\n      primaryVariation +\n      fineVariation'), 'surface contrast must preserve broad / primary / fine hierarchy')
+  assert(stellarMaterialSource.includes('return clamp(1.0 + variation * uDetailStrength, 0.925, 1.075);'), 'surface variation must stay tightly bounded around mean luminance')
+
+  const noiseCalls = stellarMaterialSource.match(/valueNoise\(/g) ?? []
+  assert(noiseCalls.length >= 8, 'Pass 2 must use enough decorrelated samples for multi-scale granulation')
+  assert(noiseCalls.length <= 10, 'Pass 2 must keep procedural sampling bounded and avoid cellular-search-level cost')
   assert(stellarMaterialSource.includes('material.uniforms.uTime.value = frame.animationTimeSeconds'), 'animation time must be updated only through the stellar material contract')
 }
 
@@ -171,23 +188,28 @@ function testPhotosphereUsesScreenSpaceSurfaceLod() {
   assert(stellarMaterialSource.includes('vec3 normalWidth = fwidth(objectNormal);'), 'surface LOD must start from actual screen-space normal footprint')
   assert(stellarMaterialSource.includes('float getStellarFeaturePixels(float normalPixelFootprint, float frequency)'), 'stellar shader must convert derivative footprint into approximate pixels per feature')
   assert(stellarMaterialSource.includes('float convectionPixels = getStellarFeaturePixels('), 'broad convection must use screen-space coverage')
-  assert(stellarMaterialSource.includes('float breakupPixels = getStellarFeaturePixels('), 'mid-scale breakup must use screen-space coverage')
+  assert(stellarMaterialSource.includes('float primaryPixels = getStellarFeaturePixels('), 'primary granulation must use screen-space coverage')
+  assert(stellarMaterialSource.includes('float secondaryPixels = getStellarFeaturePixels('), 'secondary primary scale must use screen-space coverage')
   assert(stellarMaterialSource.includes('float finePixels = getStellarFeaturePixels('), 'fine breakup must use screen-space coverage')
-  assert(stellarMaterialSource.includes('float breakupLod = smoothstep(0.95, 2.55, breakupPixels);'), 'mid-scale detail must fade continuously rather than pop')
-  assert(stellarMaterialSource.includes('float fineLod = smoothstep(1.20, 2.75, finePixels);'), 'fine detail must retire before becoming unresolved')
-  assert(stellarMaterialSource.includes('0.74,\n      1.0,\n      smoothstep(0.65, 2.40, convectionPixels)'), 'broad convection must retain a nonzero floor for small stars')
+  assert(stellarMaterialSource.includes('float primaryLod = smoothstep('), 'primary detail must fade continuously rather than pop')
+  assert(stellarMaterialSource.includes('float secondaryLod = smoothstep('), 'secondary granulation must retire independently when unresolved')
+  assert(stellarMaterialSource.includes('float fineLod = smoothstep('), 'fine detail must retire before becoming unresolved')
+  assert(stellarMaterialSource.includes('float convectionLod = mix('), 'broad convection must retain a nonzero small-star floor')
   assert(!stellarMaterialSource.includes('uCameraDistance'), 'stellar LOD must not add a world-distance uniform')
   assert(!stellarMaterialSource.includes('uScreenRadius'), 'stellar LOD must not require a CPU-managed screen-radius uniform')
 }
 
 function testPhotosphereTimeEvolutionDoesNotSlideSurfaceCoordinates() {
   const timeTerms = stellarMaterialSource.match(/uTime \*/g) ?? []
-  assert(timeTerms.length === 2, 'Pass 1 surface time must be limited to two slow amplitude breathing terms')
-  assert(stellarMaterialSource.includes('uTime * 0.0035 + uSurfaceSeed * 0.009'), 'broad convection may evolve only through a very slow amplitude term')
-  assert(stellarMaterialSource.includes('uTime * 0.0047 + uSurfaceSeed * 0.011 + 0.7'), 'mid-scale breakup may evolve only through a separate very slow amplitude term')
+  assert(timeTerms.length === 2, 'surface time must be limited to two slow amplitude-evolution terms')
+  assert(stellarMaterialSource.includes('float convectionEvolution = 1.0 +'), 'broad convection may evolve only through slow amplitude change')
+  assert(stellarMaterialSource.includes('float primaryEvolution = 1.0 +'), 'primary granulation may evolve independently through slow amplitude change')
+  assert(stellarMaterialSource.includes('vec3 warpedNormal = normalize(objectNormal + warpVector'), 'domain distortion must be anchored to object-space surface coordinates')
   assert(!stellarMaterialSource.includes('granuleDrift'), 'legacy texture coordinate drift must remain absent')
   assert(!stellarMaterialSource.includes('convectionWobble'), 'broad texture coordinates must not slide across the sphere')
   assert(!stellarMaterialSource.includes('fineWobble'), 'fine texture coordinates must not slide across the sphere')
+  assert(!stellarMaterialSource.includes('uTime + objectNormal'), 'time must not translate object-space coordinates')
+  assert(!stellarMaterialSource.includes('objectNormal + uTime'), 'time must not translate object-space coordinates')
 }
 
 function testPhotosphereUsesSoftStellarLimbAndCoverage() {
@@ -218,7 +240,7 @@ function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
   assert(toneMappingChunks.length === 1, 'stellar photosphere must execute exactly one renderer tone-mapping chunk')
   assert(stellarMaterialSource.includes('#include <tonemapping_fragment>\n    #include <colorspace_fragment>'), 'no stellar RGB modulation may run after renderer tone mapping')
   assert(simulationRendererSource.includes('renderer.toneMapping = THREE.ACESFilmicToneMapping'), 'global renderer tone mapping must remain ACES')
-  assert(simulationRendererSource.includes('renderer.toneMappingExposure = 1'), 'stellar Pass 1 must not change global exposure')
+  assert(simulationRendererSource.includes('renderer.toneMappingExposure = 1'), 'stellar Pass 2 must not change global exposure')
 }
 
 function testStellarOnlySurfaceLogicDoesNotLeakIntoGenericShader() {
@@ -243,7 +265,7 @@ function testStellarUpdateContractOwnsRenderInputs() {
 }
 
 function testCoronaRemainsUnchangedAndSubordinate() {
-  assert(stellarCoronaSource.includes("export const STELLAR_CORONA_RENDER_PATH = 'stellar-corona-pass5'"), 'Pass 1 must retain the dedicated compact corona path')
+  assert(stellarCoronaSource.includes("export const STELLAR_CORONA_RENDER_PATH = 'stellar-corona-pass5'"), 'Pass 2 must retain the dedicated compact corona path')
   assert(stellarCoronaSource.includes('float coronaPhase = uCoronaTime * 0.0016;'), 'corona time evolution must remain nearly imperceptible')
   assert(stellarCoronaSource.includes('coronaAngularA * 0.050 + coronaAngularB * 0.024'), 'corona radius variation must stay subtle')
   assert(stellarCoronaSource.includes('float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));'), 'corona must remain concentrated near the photosphere')
