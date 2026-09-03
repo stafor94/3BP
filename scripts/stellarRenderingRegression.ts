@@ -212,20 +212,31 @@ function testPhotosphereTimeEvolutionDoesNotSlideSurfaceCoordinates() {
   assert(!stellarMaterialSource.includes('objectNormal + uTime'), 'time must not translate object-space coordinates')
 }
 
+function testPhotosphereUsesLuminousCenterToLimbResponse() {
+  assert(stellarMaterialSource.includes('float drawStellarEmission(float viewMu)'), 'Pass 3 must own a dedicated view-angle emission response')
+  assert(stellarMaterialSource.includes('float broadDepth = pow(viewMu, 0.32);'), 'center-to-limb emission must use a broad smooth depth term')
+  assert(stellarMaterialSource.includes('float centerDepth = pow(viewMu, 1.35);'), 'center-to-limb emission must include a distributed center lift')
+  assert(stellarMaterialSource.includes('return 0.84 + broadDepth * 0.12 + centerDepth * 0.35;'), 'Pass 3 must retain a bright limb floor while redistributing energy toward the center')
+  assert(stellarMaterialSource.includes('float getStellarDetailEnvelope(float viewMu)'), 'surface detail must have a view-angle response separate from topology generation')
+  assert(stellarMaterialSource.includes('return mix(0.26, 1.0, smoothstep(0.10, 0.60, viewMu));'), 'near-limb detail compression must remain continuous and nonzero')
+  assert(stellarMaterialSource.includes('surfaceVariation *= detailEnvelope;'), 'surface contrast must be compressed only after topology-free surface generation')
+}
+
 function testPhotosphereUsesSoftStellarLimbAndCoverage() {
-  assert(stellarMaterialSource.includes('float broadLimb = pow(viewMu, 0.42);'), 'stellar limb emission must keep its broad continuous response')
-  assert(stellarMaterialSource.includes('return 0.92 + broadLimb * 0.18 + centerLift * 0.16;'), 'stellar limb must retain a bright edge floor')
-  assert(stellarMaterialSource.includes('float drawStellarFringe(vec3 worldNormal, vec3 viewDirection)'), 'stellar photosphere must retain the dedicated thin fringe')
-  assert(stellarMaterialSource.includes('float fringeFall = 1.0 - smoothstep(0.94, 0.995, fresnel);'), 'fringe must fall away at the silhouette')
-  assert(stellarMaterialSource.includes('float getStellarEdgeCoverage(vec3 worldNormal, vec3 viewDirection)'), 'stellar silhouette must derive coverage from view angle')
-  assert(stellarMaterialSource.includes('fwidth(viewMu) * 1.90'), 'stellar edge feather must remain derivative aware')
+  assert(stellarMaterialSource.includes('float drawStellarFringe(float viewMu)'), 'stellar photosphere must retain the dedicated thin fringe')
+  assert(stellarMaterialSource.includes('float fringeRise = smoothstep(0.58, 0.82, fresnel);'), 'fringe must rise gradually before the silhouette')
+  assert(stellarMaterialSource.includes('float fringeFall = 1.0 - smoothstep(0.90, 0.985, fresnel);'), 'fringe must fade before it can form an outline')
+  assert(stellarMaterialSource.includes('float getStellarEdgeCoverage(float viewMu)'), 'stellar silhouette must derive coverage from view angle')
+  assert(stellarMaterialSource.includes('fwidth(viewMu) * 1.55'), 'stellar edge feather must remain derivative aware')
+  assert(stellarMaterialSource.includes('max(fwidth(viewMu) * 1.55, 0.035), 0.20'), 'edge coverage must stay narrow at large screen sizes')
   assert(stellarMaterialSource.includes('gl_FragColor = vec4(color, uOpacity * edgeCoverage);'), 'fragment alpha must carry only the thin silhouette coverage transition')
   assert(stellarMaterialSource.includes('alphaToCoverage: true'), 'stellar material creation must keep MSAA alpha-to-coverage')
   assert(stellarMaterialSource.includes('material.alphaToCoverage = true'), 'runtime stellar conversion must keep alpha-to-coverage')
+  assert(stellarMaterialSource.includes('material.uniforms.uRimStrength.value = 0.025'), 'photosphere fringe strength must stay subordinate')
 }
 
 function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
-  assert(stellarMaterialSource.includes('float meanEmission = (emission + fringe * 0.52) * uEmissionStrength;'), 'mean photosphere luminance must stay independent from surface contrast')
+  assert(stellarMaterialSource.includes('float meanEmission = (emission + fringe * 0.14) * uEmissionStrength;'), 'mean photosphere luminance must remain dominated by smooth emission rather than fringe')
   assert(stellarMaterialSource.includes('float surfaceVariation = clamp((surfaceDetail - 1.0) * 0.92, -0.095, 0.075);'), 'surface contrast must remain bounded independently from mean luminance')
   assert(stellarMaterialSource.includes('float linearIntensity = meanEmission * (1.0 + surfaceVariation);'), 'surface variation must be applied once in linear HDR space')
   assert(stellarMaterialSource.includes('float identityChannelFloor = min(min(uIdentityColor.r, uIdentityColor.g), uIdentityColor.b);'), 'neutral stellar headroom must derive from identity color')
@@ -233,14 +244,14 @@ function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
   assert(stellarMaterialSource.includes('linearIntensity *= mix(1.0, 0.72, neutralHue01);'), 'near-neutral stars must retain bounded pre-ACES headroom')
   assert(stellarMaterialSource.includes('linearIntensity *= 1.0 + surfaceVariation * 0.08;'), 'surface contrast compensation must remain small and linear before ACES')
   assert(stellarMaterialSource.includes('vec3 color = uIdentityColor * linearIntensity;'), 'temperature identity color must remain unchanged in linear HDR space')
-  assert(stellarMaterialSource.includes('float whiteHotCore = pow(limb, 18.0) * uWhiteHotMix;'), 'white-hot contribution must stay confined to a small central region')
+  assert(stellarMaterialSource.includes('float whiteHotCore = pow(viewMu, 22.0) * uWhiteHotMix * 0.72;'), 'white-hot contribution must stay narrow and weaker than the render-profile bound')
   assert(!stellarMaterialSource.includes('toneMapStellarHuePreserving'), 'stellar photosphere must not restore a local shoulder compressor')
   assert(!stellarMaterialSource.includes('stellarSurfaceModulation'), 'stellar photosphere must not restore post-tone-map RGB modulation')
   const toneMappingChunks = stellarMaterialSource.match(/#include <tonemapping_fragment>/g) ?? []
   assert(toneMappingChunks.length === 1, 'stellar photosphere must execute exactly one renderer tone-mapping chunk')
   assert(stellarMaterialSource.includes('#include <tonemapping_fragment>\n    #include <colorspace_fragment>'), 'no stellar RGB modulation may run after renderer tone mapping')
   assert(simulationRendererSource.includes('renderer.toneMapping = THREE.ACESFilmicToneMapping'), 'global renderer tone mapping must remain ACES')
-  assert(simulationRendererSource.includes('renderer.toneMappingExposure = 1'), 'stellar Pass 2 must not change global exposure')
+  assert(simulationRendererSource.includes('renderer.toneMappingExposure = 1'), 'stellar Pass 3 must not change global exposure')
 }
 
 function testStellarOnlySurfaceLogicDoesNotLeakIntoGenericShader() {
@@ -265,7 +276,7 @@ function testStellarUpdateContractOwnsRenderInputs() {
 }
 
 function testCoronaRemainsUnchangedAndSubordinate() {
-  assert(stellarCoronaSource.includes("export const STELLAR_CORONA_RENDER_PATH = 'stellar-corona-pass5'"), 'Pass 2 must retain the dedicated compact corona path')
+  assert(stellarCoronaSource.includes("export const STELLAR_CORONA_RENDER_PATH = 'stellar-corona-pass5'"), 'Pass 3 must retain the dedicated compact corona path')
   assert(stellarCoronaSource.includes('float coronaPhase = uCoronaTime * 0.0016;'), 'corona time evolution must remain nearly imperceptible')
   assert(stellarCoronaSource.includes('coronaAngularA * 0.050 + coronaAngularB * 0.024'), 'corona radius variation must stay subtle')
   assert(stellarCoronaSource.includes('float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));'), 'corona must remain concentrated near the photosphere')
@@ -288,6 +299,7 @@ const tests = [
   testPhotosphereRemovesExplicitCellularTopology,
   testPhotosphereUsesScreenSpaceSurfaceLod,
   testPhotosphereTimeEvolutionDoesNotSlideSurfaceCoordinates,
+  testPhotosphereUsesLuminousCenterToLimbResponse,
   testPhotosphereUsesSoftStellarLimbAndCoverage,
   testPhotosphereUsesSingleLinearHdrToneMappingPath,
   testStellarOnlySurfaceLogicDoesNotLeakIntoGenericShader,
