@@ -66,6 +66,8 @@ jobs:
           done
           cat /tmp/3bp-stellar-preview.log
           exit 1
+      - name: Pass 5 production SimulationView mobile integration regression
+        run: python scripts/stellarProductionIntegrationVisualRegression.py
       - name: Pass 1 topology-removal regression
         env:
           STELLAR_PASS1_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
@@ -100,8 +102,6 @@ jobs:
         env:
           STELLAR_HDR_BASELINE_REF: fe1d138268a40ce7707df64ac60a0ab384a995bc
         run: python scripts/stellarHdrVisualRegression.py
-      - name: Pass 5 production SimulationView mobile integration regression
-        run: python scripts/stellarProductionIntegrationVisualRegression.py
       - name: Upload stellar photosphere A/B captures
         if: always()
         uses: actions/upload-artifact@v4
