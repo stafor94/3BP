@@ -107,10 +107,10 @@ export const stellarPhotosphereFragmentShader = `
   varying vec3 vWorldPosition;
 
   const float STELLAR_CONVECTION_FREQUENCY = 2.1;
-  const float STELLAR_WARP_FREQUENCY = 4.6;
-  const float STELLAR_PRIMARY_FREQUENCY = 13.5;
-  const float STELLAR_PRIMARY_SECONDARY_FREQUENCY = 18.7;
-  const float STELLAR_FINE_FREQUENCY = 31.0;
+  const float STELLAR_WARP_FREQUENCY = 6.4;
+  const float STELLAR_PRIMARY_FREQUENCY = 27.0;
+  const float STELLAR_PRIMARY_SECONDARY_FREQUENCY = 42.0;
+  const float STELLAR_FINE_FREQUENCY = 74.0;
 
   float hash31(vec3 p) {
     p = fract(p * 0.1031);
@@ -211,7 +211,7 @@ export const stellarPhotosphereFragmentShader = `
       warpB - 0.5,
       (warpA - warpB) * 0.72
     );
-    vec3 warpedNormal = normalize(objectNormal + warpVector * 0.115);
+    vec3 warpedNormal = normalize(objectNormal + warpVector * 0.075);
 
     // Primary granulation is a decorrelated signed band assembled from several
     // nearby scales. No sample encodes a nearest point, boundary distance, or
@@ -227,16 +227,16 @@ export const stellarPhotosphereFragmentShader = `
       vec3(6.4, 1.8, -3.9)
     );
     float primaryC = valueNoise(
-      warpedNormal.yzx * (STELLAR_PRIMARY_FREQUENCY * 1.19) +
+      warpedNormal.yzx * (STELLAR_PRIMARY_FREQUENCY * 1.24) +
       seedOffset * 0.53 +
       vec3(8.6, -6.1, 2.7)
     );
-    float primaryLow = (primaryA - 0.5) * 0.66 * primaryLod;
-    float primaryHigh = (primaryB - 0.5) * 0.43 * secondaryLod;
-    float primaryCross = (primaryC - 0.5) * 0.34 * secondaryLod;
+    float primaryLow = (primaryA - 0.5) * 0.58 * primaryLod;
+    float primaryHigh = (primaryB - 0.5) * 0.42 * secondaryLod;
+    float primaryCross = (primaryC - 0.5) * 0.38 * secondaryLod;
     float primaryGranulation = primaryLow - primaryHigh + primaryCross;
     primaryGranulation +=
-      (primaryA - 0.5) * (primaryC - 0.5) * 0.22 * secondaryLod;
+      (primaryA - 0.5) * (primaryC - 0.5) * 0.18 * secondaryLod;
     float primaryEvolution = 1.0 + 0.012 * sin(
       uTime * 0.0043 + uSurfaceSeed * 0.011 + 0.7
     );
@@ -248,11 +248,11 @@ export const stellarPhotosphereFragmentShader = `
     );
 
     float convectionVariation =
-      (convection - 0.5) * 0.032 * convectionLod * convectionEvolution;
+      (convection - 0.5) * 0.020 * convectionLod * convectionEvolution;
     float primaryVariation =
-      primaryGranulation * 0.060 * primaryEvolution;
+      primaryGranulation * 0.072 * primaryEvolution;
     float fineVariation =
-      (fineBreakup - 0.5) * 0.006 * fineLod;
+      (fineBreakup - 0.5) * 0.005 * fineLod;
     float variation =
       convectionVariation +
       primaryVariation +
