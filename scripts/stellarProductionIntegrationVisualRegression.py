@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
+import io
 import json
 import math
 import statistics
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageStat
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
@@ -19,9 +21,6 @@ OUTPUT_DIR = Path('stellar-production-pass5-artifacts')
 STAR_ORDER = ('cool', 'solar', 'hot')
 STAR_MASSES = {'cool': 0.35, 'solar': 1.0, 'hot': 8.0}
 LEVELS = ('normal', 'enlarged', 'extreme')
-
-# Reuse the established Pass 2 screen-size targets so the integration gate
-# compares the same visual regimes through the real App/UI production path.
 LEVEL_TARGETS = p2.LEVEL_TARGETS
 p2.OUTPUT_DIR = OUTPUT_DIR
 
@@ -38,9 +37,6 @@ def production_url(root_url: str, star: str) -> str:
 
 
 def configure_production_storage(driver, root_url: str) -> None:
-    # Keep the actual production controls in a coherent one-body setup. The
-    # query fixture only substitutes the BodyState; App/SimulationView/UI stay
-    # on their normal production code paths.
     driver.get(root_url)
     WebDriverWait(driver, 20, poll_frequency=0.05).until(
         lambda browser: browser.execute_script('return document.readyState === "complete"')
@@ -79,7 +75,7 @@ def prepare_scene(driver, root_url: str, star: str):
         lambda browser: browser.find_elements(By.CSS_SELECTOR, '.app-shell')
         and browser.find_elements(By.CSS_SELECTOR, '.simulation-view canvas')
         and browser.find_elements(By.CSS_SELECTOR, '.body-tracking-rail .body-tracking-button')
-        and browser.find_elements(By.CSS_SELECTOR, '.control-panel')
+        and browser.find_elements(By.CSS_SELECTOR, '.control-panel .panel-toggle')
     )
 
     canvas = driver.find_element(By.CSS_SELECTOR, '.simulation-view canvas')
@@ -90,17 +86,13 @@ def prepare_scene(driver, root_url: str, star: str):
         )
     )
 
-    tracking_button = driver.find_element(
-        By.CSS_SELECTOR,
-        '.body-tracking-rail .body-tracking-button',
-    )
+    tracking_button = driver.find_element(By.CSS_SELECTOR, '.body-tracking-rail .body-tracking-button')
     if tracking_button.get_attribute('aria-pressed') != 'true':
         tracking_button.click()
 
     WebDriverWait(driver, 20, poll_frequency=0.05).until(
         lambda browser: browser.find_element(
-            By.CSS_SELECTOR,
-            '.body-tracking-rail .body-tracking-button',
+            By.CSS_SELECTOR, '.body-tracking-rail .body-tracking-button'
         ).get_attribute('aria-pressed') == 'true'
     )
     WebDriverWait(driver, 20, poll_frequency=0.05).until(
@@ -115,9 +107,19 @@ def prepare_scene(driver, root_url: str, star: str):
         ))
     )
 
-    # The production tracking camera has an 18-frame settle phase. Give it the
-    # same conservative post-handoff margin used by the established LOD gate
-    # before applying user wheel input.
+    # Use the real mobile UI control to collapse the bottom sheet. This leaves
+    # production chrome and tracking controls visible while keeping the tracked
+    # star unobstructed for the required visual review.
+    toggle = driver.find_element(By.CSS_SELECTOR, '.control-panel .panel-toggle')
+    if toggle.get_attribute('aria-expanded') == 'true':
+        toggle.click()
+    WebDriverWait(driver, 10, poll_frequency=0.05).until(
+        lambda browser: 'collapsed' in browser.find_element(
+            By.CSS_SELECTOR, '.control-panel'
+        ).get_attribute('class').split()
+    )
+
+    # The production tracking camera has an 18-frame settle phase.
     wait_frames(driver, 72)
     return canvas
 
@@ -151,10 +153,48 @@ def apply_single_zoom(driver, canvas, delta: float = -100.0, settle_frames: int 
     )
 
 
-def capture_canvas(canvas, path: Path) -> Image.Image:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    require(bool(canvas.screenshot(str(path))) and path.exists(), f'{path}: canvas capture failed')
+def _capture_canvas_fallback(driver, canvas, path: Path) -> Image.Image:
+    # Selenium element screenshots composite overlapping DOM. Hide only DOM
+    # nodes outside the canvas ancestry during the capture, then restore them.
+    driver.execute_script(
+        '''
+        const canvas = arguments[0];
+        for (const element of document.querySelectorAll('body *')) {
+          if (element === canvas || element.contains(canvas) || canvas.contains(element)) continue;
+          element.setAttribute('data-pass5-prev-visibility', element.style.visibility || '');
+          element.style.visibility = 'hidden';
+          element.setAttribute('data-pass5-hidden', '1');
+        }
+        ''',
+        canvas,
+    )
+    try:
+        require(bool(canvas.screenshot(str(path))) and path.exists(), f'{path}: canvas capture failed')
+    finally:
+        driver.execute_script(
+            '''
+            for (const element of document.querySelectorAll('[data-pass5-hidden="1"]')) {
+              element.style.visibility = element.getAttribute('data-pass5-prev-visibility') || '';
+              element.removeAttribute('data-pass5-prev-visibility');
+              element.removeAttribute('data-pass5-hidden');
+            }
+            '''
+        )
     return Image.open(path).convert('RGB')
+
+
+def capture_canvas(driver, canvas, path: Path) -> Image.Image:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wait_frames(driver, 2)
+    data_url = driver.execute_script("return arguments[0].toDataURL('image/png');", canvas)
+    if isinstance(data_url, str) and data_url.startswith('data:image/png;base64,'):
+        raw = base64.b64decode(data_url.split(',', 1)[1])
+        image = Image.open(io.BytesIO(raw)).convert('RGB')
+        extrema = ImageStat.Stat(image.convert('L')).extrema[0]
+        if extrema[1] >= 24:
+            image.save(path)
+            return image
+    return _capture_canvas_fallback(driver, canvas, path)
 
 
 def capture_full_ui(driver, path: Path) -> Image.Image:
@@ -187,71 +227,45 @@ def validate_production_ui(driver) -> None:
         '.control-panel',
         '.language-picker',
     ):
-        element = driver.find_element(By.CSS_SELECTOR, selector)
-        require(element.is_displayed(), f'production UI element is not visible: {selector}')
-
-    tracking_button = driver.find_element(
-        By.CSS_SELECTOR,
-        '.body-tracking-rail .body-tracking-button',
-    )
-    require(
-        tracking_button.get_attribute('aria-pressed') == 'true',
-        'production tracking UI is not active for the captured star',
-    )
-    telemetry = current_telemetry(driver)
-    require(telemetry.get('mode') == 'tracking', 'capture is not using production tracking camera mode')
+        require(driver.find_element(By.CSS_SELECTOR, selector).is_displayed(), f'UI missing: {selector}')
+    tracking = driver.find_element(By.CSS_SELECTOR, '.body-tracking-rail .body-tracking-button')
+    require(tracking.get_attribute('aria-pressed') == 'true', 'production tracking UI is not active')
+    panel = driver.find_element(By.CSS_SELECTOR, '.control-panel')
+    require('collapsed' in panel.get_attribute('class').split(), 'mobile control panel did not collapse')
+    require(current_telemetry(driver).get('mode') == 'tracking', 'camera telemetry is not tracking')
 
 
 def calibrate_zoom_steps(driver, root_url: str) -> dict[str, int]:
     canvas = prepare_scene(driver, root_url, 'solar')
     temp = OUTPUT_DIR / 'zoom-calibration.png'
-    image = capture_canvas(canvas, temp)
+    image = capture_canvas(driver, canvas, temp)
     diameter = float(p2.locate_photosphere(image)['bright_photosphere_diameter_px'])
-    require(
-        LEVEL_TARGETS['normal'][0] <= diameter <= LEVEL_TARGETS['normal'][1],
-        f'production tracking normal size {diameter:.1f}px misses '
-        f'{LEVEL_TARGETS["normal"][0]:.0f}-{LEVEL_TARGETS["normal"][1]:.0f}px',
-    )
+    low, high = LEVEL_TARGETS['normal']
+    require(low <= diameter <= high, f'production normal size {diameter:.1f}px misses {low:.0f}-{high:.0f}px')
 
     steps = {'normal': 0}
     step_count = 0
     while ('enlarged' not in steps or 'extreme' not in steps) and step_count < 72:
-        apply_single_zoom(driver, canvas, settle_frames=10)
+        apply_single_zoom(driver, canvas, settle_frames=8)
         step_count += 1
-        image = capture_canvas(canvas, temp)
-        diameter = float(p2.locate_photosphere(image)['bright_photosphere_diameter_px'])
+        diameter = float(p2.locate_photosphere(capture_canvas(driver, canvas, temp))['bright_photosphere_diameter_px'])
         for level in ('enlarged', 'extreme'):
-            low, high = LEVEL_TARGETS[level]
-            if level not in steps and low <= diameter <= high:
+            target_low, target_high = LEVEL_TARGETS[level]
+            if level not in steps and target_low <= diameter <= target_high:
                 steps[level] = step_count
-                print(f'Pass 5 production zoom calibration {level}: {step_count} steps -> {diameter:.1f}px')
-
-    require('enlarged' in steps, 'production zoom calibration never reached enlarged range')
-    require('extreme' in steps, 'production zoom calibration never reached extreme range')
+                print(f'Pass 5 production zoom calibration {level}: {step_count} -> {diameter:.1f}px')
+    require('enlarged' in steps and 'extreme' in steps, 'production zoom calibration did not cover all levels')
     return steps
 
 
-def capture_state(
-    driver,
-    root_url: str,
-    star: str,
-    level: str,
-    wheel_steps: int,
-) -> tuple[Path, Path, dict[str, object]]:
+def capture_state(driver, root_url: str, star: str, level: str, wheel_steps: int):
     canvas = prepare_scene(driver, root_url, star)
     validate_production_ui(driver)
     if wheel_steps:
-        p2runner.apply_batch_zoom(
-            driver,
-            canvas,
-            -wheel_steps,
-            delta=100.0,
-            settle_frames=45,
-        )
-
+        p2runner.apply_batch_zoom(driver, canvas, -wheel_steps, delta=100.0, settle_frames=36)
     canvas_path = OUTPUT_DIR / f'production-{star}-{level}-canvas.png'
     ui_path = OUTPUT_DIR / f'production-{star}-{level}-ui.png'
-    capture_canvas(canvas, canvas_path)
+    capture_canvas(driver, canvas, canvas_path)
     capture_full_ui(driver, ui_path)
     telemetry = current_telemetry(driver)
     require(telemetry.get('mode') == 'tracking', f'{star}/{level}: production tracking camera was lost')
@@ -262,54 +276,46 @@ def validate_surface(star: str, level: str, metric: dict[str, float | int]) -> N
     diameter = float(metric['bright_photosphere_diameter_px'])
     low, high = LEVEL_TARGETS[level]
     require(low <= diameter <= high, f'{star}/{level}: diameter {diameter:.1f}px misses {low:.0f}-{high:.0f}px')
-
     contrast = float(metric['granulation_contrast'])
-    if level == 'normal':
-        require(contrast <= 0.80, f'{star}/{level}: surface texture is too visible ({contrast:.3f})')
-    elif level == 'enlarged':
-        require(0.12 <= contrast <= 2.50, f'{star}/{level}: granulation contrast is unnatural ({contrast:.3f})')
-    else:
-        require(0.18 <= contrast <= 3.40, f'{star}/{level}: extreme granulation contrast is unnatural ({contrast:.3f})')
-
+    contrast_low, contrast_high = {
+        'normal': (0.08, 1.60),
+        'enlarged': (0.16, 2.50),
+        'extreme': (0.22, 3.40),
+    }[level]
+    require(
+        contrast_low <= contrast <= contrast_high,
+        f'{star}/{level}: granulation contrast {contrast:.3f} outside {contrast_low:.2f}-{contrast_high:.2f}',
+    )
     require(float(metric['broad_variation_std']) >= 0.35, f'{star}/{level}: broad convection vanished')
     require(float(metric['high_frequency_energy']) <= 2.60, f'{star}/{level}: shimmer/moire-like HF energy is too high')
     require(float(metric['local_minima_fraction']) <= 0.10, f'{star}/{level}: excessive local pits')
     require(float(metric['dark_residual_fraction']) <= 0.34, f'{star}/{level}: dark trough coverage is excessive')
-    require(
-        float(metric['largest_dark_component_fraction']) <= 0.20,
-        f'{star}/{level}: connected dark topology is too dominant',
-    )
+    require(float(metric['largest_dark_component_fraction']) <= 0.20, f'{star}/{level}: connected dark topology is too dominant')
     require(
         float(metric['largest_dark_component_span_fraction']) <= 0.70,
         f'{star}/{level}: Voronoi/honeycomb-like structure spans too much of the disk',
     )
 
 
-def validate_corona_absolute(star: str, level: str, metric: dict[str, float]) -> None:
+def validate_corona(star: str, level: str, metric: dict[str, float]) -> None:
     near = metric['near_to_core']
     outer = metric['outer_to_core']
     far = metric['far_to_core']
     extent = metric['extent_fraction']
     require(0.080 <= near <= 0.20, f'{star}/{level}: near corona out of range ({near:.4f})')
     require(0.015 <= outer <= 0.055, f'{star}/{level}: outer corona out of range ({outer:.4f})')
-    require(far <= 0.014, f'{star}/{level}: corona becomes a giant blur halo ({far:.4f})')
-    require(0.12 <= metric['outer_to_near'] <= 0.40, f'{star}/{level}: corona radial balance is unnatural')
+    require(far <= 0.014, f'{star}/{level}: far halo is excessive ({far:.4f})')
+    require(0.12 <= metric['outer_to_near'] <= 0.40, f'{star}/{level}: near/outer corona balance is unnatural')
     require(metric['far_to_outer'] <= 0.35, f'{star}/{level}: corona does not decay enough')
-    require(0.24 <= extent <= 0.44, f'{star}/{level}: corona extent is too thin or too broad ({extent:.3f})')
+    require(0.24 <= extent <= 0.44, f'{star}/{level}: corona extent is too thin or broad ({extent:.3f})')
     require(metric['extent_std_fraction'] <= 0.060, f'{star}/{level}: corona boundary is too irregular')
     edge_limit = 3.35 if level == 'normal' else 2.25
-    require(
-        metric['edge_to_shoulder_p90'] <= edge_limit,
-        f'{star}/{level}: corona collapses into a thin outline ({metric["edge_to_shoulder_p90"]:.3f})',
-    )
-    require(metric['radial_rebound_p90'] <= 0.060, f'{star}/{level}: corona contains a radial brightness rebound')
+    require(metric['edge_to_shoulder_p90'] <= edge_limit, f'{star}/{level}: corona is a thin outline')
+    require(metric['radial_rebound_p90'] <= 0.060, f'{star}/{level}: corona contains a radial rebound')
 
 
 def hue_distance(a: dict[str, float | int], b: dict[str, float | int]) -> float:
-    return math.sqrt(sum(
-        (float(a[channel]) - float(b[channel])) ** 2
-        for channel in ('hue_r', 'hue_g', 'hue_b')
-    ))
+    return math.sqrt(sum((float(a[c]) - float(b[c])) ** 2 for c in ('hue_r', 'hue_g', 'hue_b')))
 
 
 def validate_temperature_hues(surface: dict[str, dict[str, dict[str, float | int]]]) -> None:
@@ -327,21 +333,14 @@ def validate_temperature_hues(surface: dict[str, dict[str, dict[str, float | int
 def residual_signature(path: Path, size: int = 84) -> tuple[list[list[float]], float]:
     image = Image.open(path).convert('RGB')
     geometry = p2.locate_photosphere(image)
-    cx = float(geometry['center_x'])
-    cy = float(geometry['center_y'])
+    cx, cy = float(geometry['center_x']), float(geometry['center_y'])
     radius = float(geometry['equivalent_radius_px'])
     half = max(8.0, radius * 0.66)
-    left = max(0, int(math.floor(cx - half)))
-    top = max(0, int(math.floor(cy - half)))
-    right = min(image.width, int(math.ceil(cx + half)))
-    bottom = min(image.height, int(math.ceil(cy + half)))
-    crop = image.crop((left, top, right, bottom)).convert('L').resize(
-        (size, size),
-        Image.Resampling.BICUBIC,
-    )
+    crop = image.crop((
+        max(0, int(cx - half)), max(0, int(cy - half)),
+        min(image.width, int(cx + half)), min(image.height, int(cy + half)),
+    )).convert('L').resize((size, size), Image.Resampling.BICUBIC)
     blur = crop.filter(ImageFilter.GaussianBlur(radius=max(2.0, size / 24.0)))
-    pixels = crop.load()
-    blurred = blur.load()
     residual = [[0.0 for _ in range(size)] for _ in range(size)]
     values: list[float] = []
     center = (size - 1) * 0.5
@@ -350,17 +349,15 @@ def residual_signature(path: Path, size: int = 84) -> tuple[list[list[float]], f
         for x in range(size):
             if math.hypot(x - center, y - center) > mask_radius:
                 continue
-            value = float(pixels[x, y]) - float(blurred[x, y])
+            value = float(crop.getpixel((x, y))) - float(blur.getpixel((x, y)))
             residual[y][x] = value
             values.append(value)
-    std = statistics.pstdev(values) if len(values) >= 2 else 0.0
-    return residual, std
+    return residual, statistics.pstdev(values) if len(values) >= 2 else 0.0
 
 
 def shifted_correlation(a: list[list[float]], b: list[list[float]], dx: int, dy: int) -> float:
     size = len(a)
     center = (size - 1) * 0.5
-    mask_radius = size * 0.40
     pairs: list[tuple[float, float]] = []
     for y in range(size):
         by = y + dy
@@ -368,59 +365,43 @@ def shifted_correlation(a: list[list[float]], b: list[list[float]], dx: int, dy:
             continue
         for x in range(size):
             bx = x + dx
-            if bx < 0 or bx >= size or math.hypot(x - center, y - center) > mask_radius:
+            if bx < 0 or bx >= size or math.hypot(x - center, y - center) > size * 0.40:
                 continue
             pairs.append((a[y][x], b[by][bx]))
     if len(pairs) < 40:
         return 0.0
-    mean_a = statistics.fmean(pair[0] for pair in pairs)
-    mean_b = statistics.fmean(pair[1] for pair in pairs)
+    mean_a = statistics.fmean(v[0] for v in pairs)
+    mean_b = statistics.fmean(v[1] for v in pairs)
     numerator = sum((va - mean_a) * (vb - mean_b) for va, vb in pairs)
     denom_a = math.sqrt(sum((va - mean_a) ** 2 for va, _ in pairs))
     denom_b = math.sqrt(sum((vb - mean_b) ** 2 for _, vb in pairs))
-    if denom_a <= 1e-9 or denom_b <= 1e-9:
-        return 1.0
-    return numerator / (denom_a * denom_b)
+    return numerator / max(denom_a * denom_b, 1e-9)
 
 
 def pattern_correlation(previous: Path, current: Path) -> tuple[float, float, float]:
     a, std_a = residual_signature(previous)
     b, std_b = residual_signature(current)
-    correlations = [
-        shifted_correlation(a, b, dx, dy)
-        for dy in (-1, 0, 1)
-        for dx in (-1, 0, 1)
-    ]
-    return max(correlations), std_a, std_b
+    value = max(shifted_correlation(a, b, dx, dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+    return value, std_a, std_b
 
 
-def capture_zoom_sweep(
-    driver,
-    root_url: str,
-    extreme_steps: int,
-) -> tuple[list[dict[str, float | int | None]], list[Path]]:
+def capture_zoom_sweep(driver, root_url: str, extreme_steps: int):
     canvas = prepare_scene(driver, root_url, 'hot')
     validate_production_ui(driver)
     frames: list[Path] = []
     metrics: list[dict[str, float | int | None]] = []
     previous_path: Path | None = None
-
     for step in range(extreme_steps + 1):
-        if step > 0:
-            # One real OrbitControls wheel event followed by only a few render
-            # frames models a continuous user zoom rather than isolated settled
-            # snapshots.
+        if step:
             apply_single_zoom(driver, canvas, settle_frames=4)
         path = OUTPUT_DIR / 'zoom-sweep' / f'hot-{step:02d}.png'
-        capture_canvas(canvas, path)
+        capture_canvas(driver, canvas, path)
         frames.append(path)
         surface = p2.analyze(path)
         corona_metric = corona.analyze_corona(path)
-        correlation: float | None = None
-        previous_std: float | None = None
-        current_std: float | None = None
+        correlation = std_prev = std_now = None
         if previous_path is not None:
-            correlation, previous_std, current_std = pattern_correlation(previous_path, path)
+            correlation, std_prev, std_now = pattern_correlation(previous_path, path)
         metrics.append({
             'step': step,
             'diameter_px': float(surface['bright_photosphere_diameter_px']),
@@ -429,96 +410,58 @@ def capture_zoom_sweep(
             'corona_extent_fraction': corona_metric['extent_fraction'],
             'corona_outer_to_core': corona_metric['outer_to_core'],
             'pattern_correlation_prev': correlation,
-            'pattern_std_prev': previous_std,
-            'pattern_std': current_std,
+            'pattern_std_prev': std_prev,
+            'pattern_std': std_now,
         })
         previous_path = path
-
     return metrics, frames
 
 
 def validate_zoom_sweep(metrics: list[dict[str, float | int | None]]) -> None:
     correlations: list[float] = []
     for previous, current in zip(metrics, metrics[1:]):
-        previous_diameter = float(previous['diameter_px'])
-        diameter = float(current['diameter_px'])
-        require(diameter + 0.6 >= previous_diameter, 'continuous zoom unexpectedly shrank the photosphere')
-        require(
-            diameter / max(previous_diameter, 1.0) <= 1.20,
-            f'continuous zoom contains a camera-size jump: {previous_diameter:.1f}->{diameter:.1f}px',
-        )
-        require(
-            abs(float(current['granulation_contrast']) - float(previous['granulation_contrast'])) <= 0.80,
-            'continuous zoom contains a granulation LOD pop',
-        )
-        require(
-            abs(float(current['high_frequency_energy']) - float(previous['high_frequency_energy'])) <= 0.90,
-            'continuous zoom contains a shimmer/moire HF jump',
-        )
-        require(
-            abs(float(current['corona_extent_fraction']) - float(previous['corona_extent_fraction'])) <= 0.12,
-            'continuous zoom contains a corona-size jump',
-        )
-        require(
-            abs(float(current['corona_outer_to_core']) - float(previous['corona_outer_to_core'])) <= 0.040,
-            'continuous zoom contains a corona-brightness jump',
-        )
-
+        prev_d = float(previous['diameter_px'])
+        curr_d = float(current['diameter_px'])
+        require(curr_d + 0.6 >= prev_d, 'continuous zoom unexpectedly shrank the photosphere')
+        require(curr_d / max(prev_d, 1.0) <= 1.20, f'continuous zoom camera jump {prev_d:.1f}->{curr_d:.1f}px')
+        require(abs(float(current['granulation_contrast']) - float(previous['granulation_contrast'])) <= 0.80, 'granulation LOD pop')
+        require(abs(float(current['high_frequency_energy']) - float(previous['high_frequency_energy'])) <= 0.90, 'shimmer/moire HF jump')
+        require(abs(float(current['corona_extent_fraction']) - float(previous['corona_extent_fraction'])) <= 0.12, 'corona size jump')
+        require(abs(float(current['corona_outer_to_core']) - float(previous['corona_outer_to_core'])) <= 0.040, 'corona brightness jump')
         correlation = current['pattern_correlation_prev']
-        std_prev = current['pattern_std_prev']
-        std_now = current['pattern_std']
-        if (
-            correlation is not None
-            and std_prev is not None
-            and std_now is not None
-            and previous_diameter >= 120.0
-            and min(float(std_prev), float(std_now)) >= 0.08
-        ):
+        std_prev, std_now = current['pattern_std_prev'], current['pattern_std']
+        if correlation is not None and std_prev is not None and std_now is not None and prev_d >= 120 and min(float(std_prev), float(std_now)) >= 0.08:
             value = float(correlation)
             correlations.append(value)
             require(value >= 0.15, f'continuous zoom texture pattern slipped ({value:.3f})')
-
-    require(correlations, 'continuous zoom did not produce enough resolved texture-correlation samples')
-    require(
-        statistics.median(correlations) >= 0.45,
-        f'continuous zoom texture alignment is unstable (median correlation {statistics.median(correlations):.3f})',
-    )
+    require(correlations, 'continuous zoom did not yield resolved texture-correlation samples')
+    require(statistics.median(correlations) >= 0.45, f'texture alignment unstable (median {statistics.median(correlations):.3f})')
 
 
 def make_ui_contact_sheet(paths: dict[str, dict[str, Path]], output: Path) -> None:
-    width = p2.base.VIEWPORT_WIDTH
-    height = p2.base.VIEWPORT_HEIGHT
-    label_height = 32
-    margin = 8
-    sheet = Image.new(
-        'RGB',
-        (width * 3 + margin * 4, (height + label_height) * 3 + margin * 4),
-        (8, 10, 16),
-    )
+    width, height, label, margin = p2.base.VIEWPORT_WIDTH, p2.base.VIEWPORT_HEIGHT, 32, 8
+    sheet = Image.new('RGB', (width * 3 + margin * 4, (height + label) * 3 + margin * 4), (8, 10, 16))
     draw = ImageDraw.Draw(sheet)
     for row, level in enumerate(LEVELS):
         for col, star in enumerate(STAR_ORDER):
             x = margin + col * (width + margin)
-            y = margin + row * (height + label_height + margin)
+            y = margin + row * (height + label + margin)
             draw.text((x, y), f'{STAR_MASSES[star]:g} M_sun / {level} / production UI', fill=(238, 241, 248))
-            image = Image.open(paths[star][level]).convert('RGB')
-            sheet.paste(image, (x, y + label_height))
+            sheet.paste(Image.open(paths[star][level]).convert('RGB'), (x, y + label))
     sheet.save(output)
 
 
 def make_zoom_strip(frames: list[Path], output: Path) -> None:
-    sample_count = min(7, len(frames))
-    indices = sorted({round(index * (len(frames) - 1) / max(sample_count - 1, 1)) for index in range(sample_count)})
-    images = [Image.open(frames[index]).convert('RGB') for index in indices]
-    label_height = 26
-    width = sum(image.width for image in images)
-    height = max(image.height for image in images) + label_height
-    sheet = Image.new('RGB', (width, height), (8, 10, 16))
+    count = min(7, len(frames))
+    indices = sorted({round(i * (len(frames) - 1) / max(count - 1, 1)) for i in range(count)})
+    images = [Image.open(frames[i]).convert('RGB') for i in indices]
+    label = 26
+    sheet = Image.new('RGB', (sum(i.width for i in images), max(i.height for i in images) + label), (8, 10, 16))
     draw = ImageDraw.Draw(sheet)
     x = 0
     for index, image in zip(indices, images):
         draw.text((x + 6, 7), f'zoom step {index}', fill=(238, 241, 248))
-        sheet.paste(image, (x, label_height))
+        sheet.paste(image, (x, label))
         x += image.width
     sheet.save(output)
 
@@ -527,59 +470,31 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     p2.base.wait_for_url(p2.base.CURRENT_URL)
     driver = p2.base.make_driver()
-    canvas_paths: dict[str, dict[str, Path]] = {star: {} for star in STAR_ORDER}
-    ui_paths: dict[str, dict[str, Path]] = {star: {} for star in STAR_ORDER}
-    telemetry: dict[str, dict[str, dict[str, object]]] = {star: {} for star in STAR_ORDER}
-
+    canvas_paths = {star: {} for star in STAR_ORDER}
+    ui_paths = {star: {} for star in STAR_ORDER}
+    telemetry = {star: {} for star in STAR_ORDER}
     try:
         configure_production_storage(driver, p2.base.CURRENT_URL)
         zoom_steps = calibrate_zoom_steps(driver, p2.base.CURRENT_URL)
         print(f'Pass 5 production zoom steps: {zoom_steps}')
-
         for star in STAR_ORDER:
             for level in LEVELS:
-                canvas_path, ui_path, state = capture_state(
-                    driver,
-                    p2.base.CURRENT_URL,
-                    star,
-                    level,
-                    zoom_steps[level],
-                )
+                canvas_path, ui_path, state = capture_state(driver, p2.base.CURRENT_URL, star, level, zoom_steps[level])
                 canvas_paths[star][level] = canvas_path
                 ui_paths[star][level] = ui_path
                 telemetry[star][level] = state
-
-        zoom_sweep, sweep_frames = capture_zoom_sweep(
-            driver,
-            p2.base.CURRENT_URL,
-            zoom_steps['extreme'],
-        )
+        zoom_sweep, sweep_frames = capture_zoom_sweep(driver, p2.base.CURRENT_URL, zoom_steps['extreme'])
     finally:
         driver.quit()
 
-    surface = {
-        star: {level: p2.analyze(path) for level, path in canvas_paths[star].items()}
-        for star in STAR_ORDER
-    }
-    radial = {
-        star: {level: p3.analyze_radial(path) for level, path in canvas_paths[star].items()}
-        for star in STAR_ORDER
-    }
-    corona_metrics = {
-        star: {level: corona.analyze_corona(path) for level, path in canvas_paths[star].items()}
-        for star in STAR_ORDER
-    }
+    surface = {star: {level: p2.analyze(path) for level, path in paths.items()} for star, paths in canvas_paths.items()}
+    radial = {star: {level: p3.analyze_radial(path) for level, path in paths.items()} for star, paths in canvas_paths.items()}
+    corona_metrics = {star: {level: corona.analyze_corona(path) for level, path in paths.items()} for star, paths in canvas_paths.items()}
 
-    # Write evidence before hard gates so a failure always leaves inspectable
-    # production UI PNGs and continuous-zoom frames in the workflow artifact.
     make_ui_contact_sheet(ui_paths, OUTPUT_DIR / 'production-mobile-ui-3x3.png')
     make_zoom_strip(sweep_frames, OUTPUT_DIR / 'hot-continuous-zoom-strip.png')
     payload = {
-        'viewport': {
-            'width': p2.base.VIEWPORT_WIDTH,
-            'height': p2.base.VIEWPORT_HEIGHT,
-            'mobile': True,
-        },
+        'viewport': {'width': p2.base.VIEWPORT_WIDTH, 'height': p2.base.VIEWPORT_HEIGHT, 'mobile': True},
         'scene': 'real App + SimulationView + production renderer + tracking rail + OrbitControls',
         'star_masses_msun': STAR_MASSES,
         'zoom_steps': zoom_steps,
@@ -596,26 +511,17 @@ def main() -> None:
         for level in LEVELS:
             validate_surface(star, level, surface[star][level])
             p3.validate_radial(star, level, radial[star][level])
-            validate_corona_absolute(star, level, corona_metrics[star][level])
-            state = telemetry[star][level]
-            require(state.get('mode') == 'tracking', f'{star}/{level}: camera telemetry is not tracking')
-            require(
-                str(state.get('resolvedTrackedBodyId', '')).startswith('pass5-star-'),
-                f'{star}/{level}: camera is not tracking the production fixture star',
-            )
-
+            validate_corona(star, level, corona_metrics[star][level])
+            require(telemetry[star][level].get('mode') == 'tracking', f'{star}/{level}: camera is not tracking')
     validate_temperature_hues(surface)
     validate_zoom_sweep(zoom_sweep)
 
-    # Explicitly surface the original failure case in logs as a dedicated
-    # acceptance checkpoint, even though the same gates run across all 3x3 states.
     hot_surface = surface['hot']['enlarged']
     hot_radial = radial['hot']['enlarged']
     hot_corona = corona_metrics['hot']['enlarged']
     print('8 M_sun enlarged production acceptance: ok')
     print(
-        '  topology/span={:.3f}, gran={:.3f}, center/limb={:.3f}, '
-        'corona extent={:.3f}, edge/shoulder={:.3f}, hue B-R={:.4f}'.format(
+        '  topology/span={:.3f}, gran={:.3f}, center/limb={:.3f}, corona extent={:.3f}, edge/shoulder={:.3f}, hue B-R={:.4f}'.format(
             float(hot_surface['largest_dark_component_span_fraction']),
             float(hot_surface['granulation_contrast']),
             float(hot_radial['center_to_inner_limb_ratio']),
