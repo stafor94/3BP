@@ -216,9 +216,9 @@ function testPhotosphereUsesLuminousCenterToLimbResponse() {
   assert(stellarMaterialSource.includes('float drawStellarEmission(float viewMu)'), 'Pass 3 must own a dedicated view-angle emission response')
   assert(stellarMaterialSource.includes('float broadDepth = pow(viewMu, 0.32);'), 'center-to-limb emission must use a broad smooth depth term')
   assert(stellarMaterialSource.includes('float centerDepth = pow(viewMu, 1.35);'), 'center-to-limb emission must include a distributed center lift')
-  assert(stellarMaterialSource.includes('return 0.84 + broadDepth * 0.12 + centerDepth * 0.35;'), 'Pass 3 must retain a bright limb floor while redistributing energy toward the center')
+  assert(stellarMaterialSource.includes('return 0.81 + broadDepth * 0.14 + centerDepth * 0.36;'), 'Pass 3 must keep a luminous limb while increasing broad center-to-limb depth without a hotspot')
   assert(stellarMaterialSource.includes('float getStellarDetailEnvelope(float viewMu)'), 'surface detail must have a view-angle response separate from topology generation')
-  assert(stellarMaterialSource.includes('return mix(0.26, 1.0, smoothstep(0.10, 0.60, viewMu));'), 'near-limb detail compression must remain continuous and nonzero')
+  assert(stellarMaterialSource.includes('return mix(0.18, 1.0, smoothstep(0.20, 0.82, viewMu));'), 'near-limb detail compression must begin broadly, remain continuous, and keep a nonzero texture floor')
   assert(stellarMaterialSource.includes('surfaceVariation *= detailEnvelope;'), 'surface contrast must be compressed only after topology-free surface generation')
 }
 
