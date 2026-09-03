@@ -13,6 +13,10 @@ const stellarCoronaSource = readFileSync(
   resolve(process.cwd(), 'src/rendering/stellarCoronaMaterial.ts'),
   'utf8',
 )
+const simulationRendererSource = readFileSync(
+  resolve(process.cwd(), 'src/rendering/simulationRenderer.ts'),
+  'utf8',
+)
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -268,10 +272,14 @@ function testCoronaUsesSubtleShaderBasedAsymmetry() {
   assert(stellarCoronaSource.includes('coronaAngularA * 0.050 + coronaAngularB * 0.024'), 'corona radius variation must stay subtle rather than flare-like')
   assert(stellarCoronaSource.includes('float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));'), 'corona must concentrate a thin near-limb glow immediately outside the photosphere')
   assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 5.4)'), 'outer corona must decay rapidly instead of filling a large radial blur')
+  assert(stellarCoronaSource.includes("'#include <map_fragment>'"), 'stellar corona shader must patch the SpriteMaterial map_fragment chunk')
+  assert(!stellarCoronaSource.includes('map_particle_fragment'), 'stellar corona shader must not target the Points-only map_particle_fragment chunk')
   assert(stellarCoronaSource.includes('diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);'), 'stellar corona shader must replace the legacy radial texture alpha shape')
   assert(stellarCoronaSource.includes('uCoronaOuterWhiteMix * coronaOuterColorWeight'), 'only the faint outer corona may weakly desaturate')
   assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'existing inner Sprite must be reused as the single corona carrier')
   assert(bodyLightingSource.includes('glowOuter.visible = false\n    glowOuter.material.opacity = 0'), 'legacy outer Sprite must be disabled for stars to remove one draw call')
+  assert(simulationRendererSource.includes("if (body.bodyType !== 'star') {\n    visual.glowInner.scale.setScalar("), 'generic renderer must not overwrite stellar corona scale')
+  assert(simulationRendererSource.includes("if (body.bodyType !== 'star') {\n    visual.glowInnerMaterial.opacity = innerGlowOpacity"), 'generic renderer must not overwrite stellar corona opacity')
   assert(!bodyLightingSource.includes('configureStellarGlowMaterial'), 'legacy dual-layer stellar glow shader path must be removed')
   assert(!stellarCoronaSource.includes('new THREE.CanvasTexture'), 'Pass 5 must not add a new texture path')
   assert(!stellarCoronaSource.includes('new THREE.Sprite'), 'Pass 5 must not allocate a new sprite')

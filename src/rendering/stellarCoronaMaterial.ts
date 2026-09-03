@@ -59,12 +59,12 @@ export function configureStellarCoronaMaterial(
           uniform float uCoronaPhotosphereRadiusUv;
           uniform float uCoronaOuterWhiteMix;`,
         )
-        // SpriteMaterial uses map_particle_fragment, not the mesh map_fragment
-        // chunk. Override alpha immediately after its shared texture sample so the
-        // legacy radial glow texture no longer determines stellar halo shape.
+        // SpriteMaterial uses the standard map_fragment chunk. Override alpha
+        // immediately after its shared texture sample so the legacy radial glow
+        // texture no longer determines stellar halo shape.
         .replace(
-          '#include <map_particle_fragment>',
-          `#include <map_particle_fragment>
+          '#include <map_fragment>',
+          `#include <map_fragment>
           vec2 coronaDelta = vMapUv - vec2(0.5);
           float coronaRadius = length(coronaDelta) * 2.0;
           float coronaAngle = atan(coronaDelta.y, coronaDelta.x);
