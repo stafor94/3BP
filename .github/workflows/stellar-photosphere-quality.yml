@@ -1,9 +1,6 @@
 name: Stellar Photosphere Quality
 
 on:
-  push:
-    branches:
-      - 'feat/stellar-corona-pass4-near-outer-glow'
   pull_request:
     branches: [main]
     paths:
