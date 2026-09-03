@@ -249,8 +249,24 @@ function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
     'mean photosphere luminance must be computed without baking in cellular contrast',
   )
   assert(
-    stellarMaterialSource.includes('vec3 color = uIdentityColor * linearIntensity;'),
-    'temperature color must stay in linear HDR space until renderer tone mapping',
+    stellarMaterialSource.includes('float identityLuma = dot(uIdentityColor, vec3(0.2126, 0.7152, 0.0722));'),
+    'temperature hue headroom must be derived from linear identity-color luminance',
+  )
+  assert(
+    stellarMaterialSource.includes('float chromaExpansion = mix(1.0, 5.5, neutralHue01);'),
+    'near-neutral stellar colors must reserve deterministic chroma headroom before ACES',
+  )
+  assert(
+    stellarMaterialSource.includes('(uIdentityColor - vec3(identityLuma)) * chromaExpansion;'),
+    'stellar chroma headroom must expand around constant linear luminance rather than lower mean emission',
+  )
+  assert(
+    stellarMaterialSource.includes('float surfaceContrastGain = mix(1.08, 1.90, neutralHue01);'),
+    'ACES surface-contrast compensation must remain bounded and strongest only for near-neutral stars',
+  )
+  assert(
+    stellarMaterialSource.includes('vec3 color = max(hdrIdentityColor, vec3(0.0)) * linearIntensity;'),
+    'temperature color compensation must stay in linear HDR space until renderer tone mapping',
   )
   assert(
     stellarMaterialSource.includes('float whiteHotCore = pow(limb, 18.0) * uWhiteHotMix;'),
