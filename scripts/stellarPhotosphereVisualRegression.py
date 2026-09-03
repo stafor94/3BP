@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import time
 import urllib.request
@@ -52,6 +53,64 @@ def wait_for_url(url: str, process: subprocess.Popen[str] | None = None) -> None
     raise TimeoutError(f'preview did not become ready: {url}')
 
 
+def terminate_process_group(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+
+
+@contextmanager
+def preview_server(cwd: Path, port: int, log_path: Path):
+    node_modules = ROOT / 'node_modules'
+    vite = node_modules / '.bin' / 'vite'
+    require(vite.exists(), 'root Vite runtime is required for preview')
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_handle = log_path.open('w', encoding='utf-8')
+    process = subprocess.Popen(
+        [
+            str(vite),
+            'preview',
+            '--host',
+            '127.0.0.1',
+            '--port',
+            str(port),
+            '--strictPort',
+        ],
+        cwd=cwd,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    root_url = f'http://127.0.0.1:{port}/3BP/'
+    try:
+        wait_for_url(root_url, process)
+        yield root_url
+    except Exception:
+        log_handle.flush()
+        try:
+            preview_log = log_path.read_text(encoding='utf-8', errors='replace').strip()
+        except OSError:
+            preview_log = ''
+        if preview_log:
+            print(f'preview startup log ({log_path}):\n{preview_log}')
+        raise
+    finally:
+        terminate_process_group(process)
+        log_handle.close()
+
+
 @contextmanager
 def baseline_preview(ref: str):
     worktree = Path('/tmp/3bp-stellar-photosphere-baseline')
@@ -61,33 +120,14 @@ def baseline_preview(ref: str):
 
     run(['git', 'fetch', 'origin', 'main', '--depth=50'])
     run(['git', 'worktree', 'add', '--detach', str(worktree), ref])
-    process: subprocess.Popen[str] | None = None
-    log_handle = None
     try:
         node_modules = ROOT / 'node_modules'
         require(node_modules.exists(), 'root node_modules is required for baseline build')
         os.symlink(node_modules, worktree / 'node_modules', target_is_directory=True)
         run([str(node_modules / '.bin' / 'vite'), 'build'], cwd=worktree)
-        log_handle = log_path.open('w', encoding='utf-8')
-        process = subprocess.Popen(
-            ['npm', 'run', 'preview', '--', '--host', '127.0.0.1', '--port', str(BASELINE_PORT)],
-            cwd=worktree,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        root_url = f'http://127.0.0.1:{BASELINE_PORT}/3BP/'
-        wait_for_url(root_url, process)
-        yield root_url
+        with preview_server(worktree, BASELINE_PORT, log_path) as root_url:
+            yield root_url
     finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-        if log_handle is not None:
-            log_handle.close()
         try:
             if (worktree / 'node_modules').is_symlink():
                 (worktree / 'node_modules').unlink()
