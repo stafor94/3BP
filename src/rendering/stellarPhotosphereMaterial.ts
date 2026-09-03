@@ -175,12 +175,11 @@ export const stellarPhotosphereFragmentShader = `
       1.0,
       smoothstep(0.65, 2.40, convectionPixels)
     );
-    // Pass 5: start resolving the established granulation slightly earlier in
-    // screen space so the production tracking camera does not linger on a
-    // textureless bright ball around the enlarged mobile framing. The fine band
-    // stays unchanged to preserve the existing anti-moire behavior.
-    float primaryLod = smoothstep(0.95, 2.85, primaryPixels);
-    float secondaryLod = smoothstep(0.80, 1.85, secondaryPixels);
+    // Pass 5: resolve the existing primary bands earlier in screen space so
+    // production mobile tracking has visible plasma structure by the enlarged
+    // framing. Fine breakup remains on the Pass 4 thresholds to avoid moire.
+    float primaryLod = smoothstep(0.70, 2.40, primaryPixels);
+    float secondaryLod = smoothstep(0.60, 1.55, secondaryPixels);
     float fineLod = smoothstep(1.65, 3.80, finePixels);
 
     float convectionA = valueNoise(
@@ -400,8 +399,8 @@ export function updateStellarPhotosphereMaterial(
   const identityColor = material.uniforms.uIdentityColor?.value
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
   // Pass 5 keeps the Pass 1-4 field intact and only gives resolved granulation
-  // a small strength lift for production mobile tracking/zoom framing.
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.55
+  // a bounded strength lift for production mobile tracking/zoom framing.
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.70
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.025
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
