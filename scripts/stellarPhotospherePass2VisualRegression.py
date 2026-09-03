@@ -13,7 +13,6 @@ from PIL import Image, ImageDraw, ImageFilter
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 
-import stellarGranulationLodVisualRegression as lod
 import stellarPhotosphereVisualRegression as base
 
 OUTPUT_DIR = Path('stellar-pass2-artifacts')
@@ -26,11 +25,8 @@ STAR_STAGES = {
     'solar': 'temperature-solar',
     'hot': 'temperature-hot',
 }
-STAR_MASSES = {
-    'cool': 0.35,
-    'solar': 1.0,
-    'hot': 8.0,
-}
+STAR_MASSES = {'cool': 0.35, 'solar': 1.0, 'hot': 8.0}
+LEVELS = ('normal', 'enlarged', 'extreme')
 LEVEL_TARGETS = {
     'normal': (55.0, 90.0),
     'enlarged': (150.0, 210.0),
@@ -56,11 +52,10 @@ def baseline_preview(ref: str):
         base.require(node_modules.exists(), 'root node_modules is required for baseline build')
         os.symlink(node_modules, worktree / 'node_modules', target_is_directory=True)
 
-        # The focused QA stages are test-only fixtures. Copy the current harness
-        # into the Pass 1 worktree so both renders use identical geometry/camera input.
+        # Use exactly the same focused fixture on Pass 1 and Pass 2. Only the
+        # stellar photosphere implementation differs between the two previews.
         harness = Path('src/visualRegression/StellarTopologyVisualHarness.tsx')
         shutil.copy2(base.ROOT / harness, worktree / harness)
-
         base.run([str(node_modules / '.bin' / 'vite'), 'build'], cwd=worktree)
         with base.preview_server(worktree, base.BASELINE_PORT, log_path) as root_url:
             yield root_url
@@ -111,20 +106,64 @@ def prepare_focus_scene(driver, root_url: str, stage: str):
     return canvas
 
 
+def apply_centered_zoom(
+    driver,
+    canvas,
+    wheel_steps: int,
+    delta: float = 70.0,
+    settle_frames: int = 45,
+):
+    driver.execute_async_script(
+        '''
+        const element = arguments[0];
+        let remaining = Math.abs(arguments[1]);
+        const signedDelta = arguments[1] > 0 ? arguments[2] : -arguments[2];
+        let settleFrames = arguments[3];
+        const done = arguments[arguments.length - 1];
+        const rect = element.getBoundingClientRect();
+        const clientX = rect.left + rect.width * 0.5;
+        const clientY = rect.top + rect.height * 0.5;
+
+        const settle = () => {
+          if (settleFrames-- <= 0) { done(); return; }
+          requestAnimationFrame(settle);
+        };
+        const step = () => {
+          if (remaining-- <= 0) {
+            requestAnimationFrame(settle);
+            return;
+          }
+          element.dispatchEvent(new WheelEvent('wheel', {
+            deltaY: signedDelta,
+            deltaMode: 0,
+            bubbles: true,
+            cancelable: true,
+            clientX,
+            clientY,
+            view: window,
+          }));
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+        ''',
+        canvas,
+        wheel_steps,
+        delta,
+        settle_frames,
+    )
+
+
 def nearest_bright_seed(image: Image.Image) -> tuple[int, int]:
     width, height = image.size
-    cx = width // 2
-    cy = height // 2
+    cx, cy = width // 2, height // 2
     best = (cx, cy)
     best_score = -1.0
-    for y in range(max(0, cy - 100), min(height, cy + 101)):
-        for x in range(max(0, cx - 100), min(width, cx + 101)):
+    for y in range(max(0, cy - 120), min(height, cy + 121)):
+        for x in range(max(0, cx - 120), min(width, cx + 121)):
             value = luma(image.getpixel((x, y)))
-            distance_penalty = math.hypot(x - cx, y - cy) * 0.08
-            score = value - distance_penalty
+            score = value - math.hypot(x - cx, y - cy) * 0.08
             if score > best_score:
-                best = (x, y)
-                best_score = score
+                best, best_score = (x, y), score
     base.require(best_score >= 72, 'focused star: no bright photosphere near viewport center')
     return best
 
@@ -152,17 +191,17 @@ def locate_photosphere(image: Image.Image) -> dict[str, float | int]:
             visited.add(point)
             queue.append(point)
 
-    base.require(len(component) >= 4, 'focused star: bright photosphere component is too small')
+    base.require(len(component) >= 80, 'focused star: bright photosphere component is too small')
     center_x = sum(point[0] for point in component) / len(component)
     center_y = sum(point[1] for point in component) / len(component)
-    equivalent_radius = math.sqrt(len(component) / math.pi)
+    radius = math.sqrt(len(component) / math.pi)
     xs = [point[0] for point in component]
     ys = [point[1] for point in component]
     return {
         'center_x': center_x,
         'center_y': center_y,
-        'equivalent_radius_px': equivalent_radius,
-        'bright_photosphere_diameter_px': equivalent_radius * 2.0,
+        'equivalent_radius_px': radius,
+        'bright_photosphere_diameter_px': radius * 2.0,
         'component_pixels': len(component),
         'bbox_width_px': max(xs) - min(xs) + 1,
         'bbox_height_px': max(ys) - min(ys) + 1,
@@ -180,14 +219,17 @@ def calibrate_zoom_steps(driver, root_url: str, target: tuple[float, float]) -> 
     steps = 0
     image = screenshot_canvas(canvas, temp_path)
     diameter = float(locate_photosphere(image)['bright_photosphere_diameter_px'])
+
     while diameter < target[0] and abs(steps) < 72:
-        lod.apply_zoom(driver, canvas, -1, delta=70.0, settle_frames=10)
+        apply_centered_zoom(driver, canvas, -1, delta=70.0, settle_frames=12)
         steps -= 1
         image = screenshot_canvas(canvas, temp_path)
         diameter = float(locate_photosphere(image)['bright_photosphere_diameter_px'])
+
     base.require(
         target[0] <= diameter <= target[1],
-        f'zoom calibration missed {target[0]:.0f}-{target[1]:.0f}px target: {diameter:.1f}px at {steps} steps',
+        f'zoom calibration missed {target[0]:.0f}-{target[1]:.0f}px target: '
+        f'{diameter:.1f}px at {steps} steps',
     )
     return steps, diameter
 
@@ -201,7 +243,7 @@ def capture_state(
     wheel_steps: int,
 ) -> Path:
     canvas = prepare_focus_scene(driver, root_url, STAR_STAGES[star])
-    lod.apply_zoom(driver, canvas, wheel_steps, delta=70.0, settle_frames=50)
+    apply_centered_zoom(driver, canvas, wheel_steps, delta=70.0, settle_frames=55)
     path = OUTPUT_DIR / f'{revision}-{star}-{level}-mobile.png'
     screenshot_canvas(canvas, path)
     return path
@@ -230,12 +272,11 @@ def connected_dark_metric(
                 dark.remove(neighbor)
                 queue.append(neighbor)
                 component.append(neighbor)
-        if len(component) <= largest_count:
-            continue
-        largest_count = len(component)
-        xs = [point[0] for point in component]
-        ys = [point[1] for point in component]
-        largest_span = max(max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
+        if len(component) > largest_count:
+            largest_count = len(component)
+            xs = [point[0] for point in component]
+            ys = [point[1] for point in component]
+            largest_span = max(max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
 
     return (
         dark_fraction,
@@ -365,15 +406,12 @@ def validate_pair(
         )
 
     contrast = float(current['granulation_contrast'])
-    contrast_bounds = {
+    lower, upper = {
         'normal': (0.08, 1.60),
         'enlarged': (0.16, 2.50),
         'extreme': (0.22, 3.40),
     }[level]
-    base.require(
-        contrast_bounds[0] <= contrast <= contrast_bounds[1],
-        f'{star}/{level}: granulation contrast {contrast:.3f} outside bounded range {contrast_bounds}',
-    )
+    base.require(lower <= contrast <= upper, f'{star}/{level}: granulation contrast {contrast:.3f} outside {lower:.2f}-{upper:.2f}')
     if level != 'normal':
         base.require(
             contrast >= float(baseline['granulation_contrast']) * 1.10,
@@ -384,14 +422,8 @@ def validate_pair(
     base.require(float(current['high_frequency_energy']) <= 2.60, f'{star}/{level}: high-frequency energy reads as grain/static')
     base.require(float(current['local_minima_fraction']) <= 0.10, f'{star}/{level}: excessive local minima suggest noisy pits')
     base.require(float(current['dark_residual_fraction']) <= 0.34, f'{star}/{level}: dark trough coverage is excessive')
-    base.require(
-        float(current['largest_dark_component_fraction']) <= 0.20,
-        f'{star}/{level}: one connected dark structure is too dominant',
-    )
-    base.require(
-        float(current['largest_dark_component_span_fraction']) <= 0.70,
-        f'{star}/{level}: a dark structure spans too much of the photosphere',
-    )
+    base.require(float(current['largest_dark_component_fraction']) <= 0.20, f'{star}/{level}: one connected dark structure is too dominant')
+    base.require(float(current['largest_dark_component_span_fraction']) <= 0.70, f'{star}/{level}: a dark structure spans too much of the photosphere')
 
 
 def make_contact_sheet(
@@ -402,12 +434,11 @@ def make_contact_sheet(
     cell_width = base.VIEWPORT_WIDTH
     crop_height = 430
     label_height = 44
-    levels = ('normal', 'enlarged', 'extreme')
     stars = ('cool', 'solar', 'hot')
     sheet = Image.new('RGB', (cell_width * 3, (crop_height + label_height) * 3), '#080b12')
     draw = ImageDraw.Draw(sheet)
 
-    for row, level in enumerate(levels):
+    for row, level in enumerate(LEVELS):
         for column, star in enumerate(stars):
             image = Image.open(paths[star][level]).convert('RGB')
             top = max(0, image.height // 2 - crop_height // 2)
@@ -421,7 +452,6 @@ def make_contact_sheet(
                 f'gran {float(metric["granulation_contrast"]):.2f}'
             )
             draw.text((column * cell_width + 8, row * (crop_height + label_height) + 12), text, fill='white')
-
     sheet.save(output_path)
 
 
@@ -447,6 +477,23 @@ def make_extreme_ab_sheet(
     sheet.save(output_path)
 
 
+def print_metrics(metrics: dict[str, dict[str, dict[str, float | int]]]) -> None:
+    for level in LEVELS:
+        print(f'  {level}:')
+        for star in ('cool', 'solar', 'hot'):
+            metric = metrics[star][level]
+            print(
+                f'    {star} {STAR_MASSES[star]:g} M_sun: '
+                f'diameter={float(metric["bright_photosphere_diameter_px"]):.1f}px, '
+                f'gran={float(metric["granulation_contrast"]):.3f}, '
+                f'broad={float(metric["broad_variation_std"]):.3f}, '
+                f'HF={float(metric["high_frequency_energy"]):.3f}, '
+                f'minima={float(metric["local_minima_fraction"]):.5f}, '
+                f'dark-component={float(metric["largest_dark_component_fraction"]):.4f}/'
+                f'{float(metric["largest_dark_component_span_fraction"]):.3f}'
+            )
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     base.wait_for_url(base.CURRENT_URL)
@@ -456,48 +503,53 @@ def main() -> None:
     zoom_steps: dict[str, int] = {}
 
     try:
-        for level in ('normal', 'enlarged', 'extreme'):
-            target = LEVEL_TARGETS[level]
-            steps, diameter = calibrate_zoom_steps(driver, base.CURRENT_URL, target)
+        for level in LEVELS:
+            steps, diameter = calibrate_zoom_steps(driver, base.CURRENT_URL, LEVEL_TARGETS[level])
             zoom_steps[level] = steps
             print(f'Pass 2 zoom calibration {level}: {steps} wheel steps -> {diameter:.1f}px')
 
         for star in STAR_STAGES:
-            for level in ('normal', 'enlarged', 'extreme'):
+            for level in LEVELS:
                 current_paths[star][level] = capture_state(
-                    driver,
-                    base.CURRENT_URL,
-                    'current',
-                    star,
-                    level,
-                    zoom_steps[level],
+                    driver, base.CURRENT_URL, 'current', star, level, zoom_steps[level]
                 )
 
         with baseline_preview(BASELINE_REF) as baseline_url:
             for star in STAR_STAGES:
-                for level in ('normal', 'enlarged', 'extreme'):
+                for level in LEVELS:
                     baseline_paths[star][level] = capture_state(
-                        driver,
-                        baseline_url,
-                        'baseline',
-                        star,
-                        level,
-                        zoom_steps[level],
+                        driver, baseline_url, 'baseline', star, level, zoom_steps[level]
                     )
     finally:
         driver.quit()
 
     current_metrics = {
-        star: {level: analyze(path) for level, path in levels.items()}
-        for star, levels in current_paths.items()
+        star: {level: analyze(path) for level, path in paths.items()}
+        for star, paths in current_paths.items()
     }
     baseline_metrics = {
-        star: {level: analyze(path) for level, path in levels.items()}
-        for star, levels in baseline_paths.items()
+        star: {level: analyze(path) for level, path in paths.items()}
+        for star, paths in baseline_paths.items()
     }
 
+    # Persist all evidence before hard gates. A failed metric must still leave the
+    # nine production PNGs and contact sheets available for direct inspection.
+    payload = {
+        'viewport': {'width': base.VIEWPORT_WIDTH, 'height': base.VIEWPORT_HEIGHT},
+        'baseline_ref': BASELINE_REF,
+        'zoom_steps': zoom_steps,
+        'targets_px': LEVEL_TARGETS,
+        'baseline': baseline_metrics,
+        'current': current_metrics,
+    }
+    (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
+    make_contact_sheet(current_paths, current_metrics, OUTPUT_DIR / 'mobile-pass2-contact-sheet.png')
+    make_extreme_ab_sheet(baseline_paths, current_paths, OUTPUT_DIR / 'mobile-pass1-vs-pass2-extreme.png')
+    print('Pass 2 current metrics:')
+    print_metrics(current_metrics)
+
     for star in STAR_STAGES:
-        for level in ('normal', 'enlarged', 'extreme'):
+        for level in LEVELS:
             validate_pair(star, level, baseline_metrics[star][level], current_metrics[star][level])
 
     for star in STAR_STAGES:
@@ -508,34 +560,9 @@ def main() -> None:
         base.require(extreme >= enlarged * 0.70, f'{star}: extreme view loses primary granulation unexpectedly')
         base.require(extreme <= enlarged * 1.80 + 0.25, f'{star}: extreme view contrast grows too aggressively')
 
-    metrics_payload = {
-        'viewport': {'width': base.VIEWPORT_WIDTH, 'height': base.VIEWPORT_HEIGHT},
-        'baseline_ref': BASELINE_REF,
-        'zoom_steps': zoom_steps,
-        'targets_px': LEVEL_TARGETS,
-        'baseline': baseline_metrics,
-        'current': current_metrics,
-    }
-    (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(metrics_payload, indent=2), encoding='utf-8')
-    make_contact_sheet(current_paths, current_metrics, OUTPUT_DIR / 'mobile-pass2-contact-sheet.png')
-    make_extreme_ab_sheet(baseline_paths, current_paths, OUTPUT_DIR / 'mobile-pass1-vs-pass2-extreme.png')
-
     print('stellar photosphere Pass 2 normal/enlarged/extreme mobile regression: ok')
     print(f'  viewport: {base.VIEWPORT_WIDTH}x{base.VIEWPORT_HEIGHT}')
     print(f'  zoom steps: {zoom_steps}')
-    for level in ('normal', 'enlarged', 'extreme'):
-        print(f'  {level}:')
-        for star in ('cool', 'solar', 'hot'):
-            metric = current_metrics[star][level]
-            print(
-                f'    {star} {STAR_MASSES[star]:g} M_sun: '
-                f'diameter={float(metric["bright_photosphere_diameter_px"]):.1f}px, '
-                f'gran={float(metric["granulation_contrast"]):.3f}, '
-                f'HF={float(metric["high_frequency_energy"]):.3f}, '
-                f'minima={float(metric["local_minima_fraction"]):.5f}, '
-                f'dark-component={float(metric["largest_dark_component_fraction"]):.4f}/'
-                f'{float(metric["largest_dark_component_span_fraction"]):.3f}'
-            )
 
 
 if __name__ == '__main__':
