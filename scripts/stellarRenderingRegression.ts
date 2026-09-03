@@ -93,7 +93,7 @@ function testCoreAndHaloHierarchy() {
   ].map(renderProfile)
 
   samples.forEach(({ render }) => {
-    assert(render.photosphereIntensity >= 0.9 && render.photosphereIntensity <= 1.1, 'photosphere must stay in the hue-preserving luminance shoulder')
+    assert(render.photosphereIntensity >= 0.9 && render.photosphereIntensity <= 1.1, 'photosphere HDR intensity must stay inside the calibrated stellar range')
     assert(render.whiteHotMix <= 0.06, 'white-hot treatment must remain confined to a small center contribution')
     assert(render.coronaScale >= 2.7 && render.coronaScale <= 3.0, 'single corona carrier must remain compact around the photosphere')
     assert(render.coronaOpacity < 0.35, 'compact corona must stay subordinate to the photosphere')
@@ -163,8 +163,9 @@ function testPhotosphereUsesCellularGranulationTopology() {
   assert(stellarMaterialSource.includes('(fineBreakup - 0.5) * 0.008'), 'fine breakup must stay subordinate to cellular topology')
   assert(stellarMaterialSource.includes('uSurfaceSeed * 0.051'), 'cellular photosphere must remain deterministic per stellar surface seed')
   assert(stellarMaterialSource.includes('material.uniforms.uTime.value = frame.animationTimeSeconds'), 'animation time must be updated only through the stellar material contract')
-  assert(stellarMaterialSource.includes('float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.070, 0.047);'), 'cellular topology must survive tone mapping through the existing bounded stellar-only modulation')
-  assert(stellarMaterialSource.includes('#include <tonemapping_fragment>\n    gl_FragColor.rgb *= stellarSurfaceModulation;'), 'stellar surface topology must remain visible after tone mapping')
+  assert(stellarMaterialSource.includes('float surfaceVariation = clamp((granulation - 1.0) * 0.92, -0.095, 0.075);'), 'cellular contrast must be bounded independently from mean photosphere luminance')
+  assert(stellarMaterialSource.includes('float linearIntensity = meanEmission * (1.0 + surfaceVariation);'), 'cellular topology must be applied once in linear HDR space')
+  assert(!stellarMaterialSource.includes('stellarSurfaceModulation'), 'Pass 6 must not restore the post-tone-map stellar surface modulation workaround')
   assert(!stellarMaterialSource.includes('objectNormal * 15.5'), 'legacy smooth value-noise primary granulation must remain removed')
   assert(!stellarMaterialSource.includes('granuleDrift'), 'legacy texture-like granule drift must remain removed')
 }
@@ -242,6 +243,47 @@ function testPhotosphereUsesSoftStellarLimbAndCoverage() {
   )
 }
 
+function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
+  assert(
+    stellarMaterialSource.includes('float meanEmission = (emission + fringe * 0.52) * uEmissionStrength;'),
+    'mean photosphere luminance must be computed without baking in cellular contrast',
+  )
+  assert(
+    stellarMaterialSource.includes('vec3 color = uIdentityColor * linearIntensity;'),
+    'temperature color must stay in linear HDR space until renderer tone mapping',
+  )
+  assert(
+    stellarMaterialSource.includes('float whiteHotCore = pow(limb, 18.0) * uWhiteHotMix;'),
+    'white-hot contribution must stay confined to a small central region',
+  )
+  assert(
+    stellarMaterialSource.includes('color = mix(color, vec3(peak), whiteHotCore);'),
+    'white-hot calibration must preserve the local HDR peak instead of replacing it with a fixed SDR gray',
+  )
+  assert(
+    !stellarMaterialSource.includes('toneMapStellarHuePreserving'),
+    'Pass 6 must remove the stellar-local pre-tone-map shoulder compressor',
+  )
+  assert(
+    !stellarMaterialSource.includes('min((emission * granulation + fringe * 0.52) * uEmissionStrength, 1.22)'),
+    'Pass 6 must remove the legacy hard stellar intensity ceiling',
+  )
+  const toneMappingChunks = stellarMaterialSource.match(/#include <tonemapping_fragment>/g) ?? []
+  assert(toneMappingChunks.length === 1, 'stellar photosphere must execute exactly one renderer tone-mapping chunk')
+  assert(
+    stellarMaterialSource.includes('#include <tonemapping_fragment>\n    #include <colorspace_fragment>'),
+    'no stellar RGB modulation may run after renderer tone mapping',
+  )
+  assert(
+    simulationRendererSource.includes('renderer.toneMapping = THREE.ACESFilmicToneMapping'),
+    'global renderer tone mapping must remain ACES and outside the stellar pass',
+  )
+  assert(
+    simulationRendererSource.includes('renderer.toneMappingExposure = 1'),
+    'Pass 6 must not change global renderer exposure',
+  )
+}
+
 function testStellarOnlyUniformsDoNotLeakIntoGenericShader() {
   assert(!bodyLightingSource.includes('uniform float uTime;'), 'generic body shader must not expose stellar animation time')
   assert(!bodyLightingSource.includes('uniform float uEmissionStrength;'), 'generic body shader must not expose stellar emission strength')
@@ -302,6 +344,7 @@ const tests = [
   testPhotosphereUsesScreenSpaceGranulationLod,
   testPhotosphereTimeEvolutionDoesNotSlideTopology,
   testPhotosphereUsesSoftStellarLimbAndCoverage,
+  testPhotosphereUsesSingleLinearHdrToneMappingPath,
   testStellarOnlyUniformsDoNotLeakIntoGenericShader,
   testStellarUpdateContractOwnsRenderInputs,
   testCoronaUsesSubtleShaderBasedAsymmetry,
