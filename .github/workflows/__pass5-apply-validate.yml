@@ -21,7 +21,9 @@ jobs:
         with:
           node-version: 24
       - name: Apply Pass 5 implementation
-        run: python scripts/__pass5_apply.py
+        run: |
+          python scripts/__pass5_apply.py
+          git restore .github/workflows/stellar-photosphere-quality.yml
       - name: Commit implementation
         run: |
           git config user.name "github-actions[bot]"
@@ -32,7 +34,6 @@ jobs:
             src/rendering/stellarCoronaMaterial.ts \
             scripts/stellarRenderingRegression.ts \
             scripts/stellarCoronaVisualRegression.py \
-            .github/workflows/stellar-photosphere-quality.yml \
             package.json \
             CHANGELOG.md
           git diff --cached --check
