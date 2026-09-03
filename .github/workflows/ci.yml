@@ -5,56 +5,14 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout feature branch
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-      - name: One-time prepend v0.24.12 changelog entry
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('CHANGELOG.md')
-          text = path.read_text(encoding='utf-8')
-          version = '## [0.24.12] - 2026-09-03'
-          if version not in text:
-              anchor = '## [0.24.11] - 2026-09-03'
-              if anchor not in text:
-                  raise SystemExit('expected v0.24.11 changelog anchor not found')
-              section = '''## [0.24.12] - 2026-09-03
-
-### Fixed
-- 확대된 항성 photosphere를 거대한 Voronoi/벌집/거북이 등껍질/얼음 균열처럼 보이게 하던 F1/F2 cellular distance field와 `F2 - F1` 기반 intergranular dark-lane network를 production stellar shader에서 제거했습니다.
-
-### Changed
-- 임시 Pass 1 photosphere 기반을 저주파의 넓고 부드러운 convection brightness variation, 서로 decorrelate된 약한 중간 scale irregular breakup, 매우 약한 fine breakup으로 재구성했습니다. 각 신호는 낮은 contrast로 제한하고 닫힌 polygon cell topology를 생성하지 않습니다.
-- 시간 변화는 texture 좌표를 이동·회전시키지 않고 broad/mid-scale 진폭의 매우 느린 breathing에만 사용하며, 기존 screen-space derivative LOD는 새 비-cellular surface scale에 맞춰 최소한으로 유지합니다.
-- cellular topology 자체를 요구하던 structural/visual regression을 제거하고, stellar 전용 render path·non-stellar shader isolation·procedural surface variation·평균 luminance/footprint·temperature hue·zoom 안정성을 검증하는 결과 기반 contract로 교체했습니다.
-
-### Verification
-- production mobile 390×844 deterministic temperature fixture에서 0.35 / 1 / 8 M☉ 항성을 normal/enlarged로 즉시 이전 main(`0915389`)과 A/B 비교하고, luminance·bright footprint·temperature hue·broad variation·local inhomogeneity 유지와 lane-like local minima 감소를 검증합니다.
-- 확대/일반/축소 screen-space surface LOD와 연속 zoom sweep에서 broad structure 유지, unresolved high-frequency spike 억제 및 photosphere footprint 안정성을 검증합니다.
-
-### Unchanged
-- `starColors.ts`의 temperature 기반 항성 색 정책, stellar mass/radius, preset/evolution physics, orbit/velocity/timestep, collision 판정·결과, planet/moon/fragment rendering, Pass 4 limb/edge, Pass 5 compact corona, Pass 6 HDR/global ACES tone mapping은 변경하지 않습니다.
-
-'''
-              path.write_text(text.replace(anchor, section + anchor, 1), encoding='utf-8')
-          PY
-          if ! git diff --quiet -- CHANGELOG.md; then
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add CHANGELOG.md
-            git commit -m "docs: record stellar photosphere pass 1"
-            git push origin HEAD:${{ github.event.pull_request.head.ref }}
-          fi
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -260,7 +218,7 @@ jobs:
           path: actual-disruption-mobile-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
-      - name: Upload mobile top overlay visual captures
+      - name: Upload mobile top overlay browser visual captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
