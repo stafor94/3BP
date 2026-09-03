@@ -318,15 +318,20 @@ export const stellarPhotosphereFragmentShader = `
     float surfaceVariation = clamp((granulation - 1.0) * 0.92, -0.095, 0.075);
     float linearIntensity = meanEmission * (1.0 + surfaceVariation);
 
-    // Near-neutral stellar identity colors have all three linear channels close
-    // to the ACES shoulder at once. Reserve extra pre-ACES headroom only for
-    // those colors so temperature hue and cellular contrast do not converge to
-    // the same white plateau; warm and blue-biased stars remain nearly unchanged.
+    // Near-neutral stellar colors lose both temperature separation and resolved
+    // surface contrast when every channel reaches the ACES shoulder together.
+    // Expand only their linear chroma around constant luminance, and compensate
+    // the same compressed surface signal without changing the mean emission.
     float identityChannelFloor = min(min(uIdentityColor.r, uIdentityColor.g), uIdentityColor.b);
     float neutralHue01 = smoothstep(0.50, 0.78, identityChannelFloor);
-    linearIntensity *= mix(0.97, 0.58, neutralHue01);
+    float surfaceContrastGain = mix(1.08, 1.90, neutralHue01);
+    linearIntensity *= 1.0 + surfaceVariation * (surfaceContrastGain - 1.0);
 
-    vec3 color = uIdentityColor * linearIntensity;
+    float identityLuma = dot(uIdentityColor, vec3(0.2126, 0.7152, 0.0722));
+    float chromaExpansion = mix(1.0, 5.5, neutralHue01);
+    vec3 hdrIdentityColor = vec3(identityLuma) +
+      (uIdentityColor - vec3(identityLuma)) * chromaExpansion;
+    vec3 color = max(hdrIdentityColor, vec3(0.0)) * linearIntensity;
 
     float limb = max(dot(normalWorld, viewDirection), 0.0);
     float whiteHotCore = pow(limb, 18.0) * uWhiteHotMix;
