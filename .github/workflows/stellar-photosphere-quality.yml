@@ -12,65 +12,26 @@ on:
       - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
-      - 'scripts/stellarPhotospherePass1VisualRegression.py'
       - 'scripts/stellarRenderPathVisualRegression.py'
+      - 'scripts/stellarCellularPhotosphereVisualRegression.py'
       - 'scripts/stellarGranulationLodVisualRegression.py'
+      - 'scripts/stellarGranulationLodScreenSizeAudit.py'
       - 'scripts/stellarLimbVisualRegression.py'
       - 'scripts/stellarCoronaVisualRegression.py'
       - 'scripts/stellarHdrVisualRegression.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   stellar-photosphere-corona-ab:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout feature branch full history
+      - name: Checkout full history
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: One-time prepend v0.24.12 changelog entry
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('CHANGELOG.md')
-          text = path.read_text(encoding='utf-8')
-          version = '## [0.24.12] - 2026-09-03'
-          if version not in text:
-              anchor = '## [0.24.11] - 2026-09-03'
-              if anchor not in text:
-                  raise SystemExit('expected v0.24.11 changelog anchor not found')
-              section = '''## [0.24.12] - 2026-09-03
-
-### Fixed
-- 확대된 항성 photosphere를 거대한 Voronoi/벌집/거북이 등껍질/얼음 균열처럼 보이게 하던 F1/F2 cellular distance field와 `F2 - F1` 기반 intergranular dark-lane network를 production stellar shader에서 제거했습니다.
-
-### Changed
-- 임시 Pass 1 photosphere 기반을 저주파의 넓고 부드러운 convection brightness variation, 서로 decorrelate된 약한 중간 scale irregular breakup, 매우 약한 fine breakup으로 재구성했습니다. 각 신호는 낮은 contrast로 제한하고 닫힌 polygon cell topology를 생성하지 않습니다.
-- 시간 변화는 texture 좌표를 이동·회전시키지 않고 broad/mid-scale 진폭의 매우 느린 breathing에만 사용하며, 기존 screen-space derivative LOD는 새 비-cellular surface scale에 맞춰 최소한으로 유지합니다.
-- cellular topology 자체를 요구하던 structural/visual regression을 제거하고, stellar 전용 render path·non-stellar shader isolation·procedural surface variation·평균 luminance/footprint·temperature hue·zoom 안정성을 검증하는 결과 기반 contract로 교체했습니다.
-
-### Verification
-- production mobile 390×844 deterministic temperature fixture에서 0.35 / 1 / 8 M☉ 항성을 normal/enlarged로 즉시 이전 main(`0915389`)과 A/B 비교하고, luminance·bright footprint·temperature hue·broad variation·local inhomogeneity 유지와 lane-like local minima 감소를 검증합니다.
-- 확대/일반/축소 screen-space surface LOD와 연속 zoom sweep에서 broad structure 유지, unresolved high-frequency spike 억제 및 photosphere footprint 안정성을 검증합니다.
-
-### Unchanged
-- `starColors.ts`의 temperature 기반 항성 색 정책, stellar mass/radius, preset/evolution physics, orbit/velocity/timestep, collision 판정·결과, planet/moon/fragment rendering, Pass 4 limb/edge, Pass 5 compact corona, Pass 6 HDR/global ACES tone mapping은 변경하지 않습니다.
-
-'''
-              path.write_text(text.replace(anchor, section + anchor, 1), encoding='utf-8')
-          PY
-          if ! git diff --quiet -- CHANGELOG.md; then
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add CHANGELOG.md
-            git commit -m "docs: record stellar photosphere pass 1"
-            git push origin HEAD:${{ github.event.pull_request.head.ref }}
-          fi
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -95,40 +56,42 @@ jobs:
           done
           cat /tmp/3bp-stellar-preview.log
           exit 1
-      - name: Pass 1 cellular-removal temperature mobile A/B
+      - name: Capture Pass 1 vs Pass 2 main-sequence mobile A/B
         env:
-          STELLAR_PASS1_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
-        run: python scripts/stellarPhotospherePass1VisualRegression.py
-      - name: Pass 1 screen-space stellar surface LOD regression
+          STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
+        run: python scripts/stellarCellularPhotosphereVisualRegression.py
+      - name: Pass 3 screen-space granulation LOD mobile regression
         env:
-          STELLAR_SURFACE_LOD_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
+          STELLAR_GRANULATION_LOD_BASELINE_REF: 901b2dd596cb3a0f240853aa851981087f92ae04
         run: python scripts/stellarGranulationLodVisualRegression.py
-      - name: Stellar limb and edge mobile A/B regression
+      - name: Verify distinct mobile screen sizes and zoom coverage
+        run: python scripts/stellarGranulationLodScreenSizeAudit.py
+      - name: Pass 4 stellar limb and edge mobile A/B regression
         env:
           STELLAR_LIMB_BASELINE_REF: 284d113e82523f90ae5ca92444f0eab0bbb98b26
         run: python scripts/stellarLimbVisualRegression.py
-      - name: Compact stellar corona mobile A/B regression
+      - name: Pass 5 compact stellar corona mobile A/B regression
         env:
           STELLAR_CORONA_BASELINE_REF: 93bb0d481464e633d6c15e91ecbcac51040c3555
         run: python scripts/stellarCoronaVisualRegression.py
-      - name: Stellar HDR and temperature-color mobile A/B regression
+      - name: Pass 6 stellar HDR and temperature-color mobile A/B regression
         env:
           STELLAR_HDR_BASELINE_REF: fe1d138268a40ce7707df64ac60a0ab384a995bc
         run: python scripts/stellarHdrVisualRegression.py
-      - name: Upload Pass 1 temperature A/B captures
+      - name: Upload stellar photosphere A/B captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-photosphere-pass1-mobile-ab
-          path: stellar-pass1-artifacts
+          name: stellar-photosphere-cellular-mobile-ab
+          path: stellar-photosphere-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
-      - name: Upload Pass 1 surface LOD captures
+      - name: Upload screen-space LOD mobile captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-surface-screen-space-lod
-          path: stellar-surface-lod-artifacts
+          name: stellar-granulation-screen-space-lod
+          path: stellar-granulation-lod-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload stellar limb mobile A/B captures
