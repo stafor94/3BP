@@ -117,7 +117,6 @@ export const stellarPhotosphereFragmentShader = `
     p += dot(p, p.yzx + 33.33);
     return fract((p.x + p.y) * p.z);
   }
-
   float valueNoise(vec3 p) {
     vec3 i = floor(p);
     vec3 f = fract(p);
@@ -177,7 +176,7 @@ export const stellarPhotosphereFragmentShader = `
       smoothstep(0.65, 2.40, convectionPixels)
     );
     float primaryLod = smoothstep(1.10, 3.10, primaryPixels);
-    float secondaryLod = smoothstep(1.35, 3.45, secondaryPixels);
+    float secondaryLod = smoothstep(0.90, 2.00, secondaryPixels);
     float fineLod = smoothstep(1.65, 3.80, finePixels);
 
     float convectionA = valueNoise(
