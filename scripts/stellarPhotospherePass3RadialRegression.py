@@ -215,8 +215,8 @@ def validate_radial(star: str, level: str, metric: dict[str, object]) -> None:
         limb_detail = float(metric['detail_near_limb_std'])
         p2.base.require(center_detail >= 0.08, f'{star}/{level}: center/mid surface detail vanished')
         p2.base.require(
-            limb_detail <= center_detail * 0.98 + 0.20,
-            f'{star}/{level}: near-limb detail is not compressed relative to center/mid',
+            limb_detail <= center_detail * 0.94 + 0.05,
+            f'{star}/{level}: near-limb detail is not clearly compressed relative to center/mid',
         )
         p2.base.require(
             limb_detail >= center_detail * 0.12 - 0.05,
