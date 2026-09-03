@@ -66,6 +66,12 @@ const STAGE_BODIES: Record<VisualStage, BodyState[]> = {
   'temperature-hot': [HOT_STAR],
 }
 
+const TRACKED_BODY_BY_STAGE: Partial<Record<VisualStage, string>> = {
+  'temperature-cool': COOL_STAR.id,
+  'temperature-solar': SOLAR_STAR.id,
+  'temperature-hot': HOT_STAR.id,
+}
+
 function isVisualStage(value: string): value is VisualStage {
   return value === 'separate' ||
     value === 'peak' ||
@@ -117,7 +123,7 @@ export function StellarTopologyVisualHarness() {
         trailEnabled={false}
         trailDuration={8}
         trailSampleBatch={{ sequence: 0, samples: [] }}
-        trackedBodyId={null}
+        trackedBodyId={TRACKED_BODY_BY_STAGE[stage] ?? null}
         collisionCameraFocus={null}
       />
     </div>
