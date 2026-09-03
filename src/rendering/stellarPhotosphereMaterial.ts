@@ -317,6 +317,15 @@ export const stellarPhotosphereFragmentShader = `
     float meanEmission = (emission + fringe * 0.52) * uEmissionStrength;
     float surfaceVariation = clamp((granulation - 1.0) * 0.92, -0.095, 0.075);
     float linearIntensity = meanEmission * (1.0 + surfaceVariation);
+
+    // Near-neutral stellar identity colors have all three linear channels close
+    // to the ACES shoulder at once. Reserve extra pre-ACES headroom only for
+    // those colors so temperature hue and cellular contrast do not converge to
+    // the same white plateau; warm and blue-biased stars remain nearly unchanged.
+    float identityChannelFloor = min(min(uIdentityColor.r, uIdentityColor.g), uIdentityColor.b);
+    float neutralHue01 = smoothstep(0.50, 0.78, identityChannelFloor);
+    linearIntensity *= mix(0.97, 0.58, neutralHue01);
+
     vec3 color = uIdentityColor * linearIntensity;
 
     float limb = max(dot(normalWorld, viewDirection), 0.0);
