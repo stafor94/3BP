@@ -1,6 +1,8 @@
 name: Stellar Photosphere Quality
 
 on:
+  push:
+    branches: [feat/stellar-photosphere-pass2-granulation]
   pull_request:
     branches: [main]
     paths:
@@ -12,6 +14,8 @@ on:
       - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
+      - 'scripts/stellarPhotospherePass1VisualRegression.py'
+      - 'scripts/stellarPhotospherePass2VisualRegression.py'
       - 'scripts/stellarRenderPathVisualRegression.py'
       - 'scripts/stellarCellularPhotosphereVisualRegression.py'
       - 'scripts/stellarGranulationLodVisualRegression.py'
@@ -56,6 +60,14 @@ jobs:
           done
           cat /tmp/3bp-stellar-preview.log
           exit 1
+      - name: Pass 1 topology-removal regression
+        env:
+          STELLAR_PASS1_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
+        run: python scripts/stellarPhotospherePass1VisualRegression.py
+      - name: Pass 2 normal enlarged extreme photosphere regression
+        env:
+          STELLAR_PASS2_BASELINE_REF: 3b023b49bef317ab841f7758b6ddf69fa10812b1
+        run: python scripts/stellarPhotospherePass2VisualRegression.py
       - name: Capture Pass 1 vs Pass 2 main-sequence mobile A/B
         env:
           STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
@@ -86,12 +98,28 @@ jobs:
           path: stellar-photosphere-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
+      - name: Upload Pass 1 topology-removal captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-photosphere-pass1-topology-removal
+          path: stellar-pass1-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload Pass 2 three-scale captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-photosphere-pass2-three-scale
+          path: stellar-pass2-artifacts
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload screen-space LOD mobile captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: stellar-granulation-screen-space-lod
-          path: stellar-granulation-lod-artifacts
+          path: stellar-surface-lod-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload stellar limb mobile A/B captures
