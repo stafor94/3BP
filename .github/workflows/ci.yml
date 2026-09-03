@@ -218,7 +218,7 @@ jobs:
           path: actual-disruption-mobile-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
-      - name: Upload mobile top overlay browser visual captures
+      - name: Upload mobile top overlay visual captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
