@@ -300,16 +300,6 @@ export const stellarPhotosphereFragmentShader = `
     return smoothstep(0.0, viewMuWidth, viewMu);
   }
 
-  vec3 toneMapStellarHuePreserving(vec3 source) {
-    float peak = max(max(source.r, source.g), source.b);
-    if (peak <= 0.9) return source;
-
-    // Compress only the high-luminance shoulder and scale all RGB channels by
-    // the same factor. Unlike per-channel clipping, this preserves stellar hue.
-    float mappedPeak = 0.9 + 0.08 * (1.0 - exp(-(peak - 0.9) * 3.0));
-    return source * (mappedPeak / max(peak, 0.0001));
-  }
-
   void main() {
     if (uOpacity <= 0.001) discard;
 
@@ -320,18 +310,22 @@ export const stellarPhotosphereFragmentShader = `
     float emission = drawStellarEmission(normalWorld, viewDirection);
     float fringe = drawStellarFringe(normalWorld, viewDirection);
     float edgeCoverage = getStellarEdgeCoverage(normalWorld, viewDirection);
-    float intensity = min((emission * granulation + fringe * 0.52) * uEmissionStrength, 1.22);
-    vec3 stellarColor = toneMapStellarHuePreserving(uIdentityColor * intensity);
-    float granulationContrast = clamp((granulation - 1.0) * 1.30, -0.070, 0.047);
-    float stellarSurfaceModulation = 1.0 + granulationContrast;
+
+    // Keep mean photosphere luminance independent from cellular contrast. The
+    // surface variation is applied once in linear/HDR space and then handed to
+    // the renderer's single global ACES tone-mapping pass.
+    float meanEmission = (emission + fringe * 0.52) * uEmissionStrength;
+    float surfaceVariation = clamp((granulation - 1.0) * 0.92, -0.095, 0.075);
+    float linearIntensity = meanEmission * (1.0 + surfaceVariation);
+    vec3 color = uIdentityColor * linearIntensity;
+
     float limb = max(dot(normalWorld, viewDirection), 0.0);
-    float whiteHotCore = pow(limb, 14.0) * uWhiteHotMix;
-    float peak = min(0.98, max(max(stellarColor.r, stellarColor.g), stellarColor.b) + 0.055);
-    vec3 color = mix(stellarColor, vec3(peak), whiteHotCore);
+    float whiteHotCore = pow(limb, 18.0) * uWhiteHotMix;
+    float peak = max(max(color.r, color.g), color.b);
+    color = mix(color, vec3(peak), whiteHotCore);
 
     gl_FragColor = vec4(color, uOpacity * edgeCoverage);
     #include <tonemapping_fragment>
-    gl_FragColor.rgb *= stellarSurfaceModulation;
     #include <colorspace_fragment>
   }
 `
