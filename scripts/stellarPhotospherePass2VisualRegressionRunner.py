@@ -6,12 +6,34 @@ from pathlib import Path
 import stellarPhotospherePass2VisualRegression as p2
 
 
+_original_prepare_focus_scene = p2.prepare_focus_scene
+
+
+def prepare_focus_scene(driver, root_url: str, stage: str):
+    canvas = _original_prepare_focus_scene(driver, root_url, stage)
+    # Production tracking performs a short camera-focus handoff after a tracked
+    # body changes. Wait for that handoff to finish before synthetic wheel input
+    # so the subsequent zoom is not partially pulled back toward auto framing.
+    driver.execute_async_script(
+        '''
+        let frames = 72;
+        const done = arguments[arguments.length - 1];
+        const settle = () => {
+          if (frames-- <= 0) { done(); return; }
+          requestAnimationFrame(settle);
+        };
+        requestAnimationFrame(settle);
+        ''',
+    )
+    return canvas
+
+
 def apply_batch_zoom(
     driver,
     canvas,
     wheel_steps: int,
     delta: float = 100.0,
-    settle_frames: int = 45,
+    settle_frames: int = 18,
 ) -> None:
     driver.execute_async_script(
         '''
@@ -55,7 +77,7 @@ def apply_batch_zoom(
 
 def measure_candidate(driver, root_url: str, wheel_steps: int, path: Path) -> float:
     canvas = p2.prepare_focus_scene(driver, root_url, p2.STAR_STAGES['solar'])
-    apply_batch_zoom(driver, canvas, wheel_steps, settle_frames=24)
+    apply_batch_zoom(driver, canvas, wheel_steps, settle_frames=12)
     image = p2.screenshot_canvas(canvas, path)
     return float(p2.locate_photosphere(image)['bright_photosphere_diameter_px'])
 
@@ -116,7 +138,7 @@ def capture_state(
     wheel_steps: int,
 ) -> Path:
     canvas = p2.prepare_focus_scene(driver, root_url, p2.STAR_STAGES[star])
-    apply_batch_zoom(driver, canvas, wheel_steps, settle_frames=45)
+    apply_batch_zoom(driver, canvas, wheel_steps, settle_frames=18)
     path = p2.OUTPUT_DIR / f'{revision}-{star}-{level}-mobile.png'
     p2.screenshot_canvas(canvas, path)
     return path
@@ -193,6 +215,7 @@ def validate_pair(
     )
 
 
+p2.prepare_focus_scene = prepare_focus_scene
 p2.calibrate_zoom_steps = calibrate_zoom_steps
 p2.capture_state = capture_state
 p2.validate_pair = validate_pair
