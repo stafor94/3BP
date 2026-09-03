@@ -261,24 +261,33 @@ export const stellarPhotosphereFragmentShader = `
     return clamp(1.0 + variation * uDetailStrength, 0.925, 1.075);
   }
 
-  float drawStellarEmission(vec3 worldNormal, vec3 viewDirection) {
-    float viewMu = max(dot(worldNormal, viewDirection), 0.0);
-    float broadLimb = pow(viewMu, 0.42);
-    float centerLift = pow(viewMu, 1.85);
-    return 0.92 + broadLimb * 0.18 + centerLift * 0.16;
+  float drawStellarEmission(float viewMu) {
+    // Keep the Pass 2 disk-average HDR budget while making the center-to-limb
+    // depth more legible. The center peak is unchanged; energy is redistributed
+    // out of the outer disk instead of creating a separate bright core.
+    float broadDepth = pow(viewMu, 0.32);
+    float centerDepth = pow(viewMu, 1.35);
+    return 0.81 + broadDepth * 0.14 + centerDepth * 0.36;
   }
 
-  float drawStellarFringe(vec3 worldNormal, vec3 viewDirection) {
-    float viewMu = max(dot(worldNormal, viewDirection), 0.0);
+  float getStellarDetailEnvelope(float viewMu) {
+    // Compress granulation across a broad grazing-angle range, not only at the
+    // last few silhouette pixels. This preserves center/mid structure while
+    // preventing projection-compressed texture from becoming denser at the limb.
+    // A nonzero floor keeps the transition plasma-like rather than forming a
+    // smooth radial band.
+    return mix(0.18, 1.0, smoothstep(0.20, 0.82, viewMu));
+  }
+
+  float drawStellarFringe(float viewMu) {
     float fresnel = 1.0 - viewMu;
-    float fringeRise = smoothstep(0.68, 0.88, fresnel);
-    float fringeFall = 1.0 - smoothstep(0.94, 0.995, fresnel);
+    float fringeRise = smoothstep(0.58, 0.82, fresnel);
+    float fringeFall = 1.0 - smoothstep(0.90, 0.985, fresnel);
     return fringeRise * fringeFall * uRimStrength;
   }
 
-  float getStellarEdgeCoverage(vec3 worldNormal, vec3 viewDirection) {
-    float viewMu = max(dot(worldNormal, viewDirection), 0.0);
-    float viewMuWidth = min(max(fwidth(viewMu) * 1.90, 0.060), 0.28);
+  float getStellarEdgeCoverage(float viewMu) {
+    float viewMuWidth = min(max(fwidth(viewMu) * 1.55, 0.035), 0.20);
     return smoothstep(0.0, viewMuWidth, viewMu);
   }
 
@@ -288,16 +297,19 @@ export const stellarPhotosphereFragmentShader = `
     vec3 objectNormal = normalize(vObjectNormal);
     vec3 normalWorld = normalize(vWorldNormal);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+    float viewMu = max(dot(normalWorld, viewDirection), 0.0);
     float surfaceDetail = drawStellarSurfaceVariation(objectNormal);
-    float emission = drawStellarEmission(normalWorld, viewDirection);
-    float fringe = drawStellarFringe(normalWorld, viewDirection);
-    float edgeCoverage = getStellarEdgeCoverage(normalWorld, viewDirection);
+    float emission = drawStellarEmission(viewMu);
+    float detailEnvelope = getStellarDetailEnvelope(viewMu);
+    float fringe = drawStellarFringe(viewMu);
+    float edgeCoverage = getStellarEdgeCoverage(viewMu);
 
-    // Keep mean photosphere luminance independent from procedural surface detail.
-    // The low-contrast variation is applied once in linear/HDR space and then
-    // handed to the renderer's single global ACES tone-mapping pass.
-    float meanEmission = (emission + fringe * 0.52) * uEmissionStrength;
+    // Mean photosphere energy is driven by the smooth center-to-limb emission.
+    // Fringe contribution is intentionally tiny so it cannot become a bright
+    // outline. Procedural detail stays a bounded linear/HDR modulation.
+    float meanEmission = (emission + fringe * 0.14) * uEmissionStrength;
     float surfaceVariation = clamp((surfaceDetail - 1.0) * 0.92, -0.095, 0.075);
+    surfaceVariation *= detailEnvelope;
     float linearIntensity = meanEmission * (1.0 + surfaceVariation);
 
     // Near-neutral stellar colors put all three channels on the ACES shoulder at
@@ -312,8 +324,9 @@ export const stellarPhotosphereFragmentShader = `
     linearIntensity *= 1.0 + surfaceVariation * 0.08;
     vec3 color = uIdentityColor * linearIntensity;
 
-    float limb = max(dot(normalWorld, viewDirection), 0.0);
-    float whiteHotCore = pow(limb, 18.0) * uWhiteHotMix;
+    // White-hot treatment is a very small pre-ACES center desaturation, not an
+    // independent white disk. Narrowing and reducing it preserves temperature ID.
+    float whiteHotCore = pow(viewMu, 22.0) * uWhiteHotMix * 0.72;
     float peak = max(max(color.r, color.g), color.b);
     color = mix(color, vec3(peak), whiteHotCore);
 
@@ -382,9 +395,9 @@ export function updateStellarPhotosphereMaterial(
 ) {
   const identityColor = material.uniforms.uIdentityColor?.value
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
-  // Pass 2 keeps the surface contrast low while restoring resolved granulation.
+  // Pass 3 retains Pass 2 granulation while compressing it toward the limb.
   if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.4
-  if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
+  if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.025
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
     material.uniforms.uEmissionStrength.value = frame.renderProfile.photosphereIntensity

@@ -15,6 +15,7 @@ on:
       - 'scripts/stellarPhotospherePass1VisualRegression.py'
       - 'scripts/stellarPhotospherePass2VisualRegression.py'
       - 'scripts/stellarPhotospherePass2VisualRegressionRunner.py'
+      - 'scripts/stellarPhotospherePass3RadialRegression.py'
       - 'scripts/stellarRenderPathVisualRegression.py'
       - 'scripts/stellarCellularPhotosphereVisualRegression.py'
       - 'scripts/stellarGranulationLodVisualRegression.py'
@@ -67,6 +68,10 @@ jobs:
         env:
           STELLAR_PASS2_BASELINE_REF: 3b023b49bef317ab841f7758b6ddf69fa10812b1
         run: python scripts/stellarPhotospherePass2VisualRegressionRunner.py
+      - name: Pass 3 radial emission and limb-detail regression
+        env:
+          STELLAR_PASS3_BASELINE_REF: f75bcf8a3b6a7be65cd88e379e10b43d346f75b5
+        run: python scripts/stellarPhotospherePass3RadialRegression.py
       - name: Capture Pass 1 vs Pass 2 main-sequence mobile A/B
         env:
           STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
@@ -111,6 +116,14 @@ jobs:
         with:
           name: stellar-photosphere-pass2-three-scale
           path: stellar-pass2-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload Pass 3 radial emission captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-photosphere-pass3-radial-emission
+          path: stellar-pass3-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload screen-space LOD mobile captures
