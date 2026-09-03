@@ -201,6 +201,11 @@ def validate_level(level: str, baseline: dict[str, float | int], current: dict[s
     )
 
 
+def normalized_edge_drop(metrics: dict[str, float | int]) -> float:
+    edge_luma = max(float(metrics['edge_inside_luma']), 1.0)
+    return float(metrics['hard_edge_drop']) / edge_luma
+
+
 def validate(metrics: dict[str, dict[str, dict[str, float | int]]]) -> None:
     for level in ZOOM_LEVELS:
         validate_level(level, metrics['baseline'][level], metrics['current'][level])
@@ -210,13 +215,17 @@ def validate(metrics: dict[str, dict[str, dict[str, float | int]]]) -> None:
     normal_base = metrics['baseline']['normal']
     normal_current = metrics['current']['normal']
 
+    # Pass 6 deliberately recalibrates photosphere luminance. Compare the edge
+    # gradient relative to the adjacent limb luminance so this Pass 4 gate keeps
+    # measuring silhouette shape instead of failing only because HDR brightness
+    # changed while the derivative-based coverage transition stayed intact.
     base.require(
-        float(large_current['hard_edge_drop']) <= float(large_base['hard_edge_drop']) * 1.02 + 0.5,
-        'large: hard silhouette gradient became sharper instead of softer',
+        normalized_edge_drop(large_current) <= normalized_edge_drop(large_base) * 1.02 + 0.004,
+        'large: normalized hard silhouette gradient became sharper instead of softer',
     )
     base.require(
-        float(normal_current['hard_edge_drop']) <= float(normal_base['hard_edge_drop']) * 0.97 + 0.5,
-        'normal: hard silhouette gradient did not soften measurably',
+        normalized_edge_drop(normal_current) <= normalized_edge_drop(normal_base) * 0.97 + 0.004,
+        'normal: normalized hard silhouette gradient did not soften measurably',
     )
     base.require(
         float(normal_current['edge_transition_width_px']) >= float(normal_base['edge_transition_width_px']) * 0.96,
