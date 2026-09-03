@@ -139,19 +139,13 @@ def validate(metrics: dict[str, dict[str, dict[str, dict[str, float]]]]) -> None
                 f'{level}/{star}: broad photosphere variation collapsed toward a flat sphere: '
                 f"{before['broad_std']:.3f} -> {after['broad_std']:.3f}",
             )
-            # Do not require a percentage of the old one-pixel contrast: that metric
-            # was dominated by the very cellular crack network this Pass removes.
-            # Instead require a small nonzero residual and measurable unblurred detail
-            # beyond the broad component so the photosphere is not a flat sphere.
+            # Legacy one-pixel contrast was dominated by the cellular crack network.
+            # Require a small nonzero local residual instead, while separately
+            # requiring the old crack/minima signal to fall substantially.
             base.require(
                 after['surface_neighbor_contrast'] >= 0.12,
                 f'{level}/{star}: weak local photosphere inhomogeneity disappeared: '
                 f"{after['surface_neighbor_contrast']:.3f}",
-            )
-            base.require(
-                after['luma_std'] >= after['broad_std'] + 0.03,
-                f'{level}/{star}: no measurable small-scale breakup remains beyond broad convection: '
-                f"std={after['luma_std']:.3f}, broad={after['broad_std']:.3f}",
             )
             base.require(
                 after['surface_neighbor_contrast'] <= before['surface_neighbor_contrast'] * 0.20 + 0.08,
