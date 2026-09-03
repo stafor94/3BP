@@ -52,8 +52,8 @@ def baseline_preview(ref: str):
         base.require(node_modules.exists(), 'root node_modules is required for baseline build')
         os.symlink(node_modules, worktree / 'node_modules', target_is_directory=True)
 
-        # Use exactly the same focused fixture on Pass 1 and Pass 2. Only the
-        # stellar photosphere implementation differs between the two previews.
+        # The fixture is test-only. Copy it into the Pass 1 worktree so baseline
+        # and current differ only in the production photosphere implementation.
         harness = Path('src/visualRegression/StellarTopologyVisualHarness.tsx')
         shutil.copy2(base.ROOT / harness, worktree / harness)
         base.run([str(node_modules / '.bin' / 'vite'), 'build'], cwd=worktree)
@@ -106,103 +106,92 @@ def prepare_focus_scene(driver, root_url: str, stage: str):
     return canvas
 
 
-def apply_centered_zoom(
+def apply_zoom_at(
     driver,
     canvas,
-    wheel_steps: int,
+    wheel_step: int,
+    focus_x01: float,
+    focus_y01: float,
     delta: float = 70.0,
-    settle_frames: int = 45,
+    settle_frames: int = 10,
 ):
     driver.execute_async_script(
         '''
         const element = arguments[0];
-        let remaining = Math.abs(arguments[1]);
         const signedDelta = arguments[1] > 0 ? arguments[2] : -arguments[2];
-        let settleFrames = arguments[3];
+        const focusX = arguments[3];
+        const focusY = arguments[4];
+        let settleFrames = arguments[5];
         const done = arguments[arguments.length - 1];
         const rect = element.getBoundingClientRect();
-        const clientX = rect.left + rect.width * 0.5;
-        const clientY = rect.top + rect.height * 0.5;
-
+        const clientX = rect.left + rect.width * focusX;
+        const clientY = rect.top + rect.height * focusY;
+        element.dispatchEvent(new WheelEvent('wheel', {
+          deltaY: signedDelta,
+          deltaMode: 0,
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY,
+          view: window,
+        }));
         const settle = () => {
           if (settleFrames-- <= 0) { done(); return; }
           requestAnimationFrame(settle);
         };
-        const step = () => {
-          if (remaining-- <= 0) {
-            requestAnimationFrame(settle);
-            return;
-          }
-          element.dispatchEvent(new WheelEvent('wheel', {
-            deltaY: signedDelta,
-            deltaMode: 0,
-            bubbles: true,
-            cancelable: true,
-            clientX,
-            clientY,
-            view: window,
-          }));
-          requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
+        requestAnimationFrame(settle);
         ''',
         canvas,
-        wheel_steps,
+        wheel_step,
         delta,
+        max(0.0, min(1.0, focus_x01)),
+        max(0.0, min(1.0, focus_y01)),
         settle_frames,
     )
 
 
-def nearest_bright_seed(image: Image.Image) -> tuple[int, int]:
-    width, height = image.size
-    cx, cy = width // 2, height // 2
-    best = (cx, cy)
-    best_score = -1.0
-    for y in range(max(0, cy - 120), min(height, cy + 121)):
-        for x in range(max(0, cx - 120), min(width, cx + 121)):
-            value = luma(image.getpixel((x, y)))
-            score = value - math.hypot(x - cx, y - cy) * 0.08
-            if score > best_score:
-                best, best_score = (x, y), score
-    base.require(best_score >= 72, 'focused star: no bright photosphere near viewport center')
-    return best
-
-
 def locate_photosphere(image: Image.Image) -> dict[str, float | int]:
+    # The photosphere is the largest 4-connected bright component. Searching
+    # globally is deliberate: OrbitControls may keep a UI-aware framing offset,
+    # and QA must measure the rendered star rather than assume a screen center.
     width, height = image.size
     pixels = image.load()
-    seed = nearest_bright_seed(image)
     threshold = 82.0
-    queue: deque[tuple[int, int]] = deque([seed])
-    visited = {seed}
-    component: list[tuple[int, int]] = []
+    bright = {
+        (x, y)
+        for y in range(height)
+        for x in range(width)
+        if luma(pixels[x, y]) >= threshold
+    }
+    largest: list[tuple[int, int]] = []
 
-    while queue:
-        x, y = queue.popleft()
-        if luma(pixels[x, y]) < threshold:
-            continue
-        component.append((x, y))
-        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-            if nx < 0 or ny < 0 or nx >= width or ny >= height:
-                continue
-            point = (nx, ny)
-            if point in visited:
-                continue
-            visited.add(point)
-            queue.append(point)
+    while bright:
+        start = bright.pop()
+        queue: deque[tuple[int, int]] = deque([start])
+        component = [start]
+        while queue:
+            x, y = queue.popleft()
+            for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if neighbor not in bright:
+                    continue
+                bright.remove(neighbor)
+                queue.append(neighbor)
+                component.append(neighbor)
+        if len(component) > len(largest):
+            largest = component
 
-    base.require(len(component) >= 80, 'focused star: bright photosphere component is too small')
-    center_x = sum(point[0] for point in component) / len(component)
-    center_y = sum(point[1] for point in component) / len(component)
-    radius = math.sqrt(len(component) / math.pi)
-    xs = [point[0] for point in component]
-    ys = [point[1] for point in component]
+    base.require(len(largest) >= 80, 'focused star: bright photosphere component is too small')
+    center_x = sum(point[0] for point in largest) / len(largest)
+    center_y = sum(point[1] for point in largest) / len(largest)
+    radius = math.sqrt(len(largest) / math.pi)
+    xs = [point[0] for point in largest]
+    ys = [point[1] for point in largest]
     return {
         'center_x': center_x,
         'center_y': center_y,
         'equivalent_radius_px': radius,
         'bright_photosphere_diameter_px': radius * 2.0,
-        'component_pixels': len(component),
+        'component_pixels': len(largest),
         'bbox_width_px': max(xs) - min(xs) + 1,
         'bbox_height_px': max(ys) - min(ys) + 1,
     }
@@ -213,18 +202,41 @@ def screenshot_canvas(canvas, path: Path) -> Image.Image:
     return Image.open(path).convert('RGB')
 
 
+def step_zoom_and_measure(
+    driver,
+    canvas,
+    image: Image.Image,
+    path: Path,
+    wheel_step: int,
+    settle_frames: int = 10,
+) -> tuple[Image.Image, dict[str, float | int]]:
+    geometry = locate_photosphere(image)
+    apply_zoom_at(
+        driver,
+        canvas,
+        wheel_step,
+        float(geometry['center_x']) / image.width,
+        float(geometry['center_y']) / image.height,
+        settle_frames=settle_frames,
+    )
+    next_image = screenshot_canvas(canvas, path)
+    return next_image, locate_photosphere(next_image)
+
+
 def calibrate_zoom_steps(driver, root_url: str, target: tuple[float, float]) -> tuple[int, float]:
     canvas = prepare_focus_scene(driver, root_url, STAR_STAGES['solar'])
     temp_path = OUTPUT_DIR / 'zoom-calibration.png'
     steps = 0
     image = screenshot_canvas(canvas, temp_path)
-    diameter = float(locate_photosphere(image)['bright_photosphere_diameter_px'])
+    geometry = locate_photosphere(image)
+    diameter = float(geometry['bright_photosphere_diameter_px'])
 
     while diameter < target[0] and abs(steps) < 72:
-        apply_centered_zoom(driver, canvas, -1, delta=70.0, settle_frames=12)
+        image, geometry = step_zoom_and_measure(
+            driver, canvas, image, temp_path, -1, settle_frames=12
+        )
         steps -= 1
-        image = screenshot_canvas(canvas, temp_path)
-        diameter = float(locate_photosphere(image)['bright_photosphere_diameter_px'])
+        diameter = float(geometry['bright_photosphere_diameter_px'])
 
     base.require(
         target[0] <= diameter <= target[1],
@@ -243,8 +255,24 @@ def capture_state(
     wheel_steps: int,
 ) -> Path:
     canvas = prepare_focus_scene(driver, root_url, STAR_STAGES[star])
-    apply_centered_zoom(driver, canvas, wheel_steps, delta=70.0, settle_frames=55)
     path = OUTPUT_DIR / f'{revision}-{star}-{level}-mobile.png'
+    image = screenshot_canvas(canvas, path)
+    geometry = locate_photosphere(image)
+    direction = -1 if wheel_steps < 0 else 1
+    for _ in range(abs(wheel_steps)):
+        image, geometry = step_zoom_and_measure(
+            driver, canvas, image, path, direction, settle_frames=8
+        )
+    # Give damping a few more frames before the production capture used by metrics.
+    apply_zoom_at(
+        driver,
+        canvas,
+        0,
+        float(geometry['center_x']) / image.width,
+        float(geometry['center_y']) / image.height,
+        delta=0.0,
+        settle_frames=45,
+    )
     screenshot_canvas(canvas, path)
     return path
 
@@ -351,10 +379,7 @@ def analyze(path: Path) -> dict[str, float | int]:
     local_contrast = sum(local_abs) / len(local_abs)
     dark_threshold = max(1.0, local_contrast * 1.05)
     dark_fraction, largest_dark_fraction, largest_dark_span = connected_dark_metric(
-        residuals,
-        dark_threshold,
-        len(lumas),
-        diameter,
+        residuals, dark_threshold, len(lumas), diameter
     )
     broad_mean = sum(broad_lumas) / len(broad_lumas)
 
@@ -532,8 +557,8 @@ def main() -> None:
         for star, paths in baseline_paths.items()
     }
 
-    # Persist all evidence before hard gates. A failed metric must still leave the
-    # nine production PNGs and contact sheets available for direct inspection.
+    # Persist evidence before hard gates so failed metrics still leave inspectable
+    # production PNGs, measured diameters, and Pass 1/Pass 2 A/B contact sheets.
     payload = {
         'viewport': {'width': base.VIEWPORT_WIDTH, 'height': base.VIEWPORT_HEIGHT},
         'baseline_ref': BASELINE_REF,
