@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-ARTIFACT_DIR = Path('stellar-granulation-lod-artifacts')
+ARTIFACT_DIR = Path('stellar-surface-lod-artifacts')
 METRICS_PATH = ARTIFACT_DIR / 'metrics.json'
 
 
