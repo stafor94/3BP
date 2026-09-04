@@ -58,13 +58,12 @@ function makeProductionStellarFixture(key: StellarFixtureKey): BodyState {
 }
 
 function makeFinalHeliosFixture(): BodyState[] {
-  // Reuse the real production quadNested initial state so companion masses,
-  // orbital positions and velocities are not reimplemented in the visual test.
-  // Only the Helios radius is replaced with the exact radius represented by the
-  // historical issue volume. The physics engine defines volume as radius^3.
+  // Reuse the real production quadNested initial state so companion IDs/seeds,
+  // masses, orbital positions and velocities are not reimplemented in the visual
+  // test. Only the Helios radius is replaced with the exact radius represented by
+  // the historical issue volume. The physics engine defines volume as radius^3.
   return getPreset('quadNested').map((body, index) => ({
     ...body,
-    id: index === 0 ? 'pass6-helios' : `pass6-${body.id}`,
     name: index === 0 ? 'Helios' : body.name,
     radius: index === 0 ? FINAL_HELIOS_RADIUS : body.radius,
     bodyType: FINAL_HELIOS_BODY_TYPES[index],
