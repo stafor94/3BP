@@ -96,6 +96,12 @@ export function configureStellarCoronaMaterial(
           float coronaNearLimb = exp(-pow(warpedDistance01 / 0.12, 2.0));
           float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.27, 1.62));
           float coronaNearRegion = coronaNearLimb * 0.46 + coronaNearShoulder * 0.54;
+          // Fill only the immediate shoulder so the first bright edge pixel cannot
+          // read as a neon ring. The hard compact cutoff keeps this redistribution
+          // from turning into the broad diffuse halo removed by the same pass.
+          float coronaShoulderFill = exp(-pow(warpedDistance01 / 0.36, 1.8));
+          coronaNearRegion = mix(coronaNearRegion, coronaShoulderFill, 0.55);
+          coronaNearRegion *= 1.0 - smoothstep(0.34, 0.50, warpedDistance01);
 
           // The weak outer component rises after the shoulder, decays quickly,
           // and reaches zero well before the Sprite edge.
@@ -118,7 +124,7 @@ export function configureStellarCoronaMaterial(
           float coronaAlpha =
             coronaOutsideMask *
             (coronaNearRegion * 0.74 + coronaOuterRegion * 0.24) *
-            0.80 *
+            0.52 *
             coronaAngularBrightness *
             coronaSpriteEdge;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);
