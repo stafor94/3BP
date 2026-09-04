@@ -1,6 +1,9 @@
 name: Stellar Photosphere Quality
 
 on:
+  push:
+    branches:
+      - test/stellar-pass6-helios-baseline
   pull_request:
     branches: [main]
     paths:
@@ -12,6 +15,7 @@ on:
       - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
       - 'src/visualRegression/productionCameraHandoffFixture.ts'
       - 'scripts/stellarRenderingRegression.ts'
+      - 'scripts/stellarFinalRenderStructureRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
       - 'scripts/stellarPhotospherePass1VisualRegression.py'
       - 'scripts/stellarPhotospherePass2VisualRegression.py'
@@ -27,6 +31,7 @@ on:
       - 'scripts/stellarHdrVisualRegression.py'
       - 'scripts/stellarProductionIntegrationVisualRegression.py'
       - 'scripts/stellarProductionIntegrationVisualRegressionRunner.py'
+      - 'scripts/stellarHeliosFinalVisualRegression.py'
       - '.github/workflows/stellar-photosphere-quality.yml'
 
 permissions:
@@ -50,6 +55,8 @@ jobs:
         run: npm run build
       - name: Stellar rendering structural regression
         run: npx --yes tsx@4.20.5 scripts/stellarRenderingRegression.ts
+      - name: Final stellar 1+1 draw structure regression
+        run: npx --yes tsx@4.20.5 scripts/stellarFinalRenderStructureRegression.ts
       - name: Install browser visual regression runtime
         run: python -m pip install --disable-pip-version-check --quiet selenium==4.35.0 pillow==11.3.0
       - name: Start production preview
@@ -66,6 +73,8 @@ jobs:
           exit 1
       - name: Pass 5 production SimulationView mobile integration regression
         run: python scripts/stellarProductionIntegrationVisualRegressionRunner.py
+      - name: Final Pass 6 Helios production reproduction regression
+        run: python scripts/stellarHeliosFinalVisualRegression.py
       - name: Pass 1 topology-removal regression
         env:
           STELLAR_PASS1_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
@@ -78,7 +87,7 @@ jobs:
         env:
           STELLAR_PASS3_BASELINE_REF: f75bcf8a3b6a7be65cd88e379e10b43d346f75b5
         run: python scripts/stellarPhotospherePass3RadialRegression.py
-      - name: Capture Pass 1 vs Pass 2 main-sequence mobile A/B
+      - name: Historical topology-removal mobile A/B evidence
         env:
           STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
         run: python scripts/stellarCellularPhotosphereVisualRegression.py
@@ -92,19 +101,19 @@ jobs:
         env:
           STELLAR_LIMB_BASELINE_REF: 284d113e82523f90ae5ca92444f0eab0bbb98b26
         run: python scripts/stellarLimbVisualRegression.py
-      - name: Pass 4 stellar corona 3x3 outcome regression
+      - name: Stellar corona current outcome regression
         env:
           STELLAR_CORONA_BASELINE_REF: 4e7b58098d8fd5c96deb8e8caf4d823409eec359
         run: python scripts/stellarCoronaPass5CompatibilityRunner.py
-      - name: Pass 6 stellar HDR and temperature-color mobile A/B regression
+      - name: Stellar HDR and temperature-color mobile A/B regression
         env:
           STELLAR_HDR_BASELINE_REF: fe1d138268a40ce7707df64ac60a0ab384a995bc
         run: python scripts/stellarHdrVisualRegression.py
-      - name: Upload stellar photosphere A/B captures
+      - name: Upload historical topology-removal A/B captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-photosphere-cellular-mobile-ab
+          name: stellar-photosphere-topology-removal-historical-ab
           path: stellar-photosphere-visual-artifacts
           if-no-files-found: warn
           retention-days: 7
@@ -148,11 +157,11 @@ jobs:
           path: stellar-limb-artifacts
           if-no-files-found: warn
           retention-days: 7
-      - name: Upload Pass 4 stellar corona 3x3 captures
+      - name: Upload stellar corona captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-corona-pass4-3x3
+          name: stellar-corona-current-3x3
           path: stellar-corona-artifacts
           if-no-files-found: warn
           retention-days: 7
@@ -160,7 +169,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-hdr-pass6-mobile-ab
+          name: stellar-hdr-temperature-mobile-ab
           path: stellar-hdr-artifacts
           if-no-files-found: warn
           retention-days: 7
@@ -170,5 +179,13 @@ jobs:
         with:
           name: stellar-pass5-production-mobile-integration
           path: stellar-production-pass5-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload final Pass 6 Helios production captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-pass6-helios-production-baseline
+          path: stellar-pass6-helios-artifacts
           if-no-files-found: warn
           retention-days: 7
