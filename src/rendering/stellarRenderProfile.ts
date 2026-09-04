@@ -34,11 +34,12 @@ export function getStellarRenderProfile(
   return {
     photosphereIntensity: 0.92 + luminosity01 * 0.10 + temperature01 * 0.035,
     whiteHotMix: 0.008 + temperature01 * 0.032 + luminosity01 * 0.012,
-    // Keep one bounded carrier Sprite, but leave enough radial room for the
-    // shader's near-limb shoulder and weaker diffuse outer corona. Luminosity
-    // only nudges the scale across a deliberately compressed range.
-    coronaScale: 2.90 + luminosity01 * 0.10,
-    coronaOpacity: 0.255 + luminosity01 * 0.075,
+    // The Sprite diameter is measured against the photosphere diameter. Keep
+    // enough actual screen-space carrier area for a broad corona beyond the
+    // silhouette; the old ~3x carrier left only ~0.5 photosphere radii before
+    // the quad edge and made the diffuse lobe effectively invisible on mobile.
+    coronaScale: 4.10 + luminosity01 * 0.20,
+    coronaOpacity: 0.34 + luminosity01 * 0.08,
     // Only the faint outer tail may desaturate, and even there very slightly.
     coronaOuterWhiteMix: 0.014 + luminosity01 * 0.020,
   }

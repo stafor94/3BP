@@ -99,9 +99,17 @@ function testLuminosityAndHaloContractsStayBounded() {
   samples.forEach(({ render }) => {
     assert(render.photosphereIntensity >= 0.9 && render.photosphereIntensity <= 1.1, 'photosphere HDR intensity must stay inside the calibrated stellar range')
     assert(render.whiteHotMix <= 0.06, 'white-hot treatment must remain confined to a small center contribution')
-    assert(render.coronaScale >= 2.7 && render.coronaScale <= 3.0, 'single corona carrier must remain compact around the photosphere')
-    assert(render.coronaOpacity < 0.35, 'compact corona must stay subordinate to the photosphere')
+    assert(render.coronaScale >= 4.1 && render.coronaScale <= 4.3, 'single corona carrier must reserve broad screen-space room around the photosphere')
+    assert(render.coronaOpacity >= 0.34 && render.coronaOpacity < 0.43, 'broad corona must remain visible but subordinate to the photosphere')
     assert(render.coronaOuterWhiteMix <= 0.035, 'outer corona desaturation must remain very subtle')
+
+    const photosphereRadiusUv = 2 / render.coronaScale
+    const diffuseCutoffRadiusUv = photosphereRadiusUv + (1 - photosphereRadiusUv) * 0.995
+    const diffuseCutoffRadiusInPhotospheres = diffuseCutoffRadiusUv / photosphereRadiusUv
+    assert(
+      diffuseCutoffRadiusInPhotospheres >= 2.0,
+      'production Sprite scale must carry diffuse light to at least two photosphere radii',
+    )
   })
 }
 
@@ -280,10 +288,11 @@ function testCoronaRestoresEmissiveReadWithoutASeparateHalo() {
   assert(stellarCoronaSource.includes('float coronaPhase = uCoronaTime * 0.0016;'), 'corona time evolution must remain nearly imperceptible')
   assert(stellarCoronaSource.includes('coronaAngularA * 0.050 + coronaAngularB * 0.024'), 'corona radius variation must stay subtle')
   assert(stellarCoronaSource.includes('float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));'), 'corona must remain concentrated near the photosphere')
-  assert(stellarCoronaSource.includes('float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.34, 1.55));'), 'corona must retain a broad mobile-visible near-limb shoulder')
-  assert(stellarCoronaSource.includes('coronaNearRegion * 0.86 + coronaOuterRegion * 0.34'), 'near and diffuse corona energy must remain visibly emissive')
-  assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 5.4)'), 'outer corona must continue to decay rapidly')
-  assert(stellarCoronaSource.includes('1.0 - smoothstep(0.74, 0.96, warpedDistance01)'), 'diffuse corona must fade before the Sprite edge instead of forming a giant halo')
+  assert(stellarCoronaSource.includes('float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.42, 1.48));'), 'corona must retain a broad mobile-visible near-limb shoulder')
+  assert(stellarCoronaSource.includes('coronaNearRegion * 0.88 + coronaOuterRegion * 0.42'), 'near and diffuse corona energy must remain visibly emissive')
+  assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 4.8)'), 'near-weighted outer component must not use a faster falloff than the previous corona')
+  assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 2.10)'), 'diffuse corona must retain a slower outer falloff')
+  assert(stellarCoronaSource.includes('1.0 - smoothstep(0.88, 0.995, warpedDistance01)'), 'diffuse corona must use nearly the full Sprite without clipping into a hard ring')
   assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'existing inner Sprite must remain the single corona carrier')
   assert(bodyLightingSource.includes('glowOuter.visible = false\n    glowOuter.material.opacity = 0'), 'legacy outer stellar Sprite must remain disabled')
 }
