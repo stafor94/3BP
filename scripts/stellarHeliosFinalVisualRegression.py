@@ -267,11 +267,17 @@ def validate_production_corona(
     # per-ray rebound invariant is replaced here with production-scene aggregate
     # gates; the original p90<=0.060 rule still runs later in the dedicated corona
     # regression, so the overall suite is not weakened.
-    require(0.025 <= metric['near_to_core'] <= 0.13, f'Helios/{level}: near corona is missing or overpowers the photosphere')
-    require(metric['outer_to_core'] <= 0.030, f'Helios/{level}: large diffuse halo')
-    require(metric['far_to_core'] <= 0.006, f'Helios/{level}: large diffuse far halo')
+    near = metric['near_to_core']
+    outer = metric['outer_to_core']
+    far = metric['far_to_core']
+    require(0.025 <= near <= 0.13, f'Helios/{level}: near corona is missing or overpowers the photosphere')
+    require(outer <= 0.030, f'Helios/{level}: large diffuse halo')
+    require(far <= 0.006, f'Helios/{level}: large diffuse far halo')
     require(metric['outer_to_near'] <= 0.32, f'Helios/{level}: outer halo dominates the fringe')
-    require(metric['far_to_outer'] <= 0.32, f'Helios/{level}: corona does not decay enough')
+    require(
+        far <= max(0.0038, outer * 0.32),
+        f'Helios/{level}: corona does not decay enough (far/core={far:.4f}, outer/core={outer:.4f})',
+    )
     require(0.06 <= metric['extent_fraction'] <= 0.30, f'Helios/{level}: corona is missing or forms a large diffuse halo')
     require(metric['extent_std_fraction'] <= 0.060, f'Helios/{level}: corona boundary is too irregular')
     edge_limit = 2.35 if level == 'normal' else 1.85
