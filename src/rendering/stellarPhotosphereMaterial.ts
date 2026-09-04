@@ -275,12 +275,11 @@ export const stellarPhotosphereFragmentShader = `
   }
 
   float getStellarDetailEnvelope(float viewMu) {
-    // Compress granulation across a broad grazing-angle range, not only at the
-    // last few silhouette pixels. This preserves center/mid structure while
-    // preventing projection-compressed texture from becoming denser at the limb.
-    // A nonzero floor keeps the transition plasma-like rather than forming a
-    // smooth radial band.
-    return mix(0.32, 1.0, smoothstep(0.14, 0.72, viewMu));
+    // Keep convection/plasma contrast strongest across the center and mid disk,
+    // then compress it before projection packs the texture into the limb. The
+    // nonzero floor preserves living surface variation without making the edge
+    // as noisy as the center or collapsing it into a smooth radial band.
+    return mix(0.30, 1.0, smoothstep(0.18, 0.84, viewMu));
   }
 
   float drawStellarFringe(float viewMu) {
@@ -291,9 +290,9 @@ export const stellarPhotosphereFragmentShader = `
   }
 
   float getStellarEdgeCoverage(float viewMu) {
-    // Restrict antialiasing to the geometric silhouette. A wide alpha ramp over
-    // the already limb-darkened surface composites as a black outline.
-    float viewMuWidth = min(max(fwidth(viewMu) * 0.82, 0.012), 0.075);
+    // Keep antialiasing tightly on the geometric silhouette. A broad alpha ramp
+    // over the limb-darkened photosphere reads as a charcoal outline on black.
+    float viewMuWidth = min(max(fwidth(viewMu) * 0.50, 0.008), 0.040);
     return smoothstep(0.0, viewMuWidth, viewMu);
   }
 
