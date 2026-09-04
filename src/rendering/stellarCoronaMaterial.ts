@@ -82,12 +82,15 @@ export function configureStellarCoronaMaterial(
             0.0
           );
 
-          // The corona begins at the silhouette, not over the photosphere. A tiny
-          // derivative-independent overlap prevents a dark seam without washing
-          // out Pass 2 granulation or Pass 3 center-to-limb depth.
+          // Start at the silhouette but widen the first outside transition when
+          // the star is only a few dozen pixels wide. This keeps the normal mobile
+          // footprint from collapsing the corona into one bright neon edge pixel,
+          // while retaining the existing compact transition at larger footprints.
+          float coronaEdgeAa = max(fwidth(coronaRadius), 0.004);
+          float coronaOutsideWidth = max(coronaEdgeAa * 1.35, 0.020);
           float coronaOutsideMask = smoothstep(
             coronaPhotosphereRadius - 0.002,
-            coronaPhotosphereRadius + 0.018,
+            coronaPhotosphereRadius + coronaOutsideWidth,
             coronaRadius
           );
 
