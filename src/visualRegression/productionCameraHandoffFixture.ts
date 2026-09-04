@@ -1,13 +1,20 @@
-import type { BodyState } from '../types'
+import { getPreset } from '../presets'
+import type { BodyState, BodyType } from '../types'
 
 const FIXTURE_QUERY_VALUE = 'fast-moving-remnant'
 const STELLAR_FIXTURE_QUERY = 'production-stellar-fixture'
+const FINAL_HELIOS_FIXTURE_QUERY_VALUE = 'helios-final'
+
+export const FINAL_HELIOS_VOLUME = 0.017264
+export const FINAL_HELIOS_RADIUS = Math.cbrt(FINAL_HELIOS_VOLUME)
 
 const STELLAR_FIXTURES = {
   cool: { mass: 0.35, name: 'Pass 5 Cool Star' },
   solar: { mass: 1, name: 'Pass 5 Solar Star' },
   hot: { mass: 8, name: 'Pass 5 Hot Star' },
 } as const
+
+const FINAL_HELIOS_BODY_TYPES: BodyType[] = ['star', 'planet', 'moon', 'planet']
 
 type StellarFixtureKey = keyof typeof STELLAR_FIXTURES
 
@@ -50,9 +57,31 @@ function makeProductionStellarFixture(key: StellarFixtureKey): BodyState {
   }
 }
 
+function makeFinalHeliosFixture(): BodyState[] {
+  // Reuse the real production quadNested initial state so companion masses,
+  // orbital positions and velocities are not reimplemented in the visual test.
+  // Only the Helios radius is replaced with the exact radius represented by the
+  // historical issue volume. The physics engine defines volume as radius^3.
+  return getPreset('quadNested').map((body, index) => ({
+    ...body,
+    id: index === 0 ? 'pass6-helios' : `pass6-${body.id}`,
+    name: index === 0 ? 'Helios' : body.name,
+    radius: index === 0 ? FINAL_HELIOS_RADIUS : body.radius,
+    bodyType: FINAL_HELIOS_BODY_TYPES[index],
+    position: { ...body.position },
+    velocity: { ...body.velocity },
+  }))
+}
+
 export function getProductionCameraHandoffFixture(): BodyState[] | null {
   const query = new URLSearchParams(window.location.search)
   const stellarFixture = query.get(STELLAR_FIXTURE_QUERY)
+  if (stellarFixture === FINAL_HELIOS_FIXTURE_QUERY_VALUE) {
+    // Final Pass 6 reproduction: real App/SimulationView/renderer/tracking UI,
+    // with the production multi-body orbital preset around the historical 8 M☉
+    // Helios radius. No test-only renderer or stellar material is introduced.
+    return makeFinalHeliosFixture()
+  }
   if (isStellarFixtureKey(stellarFixture)) {
     // Test setup only: the real App, SimulationView, renderer, tracking rail and
     // OrbitControls remain in use. No alternate stellar rendering path exists.
