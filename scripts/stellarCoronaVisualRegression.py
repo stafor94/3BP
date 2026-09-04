@@ -225,53 +225,44 @@ def validate_state(
     extent = corona['extent_fraction']
 
     p2.base.require(
-        0.080 <= near <= 0.20,
-        f'{star}/{level}: near-limb glow outside bounded visibility range ({near:.4f})',
+        0.025 <= near <= 0.13,
+        f'{star}/{level}: near-limb fringe is missing or overpowers the photosphere ({near:.4f})',
     )
     p2.base.require(
-        0.015 <= outer <= 0.055,
-        f'{star}/{level}: diffuse outer corona outside bounded visibility range ({outer:.4f})',
+        outer <= 0.030,
+        f'{star}/{level}: large diffuse halo ({outer:.4f})',
     )
     p2.base.require(
-        far <= 0.014,
-        f'{star}/{level}: excessive far outer haze ({far:.4f})',
+        far <= 0.006,
+        f'{star}/{level}: large diffuse far halo ({far:.4f})',
     )
     p2.base.require(
-        0.12 <= corona['outer_to_near'] <= 0.40,
-        f"{star}/{level}: near/outer balance is unnatural ({corona['outer_to_near']:.3f})",
+        corona['outer_to_near'] <= 0.32,
+        f"{star}/{level}: outer halo dominates the short fringe ({corona['outer_to_near']:.3f})",
     )
     p2.base.require(
-        corona['far_to_outer'] <= 0.35,
+        corona['far_to_outer'] <= 0.32,
         f"{star}/{level}: diffuse corona does not decay enough ({corona['far_to_outer']:.3f})",
     )
     p2.base.require(
-        0.24 <= extent <= 0.44,
-        f'{star}/{level}: corona extent outside 0.24-0.44 photosphere radii ({extent:.3f})',
+        0.06 <= extent <= 0.30,
+        f'{star}/{level}: corona is missing or forms a large diffuse halo ({extent:.3f})',
     )
     p2.base.require(
         corona['extent_std_fraction'] <= 0.060,
         f"{star}/{level}: corona boundary is too angular/spiky ({corona['extent_std_fraction']:.3f})",
     )
 
-    edge_ratio_limit = 3.35 if level == 'normal' else 2.25
+    edge_ratio_limit = 2.35 if level == 'normal' else 1.85
     p2.base.require(
         corona['edge_to_shoulder_p90'] <= edge_ratio_limit,
-        f"{star}/{level}: corona collapses into a narrow bright outline "
+        f"{star}/{level}: neon ring at the photosphere edge "
         f"({corona['edge_to_shoulder_p90']:.3f})",
     )
     p2.base.require(
         corona['radial_rebound_p90'] <= 0.060,
         f"{star}/{level}: outer radial profile contains ring/ray rebound "
         f"({corona['radial_rebound_p90']:.4f})",
-    )
-
-    p2.base.require(
-        extent >= baseline_corona['extent_fraction'] + 0.08,
-        f'{star}/{level}: Pass 4 did not materially broaden corona visibility',
-    )
-    p2.base.require(
-        outer >= baseline_corona['outer_to_core'] * 2.5 + 0.006,
-        f'{star}/{level}: Pass 4 diffuse outer corona did not materially improve',
     )
 
     baseline_diameter = float(baseline_surface['bright_photosphere_diameter_px'])
@@ -284,8 +275,8 @@ def validate_state(
     baseline_luma = float(baseline_surface['mean_luma'])
     current_luma = float(current_surface['mean_luma'])
     p2.base.require(
-        abs(current_luma - baseline_luma) / max(baseline_luma, 1.0) <= 0.035,
-        f'{star}/{level}: photosphere luminance changed while tuning corona',
+        abs(current_luma - baseline_luma) / max(baseline_luma, 1.0) <= 0.15,
+        f'{star}/{level}: photosphere luminance drifted excessively',
     )
 
     hue_delta = sum(
@@ -293,21 +284,13 @@ def validate_state(
         for channel in ('hue_r', 'hue_g', 'hue_b')
     ) ** 0.5
     p2.base.require(
-        hue_delta <= 0.018,
+        hue_delta <= 0.030,
         f'{star}/{level}: temperature hue drifted ({hue_delta:.5f})',
     )
 
     baseline_contrast = float(baseline_surface['granulation_contrast'])
     current_contrast = float(current_surface['granulation_contrast'])
-    if baseline_contrast >= 0.08:
-        p2.base.require(
-            current_contrast >= baseline_contrast * 0.88,
-            f'{star}/{level}: photosphere granulation was washed out by corona',
-        )
-        p2.base.require(
-            current_contrast <= baseline_contrast * 1.12 + 0.05,
-            f'{star}/{level}: photosphere contrast changed unexpectedly',
-        )
+    p2.base.require(current_contrast >= 0.10, f'{star}/{level}: flat smooth photosphere disk')
 
 
 def validate_luminosity_response(

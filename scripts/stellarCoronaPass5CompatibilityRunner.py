@@ -15,7 +15,7 @@ def validate_state_with_pass5_surface_lod(
     baseline_corona: dict[str, float],
     corona_metric: dict[str, float],
 ) -> None:
-    """Keep Pass 4 corona gates while accepting Pass 5's intentional surface LOD change.
+    """Apply the current photosphere-first surface and compact-corona gates.
 
     Pass 4 originally required photosphere granulation contrast to remain almost
     identical to the Pass 3 baseline because that pass was corona-only. Pass 5 is
@@ -27,17 +27,17 @@ def validate_state_with_pass5_surface_lod(
     """
     contrast = float(current_surface['granulation_contrast'])
     lower, upper = {
-        'normal': (0.0, 1.60),
-        'enlarged': (0.16, 2.50),
-        'extreme': (0.22, 3.40),
+        'normal': (0.10, 1.80),
+        'enlarged': (0.20, 2.80),
+        'extreme': (0.26, 3.60),
     }[level]
     corona.p2.base.require(
         lower <= contrast <= upper,
         f'{star}/{level}: Pass 5 photosphere granulation {contrast:.3f} outside {lower:.2f}-{upper:.2f}',
     )
     corona.p2.base.require(
-        float(current_surface['broad_variation_std']) >= 0.35,
-        f'{star}/{level}: broad convection vanished while validating corona',
+        float(current_surface['broad_variation_std']) >= 0.48,
+        f'{star}/{level}: flat smooth disk; mid-scale plasma structure vanished',
     )
     corona.p2.base.require(
         float(current_surface['high_frequency_energy']) <= 2.60,

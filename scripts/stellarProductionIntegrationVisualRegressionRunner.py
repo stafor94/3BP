@@ -18,7 +18,6 @@ pass5.p2.LEVEL_TARGETS = dict(pass5.p2.LEVEL_TARGETS)
 pass5.p2.LEVEL_TARGETS['normal'] = (52.0, pass5.p2.LEVEL_TARGETS['normal'][1])
 
 _original_capture_canvas = pass5.capture_canvas
-_original_validate_surface = pass5.validate_surface
 
 
 def capture_canvas_without_mobile_chrome(driver, canvas, path: Path) -> Image.Image:
@@ -46,21 +45,20 @@ def validate_surface_with_production_normal(
     level: str,
     metric: dict[str, float | int],
 ) -> None:
-    if level != 'normal':
-        _original_validate_surface(star, level, metric)
-        return
-
     diameter = float(metric['bright_photosphere_diameter_px'])
     low, high = pass5.LEVEL_TARGETS[level]
     pass5.require(low <= diameter <= high, f'{star}/{level}: diameter {diameter:.1f}px misses {low:.0f}-{high:.0f}px')
 
-    # At the actual ~54 px production tracking footprint the derivative LOD is
-    # intentionally allowed to fully suppress granulation instead of forcing
-    # sub-pixel texture. The enlarged/extreme states retain the strict lower
-    # contrast bounds, and normal still keeps all topology/aliasing upper gates.
+    # A production-sized photosphere must retain measurable mid-scale structure;
+    # accepting zero contrast here allowed a flat, smooth disk to pass.
     contrast = float(metric['granulation_contrast'])
-    pass5.require(contrast <= 1.60, f'{star}/{level}: surface texture is too strong ({contrast:.3f})')
-    pass5.require(float(metric['broad_variation_std']) >= 0.35, f'{star}/{level}: broad convection vanished')
+    contrast_low, contrast_high = {
+        'normal': (0.10, 1.80),
+        'enlarged': (0.20, 2.80),
+        'extreme': (0.26, 3.60),
+    }[level]
+    pass5.require(contrast_low <= contrast <= contrast_high, f'{star}/{level}: flat smooth disk or excessive texture ({contrast:.3f})')
+    pass5.require(float(metric['broad_variation_std']) >= 0.48, f'{star}/{level}: mid-scale plasma/convection structure vanished')
     pass5.require(float(metric['high_frequency_energy']) <= 2.60, f'{star}/{level}: shimmer/moire-like HF energy is too high')
     pass5.require(float(metric['local_minima_fraction']) <= 0.10, f'{star}/{level}: excessive local pits')
     pass5.require(float(metric['dark_residual_fraction']) <= 0.34, f'{star}/{level}: dark trough coverage is excessive')

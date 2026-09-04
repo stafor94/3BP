@@ -278,15 +278,15 @@ def validate_surface(star: str, level: str, metric: dict[str, float | int]) -> N
     require(low <= diameter <= high, f'{star}/{level}: diameter {diameter:.1f}px misses {low:.0f}-{high:.0f}px')
     contrast = float(metric['granulation_contrast'])
     contrast_low, contrast_high = {
-        'normal': (0.08, 1.60),
-        'enlarged': (0.16, 2.50),
-        'extreme': (0.22, 3.40),
+        'normal': (0.10, 1.80),
+        'enlarged': (0.20, 2.80),
+        'extreme': (0.26, 3.60),
     }[level]
     require(
         contrast_low <= contrast <= contrast_high,
         f'{star}/{level}: granulation contrast {contrast:.3f} outside {contrast_low:.2f}-{contrast_high:.2f}',
     )
-    require(float(metric['broad_variation_std']) >= 0.35, f'{star}/{level}: broad convection vanished')
+    require(float(metric['broad_variation_std']) >= 0.48, f'{star}/{level}: flat smooth disk; mid-scale plasma structure vanished')
     require(float(metric['high_frequency_energy']) <= 2.60, f'{star}/{level}: shimmer/moire-like HF energy is too high')
     require(float(metric['local_minima_fraction']) <= 0.10, f'{star}/{level}: excessive local pits')
     require(float(metric['dark_residual_fraction']) <= 0.34, f'{star}/{level}: dark trough coverage is excessive')
@@ -302,15 +302,15 @@ def validate_corona(star: str, level: str, metric: dict[str, float]) -> None:
     outer = metric['outer_to_core']
     far = metric['far_to_core']
     extent = metric['extent_fraction']
-    require(0.080 <= near <= 0.20, f'{star}/{level}: near corona out of range ({near:.4f})')
-    require(0.015 <= outer <= 0.055, f'{star}/{level}: outer corona out of range ({outer:.4f})')
-    require(far <= 0.014, f'{star}/{level}: far halo is excessive ({far:.4f})')
-    require(0.12 <= metric['outer_to_near'] <= 0.40, f'{star}/{level}: near/outer corona balance is unnatural')
-    require(metric['far_to_outer'] <= 0.35, f'{star}/{level}: corona does not decay enough')
-    require(0.24 <= extent <= 0.44, f'{star}/{level}: corona extent is too thin or broad ({extent:.3f})')
+    require(0.025 <= near <= 0.13, f'{star}/{level}: near corona is missing or overpowers the photosphere ({near:.4f})')
+    require(outer <= 0.030, f'{star}/{level}: large diffuse halo ({outer:.4f})')
+    require(far <= 0.006, f'{star}/{level}: large diffuse far halo ({far:.4f})')
+    require(metric['outer_to_near'] <= 0.32, f'{star}/{level}: diffuse halo dominates the short fringe')
+    require(metric['far_to_outer'] <= 0.32, f'{star}/{level}: corona does not decay quickly enough')
+    require(0.06 <= extent <= 0.30, f'{star}/{level}: corona is missing or forms a large diffuse halo ({extent:.3f})')
     require(metric['extent_std_fraction'] <= 0.060, f'{star}/{level}: corona boundary is too irregular')
-    edge_limit = 3.35 if level == 'normal' else 2.25
-    require(metric['edge_to_shoulder_p90'] <= edge_limit, f'{star}/{level}: corona is a thin outline')
+    edge_limit = 2.35 if level == 'normal' else 1.85
+    require(metric['edge_to_shoulder_p90'] <= edge_limit, f'{star}/{level}: neon ring at the photosphere edge')
     require(metric['radial_rebound_p90'] <= 0.060, f'{star}/{level}: corona contains a radial rebound')
 
 

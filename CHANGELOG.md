@@ -6,6 +6,17 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.17] - 2026-09-04
+
+### Changed
+- photosphere의 primary/mid-scale value-noise 주파수와 screen-space LOD, 대류·플라즈마 진폭을 조정해 모바일 일반 확대에서도 매끈한 단색 원반 대신 은은하고 분명한 비세포성 표면 구조가 남도록 했습니다.
+- 광구 limb의 emission 바닥값과 detail envelope를 높이고 edge coverage 전이를 실제 실루엣 가까이로 좁혀 검은 외곽선 없이 표면이 짧은 corona fringe로 이어지도록 했습니다.
+- 최근 확대했던 corona Sprite scale/opacity와 diffuse tail을 축소해 halo가 photosphere보다 먼저 보이지 않도록 되돌렸습니다.
+
+### Verification
+- production 모바일 회귀 기준에서 normal 크기의 0 contrast 허용을 제거하고, flat smooth disk, large diffuse halo, dark outline, neon ring을 명시적인 실패 결과로 다루도록 surface/corona/radial 계약을 강화했습니다.
+- Voronoi/벌집형 연결 암부, 과도한 고주파 노이즈와 local pit을 거부하는 기존 topology-free 검증은 유지합니다.
+
 ## [0.24.16] - 2026-09-04
 
 ### Fixed
