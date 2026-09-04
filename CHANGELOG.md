@@ -6,6 +6,19 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.15] - 2026-09-04
+
+### Fixed
+- 항성 표면은 그대로 유지하면서 compact corona의 near-limb shoulder 에너지와 짧게 감쇠하는 diffuse outer glow 가시성을 높여, 모바일 normal/enlarged 구도에서 항성이 단순한 밝은 구가 아니라 스스로 빛나는 천체로 읽히도록 조정했습니다.
+- outer glow는 Sprite 가장자리 전에 더 일찍 감쇠하도록 제한해 발광감 증가가 독립된 원형 haze, gray/neon ring 또는 giant halo로 이어지지 않게 했습니다.
+
+### Verification
+- 항성 렌더링 회귀 검증에 넓은 near-limb shoulder, 증가한 near/diffuse 발광 에너지, Sprite 가장자리 이전 감쇠 계약을 추가했습니다.
+- production mobile Helios 8 M☉ tracking 경로의 normal/enlarged 동일 조건 A/B 캡처를 위한 기존 전용 회귀 경로를 유지합니다.
+
+### Unchanged
+- photosphere shader와 granulation/limb/temperature profile, 카메라·줌·충돌 물리·타임스케일·배경, planet/moon/fragment 렌더링은 변경하지 않습니다.
+
 ## [0.24.14] - 2026-09-04
 
 ### Changed

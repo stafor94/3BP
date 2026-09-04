@@ -91,11 +91,12 @@ export function configureStellarCoronaMaterial(
             coronaRadius
           );
 
-          // Retain the compact Pass 5 core as a reference component, then broaden
-          // it with a soft shoulder so the immediate glow is not a neon outline.
+          // Keep the compact core, but give its shoulder enough energy to remain
+          // legible at production mobile scale. The broad lobe avoids turning the
+          // extra energy into a thin outline while leaving the photosphere masked.
           float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));
-          float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.30, 1.65));
-          float coronaNearRegion = coronaNearLimb * 0.52 + coronaNearShoulder * 0.48;
+          float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.34, 1.55));
+          float coronaNearRegion = coronaNearLimb * 0.44 + coronaNearShoulder * 0.56;
 
           // Keep the historical fast tail present for continuity, but make the
           // visible outer region come primarily from a much weaker, slower diffuse
@@ -106,10 +107,10 @@ export function configureStellarCoronaMaterial(
             (1.0 - smoothstep(0.72, 1.0, warpedDistance01));
           float coronaOuterRise = smoothstep(0.10, 0.28, warpedDistance01);
           float coronaOuterDiffuse =
-            exp(-warpedDistance01 * 2.65) *
+            exp(-warpedDistance01 * 2.85) *
             coronaOuterRise *
-            (1.0 - smoothstep(0.78, 0.98, warpedDistance01));
-          float coronaOuterRegion = coronaOuter * 0.16 + coronaOuterDiffuse * 0.84;
+            (1.0 - smoothstep(0.74, 0.96, warpedDistance01));
+          float coronaOuterRegion = coronaOuter * 0.12 + coronaOuterDiffuse * 0.88;
 
           float coronaAngularBrightness = clamp(
             1.0 + coronaAngularA * 0.018 + coronaAngularB * 0.008,
@@ -119,7 +120,7 @@ export function configureStellarCoronaMaterial(
           float coronaSpriteEdge = 1.0 - smoothstep(0.90, 0.985, coronaRadius);
           float coronaAlpha =
             coronaOutsideMask *
-            (coronaNearRegion * 0.74 + coronaOuterRegion * 0.26) *
+            (coronaNearRegion * 0.86 + coronaOuterRegion * 0.34) *
             coronaAngularBrightness *
             coronaSpriteEdge;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);

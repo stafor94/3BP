@@ -275,12 +275,15 @@ function testStellarUpdateContractOwnsRenderInputs() {
   assert(stellarMaterialSource.includes('export function updateStellarPhotosphereMaterial('), 'stellar-only uniforms must be updated in the stellar material module')
 }
 
-function testCoronaRemainsUnchangedAndSubordinate() {
+function testCoronaRestoresEmissiveReadWithoutASeparateHalo() {
   assert(stellarCoronaSource.includes("export const STELLAR_CORONA_RENDER_PATH = 'stellar-corona-pass5'"), 'Pass 3 must retain the dedicated compact corona path')
   assert(stellarCoronaSource.includes('float coronaPhase = uCoronaTime * 0.0016;'), 'corona time evolution must remain nearly imperceptible')
   assert(stellarCoronaSource.includes('coronaAngularA * 0.050 + coronaAngularB * 0.024'), 'corona radius variation must stay subtle')
   assert(stellarCoronaSource.includes('float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));'), 'corona must remain concentrated near the photosphere')
+  assert(stellarCoronaSource.includes('float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.34, 1.55));'), 'corona must retain a broad mobile-visible near-limb shoulder')
+  assert(stellarCoronaSource.includes('coronaNearRegion * 0.86 + coronaOuterRegion * 0.34'), 'near and diffuse corona energy must remain visibly emissive')
   assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 5.4)'), 'outer corona must continue to decay rapidly')
+  assert(stellarCoronaSource.includes('1.0 - smoothstep(0.74, 0.96, warpedDistance01)'), 'diffuse corona must fade before the Sprite edge instead of forming a giant halo')
   assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'existing inner Sprite must remain the single corona carrier')
   assert(bodyLightingSource.includes('glowOuter.visible = false\n    glowOuter.material.opacity = 0'), 'legacy outer stellar Sprite must remain disabled')
 }
@@ -304,7 +307,7 @@ const tests = [
   testPhotosphereUsesSingleLinearHdrToneMappingPath,
   testStellarOnlySurfaceLogicDoesNotLeakIntoGenericShader,
   testStellarUpdateContractOwnsRenderInputs,
-  testCoronaRemainsUnchangedAndSubordinate,
+  testCoronaRestoresEmissiveReadWithoutASeparateHalo,
   testNonStellarSurfacePathRemainsSeparated,
 ]
 
