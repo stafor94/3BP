@@ -6,6 +6,17 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.17] - 2026-09-04
+
+### Fixed
+- photosphere와 diffuse outer lobe는 유지하면서 stellar corona의 near-limb 성분만 낮춰, 모바일 normal 구도에서 corona가 광구 표면보다 두드러지던 문제를 수정했습니다.
+
+### Verification
+- production 모바일 통합 검증의 near/core 상한을 `0.13`으로 강화하고 corona 셰이더 구조 회귀 계약을 새 near-limb 에너지에 맞췄습니다.
+
+### Unchanged
+- photosphere 표면 구조와 granulation/limb, diffuse outer corona, 배경 렌더링은 변경하지 않습니다.
+
 ## [0.24.16] - 2026-09-04
 
 ### Fixed

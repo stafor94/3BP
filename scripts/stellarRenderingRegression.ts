@@ -289,7 +289,7 @@ function testCoronaRestoresEmissiveReadWithoutASeparateHalo() {
   assert(stellarCoronaSource.includes('coronaAngularA * 0.050 + coronaAngularB * 0.024'), 'corona radius variation must stay subtle')
   assert(stellarCoronaSource.includes('float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));'), 'corona must remain concentrated near the photosphere')
   assert(stellarCoronaSource.includes('float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.42, 1.48));'), 'corona must retain a broad mobile-visible near-limb shoulder')
-  assert(stellarCoronaSource.includes('coronaNearRegion * 0.88 + coronaOuterRegion * 0.42'), 'near and diffuse corona energy must remain visibly emissive')
+  assert(stellarCoronaSource.includes('coronaNearRegion * 0.70 + coronaOuterRegion * 0.42'), 'near-limb corona must remain subordinate while diffuse corona energy stays visibly emissive')
   assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 4.8)'), 'near-weighted outer component must not use a faster falloff than the previous corona')
   assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 2.10)'), 'diffuse corona must retain a slower outer falloff')
   assert(stellarCoronaSource.includes('1.0 - smoothstep(0.88, 0.995, warpedDistance01)'), 'diffuse corona must use nearly the full Sprite without clipping into a hard ring')

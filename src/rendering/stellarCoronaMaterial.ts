@@ -122,7 +122,7 @@ export function configureStellarCoronaMaterial(
           float coronaSpriteEdge = 1.0 - smoothstep(0.90, 0.985, coronaRadius);
           float coronaAlpha =
             coronaOutsideMask *
-            (coronaNearRegion * 0.88 + coronaOuterRegion * 0.42) *
+            (coronaNearRegion * 0.70 + coronaOuterRegion * 0.42) *
             coronaAngularBrightness *
             coronaSpriteEdge;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);

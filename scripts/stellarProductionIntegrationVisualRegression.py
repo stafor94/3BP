@@ -302,7 +302,7 @@ def validate_corona(star: str, level: str, metric: dict[str, float]) -> None:
     outer = metric['outer_to_core']
     far = metric['far_to_core']
     extent = metric['extent_fraction']
-    require(0.080 <= near <= 0.20, f'{star}/{level}: near corona out of range ({near:.4f})')
+    require(0.080 <= near <= 0.13, f'{star}/{level}: near corona out of range ({near:.4f})')
     require(0.015 <= outer <= 0.055, f'{star}/{level}: outer corona out of range ({outer:.4f})')
     require(far <= 0.014, f'{star}/{level}: far halo is excessive ({far:.4f})')
     require(0.12 <= metric['outer_to_near'] <= 0.40, f'{star}/{level}: near/outer corona balance is unnatural')
