@@ -96,9 +96,10 @@ function testTrackingAndCollisionFractionsStaySeparated() {
 }
 
 function testCollisionDistanceContinuesPastEighteenFramesUntilConverged() {
-  const trackingDistance = getDistance(primaryRadius)
   const desiredDistance = getDistance(primaryRadius, COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION)
-  let currentDistance = trackingDistance
+  // Keep this test about frame-count semantics independent of the current gap
+  // between ordinary tracking and collision-watch framing targets.
+  let currentDistance = desiredDistance * 1.75
 
   for (let frame = 0; frame < 18; frame += 1) {
     currentDistance += (desiredDistance - currentDistance) * 0.18
