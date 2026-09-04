@@ -1,4 +1,7 @@
 import {
+  COLLISION_WATCH_APPROACH_SPEED,
+  COLLISION_WATCH_IMPACT_SPEED,
+  COLLISION_WATCH_POST_IMPACT_SPEED,
   getCollisionWatchRestoreSpeed,
   getCollisionWatchTimingProfile,
 } from '../src/collisionWatchTiming'
@@ -6,6 +9,19 @@ import {
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
+
+const managedSpeeds = [
+  COLLISION_WATCH_APPROACH_SPEED,
+  COLLISION_WATCH_IMPACT_SPEED,
+  COLLISION_WATCH_POST_IMPACT_SPEED,
+]
+assert(
+  managedSpeeds.every((managedSpeed) => managedSpeed >= 0.1),
+  'collision watch managed speed must never drop below 0.1x',
+)
+assert(COLLISION_WATCH_APPROACH_SPEED === 0.1, 'collision watch approach speed must remain 0.1x')
+assert(COLLISION_WATCH_IMPACT_SPEED === 0.1, 'collision watch impact speed must remain 0.1x')
+assert(COLLISION_WATCH_POST_IMPACT_SPEED === 0.1, 'collision watch post-impact speed must remain 0.1x')
 
 const stellar = getCollisionWatchTimingProfile('star', 'star')
 assert(stellar.isStellarCollision, 'star-star must use the stellar collision timing profile')
@@ -30,7 +46,7 @@ assert(standard.restoreRampMs >= 950, 'solid-body speed restore must not jump ab
 assert(standard.cameraHoldMs >= 4900, 'solid-body collision camera must remain on the result through the extended absorption/breakup')
 assert(standard.infoHoldMs >= 4500, 'solid-body collision info must remain visible through the result observation window')
 
-const start = 0.08
+const start = COLLISION_WATCH_POST_IMPACT_SPEED
 const target = 2
 const duration = 1000
 assert(getCollisionWatchRestoreSpeed(start, target, 0, duration) === start, 'restore ramp must start at its captured speed')

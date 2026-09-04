@@ -1,8 +1,8 @@
 import type { BodyType } from './types'
 
 export const COLLISION_WATCH_APPROACH_SPEED = 0.1
-export const COLLISION_WATCH_IMPACT_SPEED = 0.03
-export const COLLISION_WATCH_POST_IMPACT_SPEED = 0.08
+export const COLLISION_WATCH_IMPACT_SPEED = 0.1
+export const COLLISION_WATCH_POST_IMPACT_SPEED = 0.1
 
 export type CollisionWatchPhase = 'approach' | 'impact' | 'postImpact' | 'restoring'
 export type CollisionWatchCollisionType = 'stellar' | 'stellarMixed' | 'standard' | 'fragment'
