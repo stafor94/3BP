@@ -2,10 +2,12 @@
 
 import spaceBackgroundVisualRegression as visual
 
-visual.BASELINE_REF = '38637551e8ef53bccafb64540a76502a40397b45'
+# This gate is a PR regression check, so compare against the main revision the
+# stellar-rendering work branches from rather than the obsolete v0.24.3 image.
+visual.BASELINE_REF = 'b8e28a4666df13282d7248445b479d33bb51af2a'
 visual.VARIANT_LABELS = {
-    'baseline': 'Baseline / 0.24.3',
-    'current': 'Temperature color + display luma / 0.24.4',
+    'baseline': 'Baseline / main v0.24.16',
+    'current': 'Current PR',
 }
 
 _original_summarize = visual.summarize
