@@ -267,15 +267,15 @@ def validate_production_corona(
     # per-ray rebound invariant is replaced here with production-scene aggregate
     # gates; the original p90<=0.060 rule still runs later in the dedicated corona
     # regression, so the overall suite is not weakened.
-    require(0.080 <= metric['near_to_core'] <= 0.20, f'Helios/{level}: near corona out of range')
-    require(0.015 <= metric['outer_to_core'] <= 0.055, f'Helios/{level}: outer corona out of range')
-    require(metric['far_to_core'] <= 0.014, f'Helios/{level}: far halo is excessive')
-    require(0.12 <= metric['outer_to_near'] <= 0.40, f'Helios/{level}: near/outer corona balance is unnatural')
-    require(metric['far_to_outer'] <= 0.35, f'Helios/{level}: corona does not decay enough')
-    require(0.24 <= metric['extent_fraction'] <= 0.44, f'Helios/{level}: corona extent is too thin or broad')
+    require(0.025 <= metric['near_to_core'] <= 0.13, f'Helios/{level}: near corona is missing or overpowers the photosphere')
+    require(metric['outer_to_core'] <= 0.030, f'Helios/{level}: large diffuse halo')
+    require(metric['far_to_core'] <= 0.006, f'Helios/{level}: large diffuse far halo')
+    require(metric['outer_to_near'] <= 0.32, f'Helios/{level}: outer halo dominates the fringe')
+    require(metric['far_to_outer'] <= 0.32, f'Helios/{level}: corona does not decay enough')
+    require(0.06 <= metric['extent_fraction'] <= 0.30, f'Helios/{level}: corona is missing or forms a large diffuse halo')
     require(metric['extent_std_fraction'] <= 0.060, f'Helios/{level}: corona boundary is too irregular')
-    edge_limit = 3.35 if level == 'normal' else 2.25
-    require(metric['edge_to_shoulder_p90'] <= edge_limit, f'Helios/{level}: corona collapsed into an outline')
+    edge_limit = 2.35 if level == 'normal' else 1.85
+    require(metric['edge_to_shoulder_p90'] <= edge_limit, f'Helios/{level}: neon ring at the photosphere edge')
     require(
         aggregate['median_radial_rebound'] <= 0.004,
         f"Helios/{level}: broad median corona rebound {aggregate['median_radial_rebound']:.4f}",

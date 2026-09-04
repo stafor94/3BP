@@ -5,6 +5,8 @@ const bodyLightingSource = readFileSync(resolve(process.cwd(), 'src/rendering/bo
 const rendererSource = readFileSync(resolve(process.cwd(), 'src/rendering/simulationRenderer.ts'), 'utf8')
 const photosphereSource = readFileSync(resolve(process.cwd(), 'src/rendering/stellarPhotosphereMaterial.ts'), 'utf8')
 const coronaSource = readFileSync(resolve(process.cwd(), 'src/rendering/stellarCoronaMaterial.ts'), 'utf8')
+const integrationRegressionSource = readFileSync(resolve(process.cwd(), 'scripts/stellarProductionIntegrationVisualRegression.py'), 'utf8')
+const radialRegressionSource = readFileSync(resolve(process.cwd(), 'scripts/stellarPhotospherePass3RadialRegression.py'), 'utf8')
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -68,10 +70,22 @@ function testFinalBaselineDoesNotChangeGlobalRenderingPolicy() {
   )
 }
 
+function testPhotosphereCannotRegressToSmoothDiskOrDarkOutline() {
+  assert(photosphereSource.includes('const float STELLAR_PRIMARY_FREQUENCY = 13.0'), 'mobile photosphere must retain mid-scale primary structure')
+  assert(integrationRegressionSource.includes("'normal': (0.10, 1.80)"), 'flat normal-view photospheres must fail visual regression')
+  assert(integrationRegressionSource.includes('large diffuse halo'), 'large diffuse halos must be an explicit visual-regression failure')
+  assert(integrationRegressionSource.includes('neon ring'), 'neon rings must be an explicit visual-regression failure')
+  assert(radialRegressionSource.includes('dark outline/ring drop'), 'dark photosphere outlines must be an explicit radial-regression failure')
+  assert(photosphereSource.includes('fwidth(viewMu) * 0.50'), 'edge coverage must stay confined to the geometric silhouette')
+  assert(photosphereSource.includes('return 0.90 + broadDepth'), 'limb emission floor must prevent a dark photosphere outline')
+  assert(coronaSource.includes('smoothstep(0.52, 0.72, warpedDistance01)'), 'corona tail must end shortly beyond the photosphere')
+}
+
 const tests = [
   testOnePhotosphereDrawPerStellarBody,
   testOneCoronaDrawPerStellarBody,
   testFinalBaselineDoesNotChangeGlobalRenderingPolicy,
+  testPhotosphereCannotRegressToSmoothDiskOrDarkOutline,
 ]
 
 for (const test of tests) test()

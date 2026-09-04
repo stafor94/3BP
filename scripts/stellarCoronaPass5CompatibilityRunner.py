@@ -1,10 +1,67 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import math
+from pathlib import Path
+
+from PIL import Image
+
 import stellarCoronaVisualRegression as corona
 
 
+_original_analyze_corona = corona.analyze_corona
 _original_validate_state = corona.validate_state
+
+
+def analyze_corona_outside_sampling_footprint(path: Path) -> dict[str, float]:
+    """Keep corona gates strict while excluding photosphere pixels from edge ratio."""
+    metric = _original_analyze_corona(path)
+    image = Image.open(path).convert('RGB')
+    geometry = corona.p2.locate_photosphere(image)
+    cx = float(geometry['center_x'])
+    cy = float(geometry['center_y'])
+    radius = float(geometry['equivalent_radius_px'])
+    background = corona.background_luma(image, cx, cy, radius)
+    guard_fraction = max(0.02, 2.0 / max(radius, 1.0))
+    edge_to_shoulder: list[float] = []
+
+    for angle_index in range(72):
+        angle = math.tau * angle_index / 72.0
+        edge = corona.silhouette_radius(image, cx, cy, radius, angle)
+        if edge is None:
+            continue
+        far_x = cx + math.cos(angle) * (edge + radius * 0.46)
+        far_y = cy + math.sin(angle) * (edge + radius * 0.46)
+        if not corona.point_inside(image, far_x, far_y):
+            continue
+
+        profile: list[tuple[float, float]] = []
+        fraction = 0.02
+        while fraction <= 0.4601:
+            distance = edge + radius * fraction
+            x = cx + math.cos(angle) * distance
+            y = cy + math.sin(angle) * distance
+            excess = max(0.0, corona.sample_luma(image, x, y) - background)
+            profile.append((fraction, excess))
+            fraction += 0.02
+
+        post_guard = [sample for sample in profile if sample[0] + 1e-9 >= guard_fraction]
+        if len(post_guard) < 3:
+            continue
+        edge_fraction, edge_value = post_guard[0]
+        shoulder = [
+            excess
+            for sample_fraction, excess in profile
+            if edge_fraction + 0.02 - 1e-9 <= sample_fraction <= edge_fraction + 0.04 + 1e-9
+        ]
+        if not shoulder:
+            continue
+        shoulder_mean = sum(shoulder) / len(shoulder)
+        edge_to_shoulder.append(edge_value / max(shoulder_mean, 0.01))
+
+    corona.p2.base.require(len(edge_to_shoulder) >= 24, 'not enough post-AA stellar limb directions')
+    metric['edge_to_shoulder_p90'] = corona.percentile(edge_to_shoulder, 0.90)
+    return metric
 
 
 def validate_state_with_pass5_surface_lod(
@@ -15,7 +72,7 @@ def validate_state_with_pass5_surface_lod(
     baseline_corona: dict[str, float],
     corona_metric: dict[str, float],
 ) -> None:
-    """Keep Pass 4 corona gates while accepting Pass 5's intentional surface LOD change.
+    """Apply the current photosphere-first surface and compact-corona gates.
 
     Pass 4 originally required photosphere granulation contrast to remain almost
     identical to the Pass 3 baseline because that pass was corona-only. Pass 5 is
@@ -27,17 +84,17 @@ def validate_state_with_pass5_surface_lod(
     """
     contrast = float(current_surface['granulation_contrast'])
     lower, upper = {
-        'normal': (0.0, 1.60),
-        'enlarged': (0.16, 2.50),
-        'extreme': (0.22, 3.40),
+        'normal': (0.10, 1.80),
+        'enlarged': (0.20, 2.80),
+        'extreme': (0.26, 3.60),
     }[level]
     corona.p2.base.require(
         lower <= contrast <= upper,
         f'{star}/{level}: Pass 5 photosphere granulation {contrast:.3f} outside {lower:.2f}-{upper:.2f}',
     )
     corona.p2.base.require(
-        float(current_surface['broad_variation_std']) >= 0.35,
-        f'{star}/{level}: broad convection vanished while validating corona',
+        float(current_surface['broad_variation_std']) >= 0.48,
+        f'{star}/{level}: flat smooth disk; mid-scale plasma structure vanished',
     )
     corona.p2.base.require(
         float(current_surface['high_frequency_energy']) <= 2.60,
@@ -72,6 +129,7 @@ def validate_state_with_pass5_surface_lod(
     )
 
 
+corona.analyze_corona = analyze_corona_outside_sampling_footprint
 corona.validate_state = validate_state_with_pass5_surface_lod
 
 

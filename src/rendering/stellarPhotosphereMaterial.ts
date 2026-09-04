@@ -106,11 +106,11 @@ export const stellarPhotosphereFragmentShader = `
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
 
-  const float STELLAR_CONVECTION_FREQUENCY = 2.1;
-  const float STELLAR_WARP_FREQUENCY = 6.4;
-  const float STELLAR_PRIMARY_FREQUENCY = 27.0;
-  const float STELLAR_PRIMARY_SECONDARY_FREQUENCY = 42.0;
-  const float STELLAR_FINE_FREQUENCY = 74.0;
+  const float STELLAR_CONVECTION_FREQUENCY = 2.6;
+  const float STELLAR_WARP_FREQUENCY = 5.2;
+  const float STELLAR_PRIMARY_FREQUENCY = 13.0;
+  const float STELLAR_PRIMARY_SECONDARY_FREQUENCY = 21.0;
+  const float STELLAR_FINE_FREQUENCY = 58.0;
 
   float hash31(vec3 p) {
     p = fract(p * 0.1031);
@@ -171,16 +171,17 @@ export const stellarPhotosphereFragmentShader = `
       STELLAR_FINE_FREQUENCY
     );
     float convectionLod = mix(
-      0.72,
+      0.84,
       1.0,
-      smoothstep(0.65, 2.40, convectionPixels)
+      smoothstep(0.55, 1.80, convectionPixels)
     );
-    // Pass 5: resolve the existing primary bands earlier in screen space so
-    // production mobile tracking has visible plasma structure by the enlarged
-    // framing. Fine breakup remains on the Pass 4 thresholds to avoid moire.
-    float primaryLod = smoothstep(0.70, 2.40, primaryPixels);
-    float secondaryLod = smoothstep(0.60, 1.55, secondaryPixels);
-    float fineLod = smoothstep(1.65, 3.80, finePixels);
+    // The primary pair is deliberately mid-scale: at the production mobile
+    // tracking diameter it still spans several pixels instead of disappearing
+    // and leaving only unresolved fine noise. Fine breakup remains conservative
+    // so it cannot shimmer or turn the smooth value field into cell boundaries.
+    float primaryLod = smoothstep(0.48, 1.45, primaryPixels);
+    float secondaryLod = smoothstep(0.58, 1.65, secondaryPixels);
+    float fineLod = smoothstep(1.85, 4.20, finePixels);
 
     float convectionA = valueNoise(
       objectNormal * STELLAR_CONVECTION_FREQUENCY + seedOffset * 0.41
@@ -250,18 +251,18 @@ export const stellarPhotosphereFragmentShader = `
     );
 
     float convectionVariation =
-      (convection - 0.5) * 0.020 * convectionLod * convectionEvolution;
-    float resolvedGranulationBoost = mix(1.0, 1.70, secondaryLod);
+      (convection - 0.5) * 0.052 * convectionLod * convectionEvolution;
+    float resolvedGranulationBoost = mix(1.18, 1.62, secondaryLod);
     float primaryVariation =
-      primaryGranulation * 0.086 * primaryEvolution * resolvedGranulationBoost;
+      primaryGranulation * 0.132 * primaryEvolution * resolvedGranulationBoost;
     float fineVariation =
-      (fineBreakup - 0.5) * 0.005 * fineLod;
+      (fineBreakup - 0.5) * 0.003 * fineLod;
     float variation =
       convectionVariation +
       primaryVariation +
       fineVariation;
 
-    return clamp(1.0 + variation * uDetailStrength, 0.925, 1.075);
+    return clamp(1.0 + variation * uDetailStrength, 0.86, 1.14);
   }
 
   float drawStellarEmission(float viewMu) {
@@ -270,27 +271,28 @@ export const stellarPhotosphereFragmentShader = `
     // out of the outer disk instead of creating a separate bright core.
     float broadDepth = pow(viewMu, 0.32);
     float centerDepth = pow(viewMu, 1.35);
-    return 0.81 + broadDepth * 0.14 + centerDepth * 0.36;
+    return 0.90 + broadDepth * 0.12 + centerDepth * 0.29;
   }
 
   float getStellarDetailEnvelope(float viewMu) {
-    // Compress granulation across a broad grazing-angle range, not only at the
-    // last few silhouette pixels. This preserves center/mid structure while
-    // preventing projection-compressed texture from becoming denser at the limb.
-    // A nonzero floor keeps the transition plasma-like rather than forming a
-    // smooth radial band.
-    return mix(0.18, 1.0, smoothstep(0.20, 0.82, viewMu));
+    // Keep convection/plasma contrast strongest across the center and mid disk,
+    // then compress it before projection packs the texture into the limb. The
+    // nonzero floor preserves living surface variation without making the edge
+    // as noisy as the center or collapsing it into a smooth radial band.
+    return mix(0.30, 1.0, smoothstep(0.18, 0.84, viewMu));
   }
 
   float drawStellarFringe(float viewMu) {
     float fresnel = 1.0 - viewMu;
-    float fringeRise = smoothstep(0.58, 0.82, fresnel);
-    float fringeFall = 1.0 - smoothstep(0.90, 0.985, fresnel);
+    float fringeRise = smoothstep(0.52, 0.76, fresnel);
+    float fringeFall = 1.0 - smoothstep(0.94, 0.995, fresnel);
     return fringeRise * fringeFall * uRimStrength;
   }
 
   float getStellarEdgeCoverage(float viewMu) {
-    float viewMuWidth = min(max(fwidth(viewMu) * 1.55, 0.035), 0.20);
+    // Keep antialiasing tightly on the geometric silhouette. A broad alpha ramp
+    // over the limb-darkened photosphere reads as a charcoal outline on black.
+    float viewMuWidth = min(max(fwidth(viewMu) * 0.50, 0.008), 0.040);
     return smoothstep(0.0, viewMuWidth, viewMu);
   }
 
@@ -310,8 +312,8 @@ export const stellarPhotosphereFragmentShader = `
     // Mean photosphere energy is driven by the smooth center-to-limb emission.
     // Fringe contribution is intentionally tiny so it cannot become a bright
     // outline. Procedural detail stays a bounded linear/HDR modulation.
-    float meanEmission = (emission + fringe * 0.14) * uEmissionStrength;
-    float surfaceVariation = clamp((surfaceDetail - 1.0) * 0.92, -0.095, 0.075);
+    float meanEmission = (emission + fringe * 0.22) * uEmissionStrength;
+    float surfaceVariation = clamp((surfaceDetail - 1.0) * 1.08, -0.15, 0.13);
     surfaceVariation *= detailEnvelope;
     float linearIntensity = meanEmission * (1.0 + surfaceVariation);
 
@@ -398,10 +400,10 @@ export function updateStellarPhotosphereMaterial(
 ) {
   const identityColor = material.uniforms.uIdentityColor?.value
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
-  // Pass 5 keeps the Pass 1-4 field intact and only gives resolved granulation
-  // a bounded strength lift for production mobile tracking/zoom framing.
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.35
-  if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.025
+  // Keep the mid-scale convection readable at ordinary mobile tracking size;
+  // fine detail is separately derivative-gated in the shader.
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.65
+  if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
     material.uniforms.uEmissionStrength.value = frame.renderProfile.photosphereIntensity

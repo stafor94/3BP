@@ -99,17 +99,14 @@ function testLuminosityAndHaloContractsStayBounded() {
   samples.forEach(({ render }) => {
     assert(render.photosphereIntensity >= 0.9 && render.photosphereIntensity <= 1.1, 'photosphere HDR intensity must stay inside the calibrated stellar range')
     assert(render.whiteHotMix <= 0.06, 'white-hot treatment must remain confined to a small center contribution')
-    assert(render.coronaScale >= 4.1 && render.coronaScale <= 4.3, 'single corona carrier must reserve broad screen-space room around the photosphere')
-    assert(render.coronaOpacity >= 0.34 && render.coronaOpacity < 0.43, 'broad corona must remain visible but subordinate to the photosphere')
+    assert(render.coronaScale >= 2.9 && render.coronaScale <= 3.05, 'corona carrier must remain compact around the photosphere')
+    assert(render.coronaOpacity >= 0.18 && render.coronaOpacity < 0.24, 'corona must remain a thin subordinate fringe')
     assert(render.coronaOuterWhiteMix <= 0.035, 'outer corona desaturation must remain very subtle')
 
     const photosphereRadiusUv = 2 / render.coronaScale
     const diffuseCutoffRadiusUv = photosphereRadiusUv + (1 - photosphereRadiusUv) * 0.995
     const diffuseCutoffRadiusInPhotospheres = diffuseCutoffRadiusUv / photosphereRadiusUv
-    assert(
-      diffuseCutoffRadiusInPhotospheres >= 2.0,
-      'production Sprite scale must carry diffuse light to at least two photosphere radii',
-    )
+    assert(diffuseCutoffRadiusInPhotospheres < 1.55, 'large diffuse halo must fail the production corona contract')
   })
 }
 
@@ -184,7 +181,7 @@ function testPhotosphereRemovesExplicitCellularTopology() {
   assert(stellarMaterialSource.includes('vec3 warpedNormal = normalize(objectNormal + warpVector'), 'primary granulation must decorrelate the value-noise lattice with bounded domain distortion')
   assert(stellarMaterialSource.includes('float primaryGranulation ='), 'Pass 2 must provide an explicit primary granulation field')
   assert(stellarMaterialSource.includes('convectionVariation +\n      primaryVariation +\n      fineVariation'), 'surface contrast must preserve broad / primary / fine hierarchy')
-  assert(stellarMaterialSource.includes('return clamp(1.0 + variation * uDetailStrength, 0.925, 1.075);'), 'surface variation must stay tightly bounded around mean luminance')
+  assert(stellarMaterialSource.includes('return clamp(1.0 + variation * uDetailStrength, 0.86, 1.14);'), 'surface variation must stay bounded while remaining visible on mobile')
 
   const noiseCalls = stellarMaterialSource.match(/valueNoise\(/g) ?? []
   assert(noiseCalls.length >= 8, 'Pass 2 must use enough decorrelated samples for multi-scale granulation')
@@ -224,28 +221,28 @@ function testPhotosphereUsesLuminousCenterToLimbResponse() {
   assert(stellarMaterialSource.includes('float drawStellarEmission(float viewMu)'), 'Pass 3 must own a dedicated view-angle emission response')
   assert(stellarMaterialSource.includes('float broadDepth = pow(viewMu, 0.32);'), 'center-to-limb emission must use a broad smooth depth term')
   assert(stellarMaterialSource.includes('float centerDepth = pow(viewMu, 1.35);'), 'center-to-limb emission must include a distributed center lift')
-  assert(stellarMaterialSource.includes('return 0.81 + broadDepth * 0.14 + centerDepth * 0.36;'), 'Pass 3 must keep a luminous limb while increasing broad center-to-limb depth without a hotspot')
+  assert(stellarMaterialSource.includes('return 0.90 + broadDepth * 0.12 + centerDepth * 0.29;'), 'photosphere must keep a luminous limb without flattening the center-to-limb response')
   assert(stellarMaterialSource.includes('float getStellarDetailEnvelope(float viewMu)'), 'surface detail must have a view-angle response separate from topology generation')
-  assert(stellarMaterialSource.includes('return mix(0.18, 1.0, smoothstep(0.20, 0.82, viewMu));'), 'near-limb detail compression must begin broadly, remain continuous, and keep a nonzero texture floor')
+  assert(stellarMaterialSource.includes('return mix(0.30, 1.0, smoothstep(0.18, 0.84, viewMu));'), 'near-limb detail compression must remain continuous without erasing plasma structure')
   assert(stellarMaterialSource.includes('surfaceVariation *= detailEnvelope;'), 'surface contrast must be compressed only after topology-free surface generation')
 }
 
 function testPhotosphereUsesSoftStellarLimbAndCoverage() {
   assert(stellarMaterialSource.includes('float drawStellarFringe(float viewMu)'), 'stellar photosphere must retain the dedicated thin fringe')
-  assert(stellarMaterialSource.includes('float fringeRise = smoothstep(0.58, 0.82, fresnel);'), 'fringe must rise gradually before the silhouette')
-  assert(stellarMaterialSource.includes('float fringeFall = 1.0 - smoothstep(0.90, 0.985, fresnel);'), 'fringe must fade before it can form an outline')
+  assert(stellarMaterialSource.includes('float fringeRise = smoothstep(0.52, 0.76, fresnel);'), 'fringe must rise gradually before the silhouette')
+  assert(stellarMaterialSource.includes('float fringeFall = 1.0 - smoothstep(0.94, 0.995, fresnel);'), 'fringe must fade at the silhouette without forming an outline')
   assert(stellarMaterialSource.includes('float getStellarEdgeCoverage(float viewMu)'), 'stellar silhouette must derive coverage from view angle')
-  assert(stellarMaterialSource.includes('fwidth(viewMu) * 1.55'), 'stellar edge feather must remain derivative aware')
-  assert(stellarMaterialSource.includes('max(fwidth(viewMu) * 1.55, 0.035), 0.20'), 'edge coverage must stay narrow at large screen sizes')
+  assert(stellarMaterialSource.includes('fwidth(viewMu) * 0.50'), 'stellar edge feather must remain derivative aware')
+  assert(stellarMaterialSource.includes('max(fwidth(viewMu) * 0.50, 0.008), 0.040'), 'edge coverage must stay confined to the geometric silhouette')
   assert(stellarMaterialSource.includes('gl_FragColor = vec4(color, uOpacity * edgeCoverage);'), 'fragment alpha must carry only the thin silhouette coverage transition')
   assert(stellarMaterialSource.includes('alphaToCoverage: true'), 'stellar material creation must keep MSAA alpha-to-coverage')
   assert(stellarMaterialSource.includes('material.alphaToCoverage = true'), 'runtime stellar conversion must keep alpha-to-coverage')
-  assert(stellarMaterialSource.includes('material.uniforms.uRimStrength.value = 0.025'), 'photosphere fringe strength must stay subordinate')
+  assert(stellarMaterialSource.includes('material.uniforms.uRimStrength.value = 0.045'), 'photosphere fringe strength must stay subordinate')
 }
 
 function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
-  assert(stellarMaterialSource.includes('float meanEmission = (emission + fringe * 0.14) * uEmissionStrength;'), 'mean photosphere luminance must remain dominated by smooth emission rather than fringe')
-  assert(stellarMaterialSource.includes('float surfaceVariation = clamp((surfaceDetail - 1.0) * 0.92, -0.095, 0.075);'), 'surface contrast must remain bounded independently from mean luminance')
+  assert(stellarMaterialSource.includes('float meanEmission = (emission + fringe * 0.22) * uEmissionStrength;'), 'mean photosphere luminance must remain dominated by smooth emission rather than fringe')
+  assert(stellarMaterialSource.includes('float surfaceVariation = clamp((surfaceDetail - 1.0) * 1.08, -0.15, 0.13);'), 'surface contrast must remain bounded independently from mean luminance')
   assert(stellarMaterialSource.includes('float linearIntensity = meanEmission * (1.0 + surfaceVariation);'), 'surface variation must be applied once in linear HDR space')
   assert(stellarMaterialSource.includes('float identityChannelFloor = min(min(uIdentityColor.r, uIdentityColor.g), uIdentityColor.b);'), 'neutral stellar headroom must derive from identity color')
   assert(stellarMaterialSource.includes('float neutralHue01 = smoothstep(0.50, 0.78, identityChannelFloor);'), 'neutral headroom must fade continuously')
@@ -287,12 +284,12 @@ function testCoronaRestoresEmissiveReadWithoutASeparateHalo() {
   assert(stellarCoronaSource.includes("export const STELLAR_CORONA_RENDER_PATH = 'stellar-corona-pass5'"), 'Pass 3 must retain the dedicated compact corona path')
   assert(stellarCoronaSource.includes('float coronaPhase = uCoronaTime * 0.0016;'), 'corona time evolution must remain nearly imperceptible')
   assert(stellarCoronaSource.includes('coronaAngularA * 0.050 + coronaAngularB * 0.024'), 'corona radius variation must stay subtle')
-  assert(stellarCoronaSource.includes('float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));'), 'corona must remain concentrated near the photosphere')
-  assert(stellarCoronaSource.includes('float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.42, 1.48));'), 'corona must retain a broad mobile-visible near-limb shoulder')
-  assert(stellarCoronaSource.includes('coronaNearRegion * 0.88 + coronaOuterRegion * 0.42'), 'near and diffuse corona energy must remain visibly emissive')
-  assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 4.8)'), 'near-weighted outer component must not use a faster falloff than the previous corona')
-  assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 2.10)'), 'diffuse corona must retain a slower outer falloff')
-  assert(stellarCoronaSource.includes('1.0 - smoothstep(0.88, 0.995, warpedDistance01)'), 'diffuse corona must use nearly the full Sprite without clipping into a hard ring')
+  assert(stellarCoronaSource.includes('float coronaNearLimb = exp(-pow(warpedDistance01 / 0.12, 2.0));'), 'corona must remain concentrated near the photosphere')
+  assert(stellarCoronaSource.includes('float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.27, 1.62));'), 'corona shoulder must remain short and thin')
+  assert(stellarCoronaSource.includes('coronaNearRegion * 0.74 + coronaOuterRegion * 0.24'), 'diffuse corona energy must remain subordinate to the near fringe')
+  assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 6.4)'), 'near-weighted outer component must decay quickly')
+  assert(stellarCoronaSource.includes('exp(-warpedDistance01 * 4.2)'), 'diffuse corona must not form a broad halo')
+  assert(stellarCoronaSource.includes('1.0 - smoothstep(0.52, 0.72, warpedDistance01)'), 'diffuse corona must vanish well before the Sprite edge')
   assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'existing inner Sprite must remain the single corona carrier')
   assert(bodyLightingSource.includes('glowOuter.visible = false\n    glowOuter.material.opacity = 0'), 'legacy outer stellar Sprite must remain disabled')
 }

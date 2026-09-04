@@ -203,7 +203,7 @@ def validate_radial(star: str, level: str, metric: dict[str, object]) -> None:
     )
     p2.base.require(
         float(metric['max_outer_radial_drop_fraction']) <= drop_limit,
-        f'{star}/{level}: outer radial profile contains a dark-ring drop',
+        f'{star}/{level}: outer radial profile contains a dark outline/ring drop',
     )
     p2.base.require(
         float(metric['max_outer_narrow_peak_fraction']) <= peak_limit,

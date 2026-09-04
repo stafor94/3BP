@@ -209,14 +209,13 @@ def validate_pair(
     baseline: dict[str, float | int],
     current: dict[str, float | int],
 ) -> None:
-    # Normal gameplay is intentionally below the screen-space primary-detail
-    # threshold. At that size a zero measured local residual is acceptable—and
-    # preferable to visible texture.
+    # Normal gameplay must retain mid-scale structure. A zero residual is a flat
+    # smooth disk and is now an explicit failure, not an accepted LOD outcome.
     if level == 'normal':
         validate_common(star, level, baseline, current)
         p2.base.require(
-            float(current['granulation_contrast']) <= 0.80,
-            f'{star}/{level}: primary granulation is too visible in normal gameplay',
+            0.10 <= float(current['granulation_contrast']) <= 1.80,
+            f'{star}/{level}: flat smooth disk or excessive normal-view structure',
         )
         return
 

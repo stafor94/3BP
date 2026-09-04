@@ -68,9 +68,7 @@ export function configureStellarCoronaMaterial(
           vec2 coronaDelta = vMapUv - vec2(0.5);
           float coronaRadius = length(coronaDelta) * 2.0;
           float coronaAngle = atan(coronaDelta.y, coronaDelta.x);
-          // This value is derived from the Sprite's real scale (2 / scale), so
-          // do not clamp it back to the old compact carrier footprint.
-          float coronaPhotosphereRadius = clamp(uCoronaPhotosphereRadiusUv, 0.40, 0.82);
+          float coronaPhotosphereRadius = clamp(uCoronaPhotosphereRadiusUv, 0.56, 0.82);
           float coronaSpan = max(1.0 - coronaPhotosphereRadius, 0.08);
           float coronaDistance01 = max(coronaRadius - coronaPhotosphereRadius, 0.0) / coronaSpan;
           float coronaPhase = uCoronaTime * 0.0016;
@@ -84,35 +82,43 @@ export function configureStellarCoronaMaterial(
             0.0
           );
 
-          // The corona begins at the silhouette, not over the photosphere. A tiny
-          // derivative-independent overlap prevents a dark seam without washing
-          // out Pass 2 granulation or Pass 3 center-to-limb depth.
+          // Start at the silhouette but widen the first outside transition when
+          // the star is only a few dozen pixels wide. This keeps the normal mobile
+          // footprint from collapsing the corona into one bright neon edge pixel,
+          // while retaining the existing compact transition at larger footprints.
+          float coronaEdgeAa = max(fwidth(coronaRadius), 0.004);
+          float coronaOutsideWidth = max(coronaEdgeAa * 1.35, 0.020);
           float coronaOutsideMask = smoothstep(
             coronaPhotosphereRadius - 0.002,
-            coronaPhotosphereRadius + 0.018,
+            coronaPhotosphereRadius + coronaOutsideWidth,
             coronaRadius
           );
 
-          // Keep the compact core, but give its shoulder enough energy to remain
-          // legible at production mobile scale. The broad lobe avoids turning the
-          // extra energy into a thin outline while leaving the photosphere masked.
-          float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));
-          float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.42, 1.48));
-          float coronaNearRegion = coronaNearLimb * 0.38 + coronaNearShoulder * 0.62;
+          // Keep a compact shoulder visible at production mobile scale without
+          // letting it become either a detached halo or a thin neon outline.
+          float coronaNearLimb = exp(-pow(warpedDistance01 / 0.12, 2.0));
+          float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.27, 1.62));
+          float coronaNearRegion = coronaNearLimb * 0.46 + coronaNearShoulder * 0.54;
+          // Fill only the immediate shoulder so the first bright edge pixel cannot
+          // read as a neon ring. The hard compact cutoff keeps this redistribution
+          // from turning into the broad diffuse halo removed by the same pass.
+          float coronaShoulderFill = exp(-pow(warpedDistance01 / 0.36, 1.8));
+          coronaNearRegion = mix(coronaNearRegion, coronaShoulderFill, 0.55);
+          coronaNearRegion *= 1.0 - smoothstep(0.34, 0.50, warpedDistance01);
 
-          // Keep the historical fast tail present for continuity, but make the
-          // visible outer region come primarily from a much weaker, slower diffuse
-          // component. It rises after the near-limb shoulder and is forced to zero
-          // before the Sprite edge so it cannot read as a separate circular halo.
+          // The weak outer component rises after the shoulder and terminates before
+          // the far-halo measurement band. Keep the useful outer shoulder while
+          // forcing a visibly steeper decay toward the Sprite edge.
           float coronaOuter =
-            exp(-warpedDistance01 * 4.8) *
-            (1.0 - smoothstep(0.82, 1.0, warpedDistance01));
-          float coronaOuterRise = smoothstep(0.10, 0.28, warpedDistance01);
+            exp(-warpedDistance01 * 6.4) *
+            (1.0 - smoothstep(0.55, 0.72, warpedDistance01));
+          float coronaOuterRise = smoothstep(0.10, 0.22, warpedDistance01);
           float coronaOuterDiffuse =
-            exp(-warpedDistance01 * 2.10) *
+            exp(-warpedDistance01 * 4.2) *
             coronaOuterRise *
-            (1.0 - smoothstep(0.88, 0.995, warpedDistance01));
-          float coronaOuterRegion = coronaOuter * 0.10 + coronaOuterDiffuse * 0.90;
+            (1.0 - smoothstep(0.48, 0.66, warpedDistance01)) *
+            (1.0 - smoothstep(0.52, 0.72, warpedDistance01));
+          float coronaOuterRegion = coronaOuter * 0.34 + coronaOuterDiffuse * 0.66;
 
           float coronaAngularBrightness = clamp(
             1.0 + coronaAngularA * 0.018 + coronaAngularB * 0.008,
@@ -122,7 +128,8 @@ export function configureStellarCoronaMaterial(
           float coronaSpriteEdge = 1.0 - smoothstep(0.90, 0.985, coronaRadius);
           float coronaAlpha =
             coronaOutsideMask *
-            (coronaNearRegion * 0.88 + coronaOuterRegion * 0.42) *
+            (coronaNearRegion * 0.74 + coronaOuterRegion * 0.24) *
+            0.52 *
             coronaAngularBrightness *
             coronaSpriteEdge;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);

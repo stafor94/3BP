@@ -34,12 +34,11 @@ export function getStellarRenderProfile(
   return {
     photosphereIntensity: 0.92 + luminosity01 * 0.10 + temperature01 * 0.035,
     whiteHotMix: 0.008 + temperature01 * 0.032 + luminosity01 * 0.012,
-    // The Sprite diameter is measured against the photosphere diameter. Keep
-    // enough actual screen-space carrier area for a broad corona beyond the
-    // silhouette; the old ~3x carrier left only ~0.5 photosphere radii before
-    // the quad edge and made the diffuse lobe effectively invisible on mobile.
-    coronaScale: 4.10 + luminosity01 * 0.20,
-    coronaOpacity: 0.34 + luminosity01 * 0.08,
+    // Corona stays a short atmospheric fringe around the photosphere. Stellar
+    // identity and apparent brightness come from the textured emitting surface,
+    // not from a large diffuse Sprite footprint.
+    coronaScale: 2.90 + luminosity01 * 0.14,
+    coronaOpacity: 0.18 + luminosity01 * 0.055,
     // Only the faint outer tail may desaturate, and even there very slightly.
     coronaOuterWhiteMix: 0.014 + luminosity01 * 0.020,
   }
