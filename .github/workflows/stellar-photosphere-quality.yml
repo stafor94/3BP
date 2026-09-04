@@ -1,9 +1,6 @@
 name: Stellar Photosphere Quality
 
 on:
-  push:
-    branches:
-      - test/stellar-pass6-helios-baseline
   pull_request:
     branches: [main]
     paths:
