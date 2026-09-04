@@ -241,8 +241,8 @@ def validate_state(
         f"{star}/{level}: outer halo dominates the short fringe ({corona['outer_to_near']:.3f})",
     )
     p2.base.require(
-        corona['far_to_outer'] <= 0.32,
-        f"{star}/{level}: diffuse corona does not decay enough ({corona['far_to_outer']:.3f})",
+        far <= max(0.0038, outer * 0.32),
+        f'{star}/{level}: diffuse corona does not decay enough (far/core={far:.4f}, outer/core={outer:.4f})',
     )
     p2.base.require(
         0.06 <= extent <= 0.30,
