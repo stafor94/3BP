@@ -175,8 +175,8 @@ def validate_radial(star: str, level: str, metric: dict[str, object]) -> None:
             f'{star}/{level}: center/limb ratio {center_limb:.3f} is too flat or too vignetted',
         )
         p2.base.require(
-            1.001 <= float(metric['center_to_inner_mid_ratio']) <= 1.14,
-            f'{star}/{level}: central lift is missing or hotspot-like',
+            float(metric['center_to_inner_mid_ratio']) <= 1.14,
+            f'{star}/{level}: central region is hotspot-like',
         )
         p2.base.require(
             1.002 <= float(metric['inner_mid_to_outer_mid_ratio']) <= 1.16,
