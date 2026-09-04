@@ -223,7 +223,7 @@ function testPhotosphereUsesLuminousCenterToLimbResponse() {
   assert(stellarMaterialSource.includes('float centerDepth = pow(viewMu, 1.35);'), 'center-to-limb emission must include a distributed center lift')
   assert(stellarMaterialSource.includes('return 0.90 + broadDepth * 0.12 + centerDepth * 0.29;'), 'photosphere must keep a luminous limb without flattening the center-to-limb response')
   assert(stellarMaterialSource.includes('float getStellarDetailEnvelope(float viewMu)'), 'surface detail must have a view-angle response separate from topology generation')
-  assert(stellarMaterialSource.includes('return mix(0.32, 1.0, smoothstep(0.14, 0.72, viewMu));'), 'near-limb detail compression must remain continuous without erasing plasma structure')
+  assert(stellarMaterialSource.includes('return mix(0.30, 1.0, smoothstep(0.18, 0.84, viewMu));'), 'near-limb detail compression must remain continuous without erasing plasma structure')
   assert(stellarMaterialSource.includes('surfaceVariation *= detailEnvelope;'), 'surface contrast must be compressed only after topology-free surface generation')
 }
 
@@ -232,8 +232,8 @@ function testPhotosphereUsesSoftStellarLimbAndCoverage() {
   assert(stellarMaterialSource.includes('float fringeRise = smoothstep(0.52, 0.76, fresnel);'), 'fringe must rise gradually before the silhouette')
   assert(stellarMaterialSource.includes('float fringeFall = 1.0 - smoothstep(0.94, 0.995, fresnel);'), 'fringe must fade at the silhouette without forming an outline')
   assert(stellarMaterialSource.includes('float getStellarEdgeCoverage(float viewMu)'), 'stellar silhouette must derive coverage from view angle')
-  assert(stellarMaterialSource.includes('fwidth(viewMu) * 0.82'), 'stellar edge feather must remain derivative aware')
-  assert(stellarMaterialSource.includes('max(fwidth(viewMu) * 0.82, 0.012), 0.075'), 'edge coverage must stay confined to the geometric silhouette')
+  assert(stellarMaterialSource.includes('fwidth(viewMu) * 0.50'), 'stellar edge feather must remain derivative aware')
+  assert(stellarMaterialSource.includes('max(fwidth(viewMu) * 0.50, 0.008), 0.040'), 'edge coverage must stay confined to the geometric silhouette')
   assert(stellarMaterialSource.includes('gl_FragColor = vec4(color, uOpacity * edgeCoverage);'), 'fragment alpha must carry only the thin silhouette coverage transition')
   assert(stellarMaterialSource.includes('alphaToCoverage: true'), 'stellar material creation must keep MSAA alpha-to-coverage')
   assert(stellarMaterialSource.includes('material.alphaToCoverage = true'), 'runtime stellar conversion must keep alpha-to-coverage')
