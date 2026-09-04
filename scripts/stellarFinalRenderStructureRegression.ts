@@ -76,7 +76,7 @@ function testPhotosphereCannotRegressToSmoothDiskOrDarkOutline() {
   assert(integrationRegressionSource.includes('large diffuse halo'), 'large diffuse halos must be an explicit visual-regression failure')
   assert(integrationRegressionSource.includes('neon ring'), 'neon rings must be an explicit visual-regression failure')
   assert(radialRegressionSource.includes('dark outline/ring drop'), 'dark photosphere outlines must be an explicit radial-regression failure')
-  assert(photosphereSource.includes('fwidth(viewMu) * 0.82'), 'edge coverage must stay confined to the geometric silhouette')
+  assert(photosphereSource.includes('fwidth(viewMu) * 0.50'), 'edge coverage must stay confined to the geometric silhouette')
   assert(photosphereSource.includes('return 0.90 + broadDepth'), 'limb emission floor must prevent a dark photosphere outline')
   assert(coronaSource.includes('smoothstep(0.52, 0.72, warpedDistance01)'), 'corona tail must end shortly beyond the photosphere')
 }
