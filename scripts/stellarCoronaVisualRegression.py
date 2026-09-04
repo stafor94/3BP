@@ -179,10 +179,12 @@ def analyze_corona(path: Path) -> dict[str, float]:
             ]]) / max(core, 1.0)
         )
 
+        extent_floor = statistics.median(values[-4:])
         last_visible = 0.0
         consecutive_below = 0
         for fraction, excess in profile:
-            if excess >= extent_threshold:
+            extent_excess = max(0.0, excess - extent_floor)
+            if extent_excess >= extent_threshold:
                 last_visible = fraction
                 consecutive_below = 0
             else:
