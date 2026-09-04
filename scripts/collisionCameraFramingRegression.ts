@@ -58,9 +58,9 @@ function testTrackingAndCollisionFractionsStaySeparated() {
   )
   assertClose(
     COLLISION_TARGET_BODY_RADIUS_SCREEN_FRACTION,
-    1 / 9,
+    1 / 18,
     1e-12,
-    'collision watch must use the dedicated width/9 radius target',
+    'collision watch must use the dedicated width/18 radius target',
   )
 
   const renderedRadius = getRenderedBodyRadius(primaryRadius, minRenderRadius)
@@ -82,10 +82,16 @@ function testTrackingAndCollisionFractionsStaySeparated() {
   )
 
   assertClose(trackingPixels, viewportWidth / 20, 1e-7, 'tracking projected radius must remain width/20')
-  assertClose(collisionPixels, viewportWidth / 9, 1e-7, 'collision projected radius must be width/9')
+  assertClose(collisionPixels, viewportWidth / 18, 1e-7, 'collision projected radius must be width/18')
+  assertClose(
+    collisionPixels,
+    (viewportWidth / 9) * 0.5,
+    1e-7,
+    'collision projected radius must be half of the previous width/9 target',
+  )
   assert(
-    collisionDistance < trackingDistance * 0.5,
-    'collision watch should move materially closer than ordinary tracking',
+    collisionDistance < trackingDistance,
+    'collision watch should remain slightly closer than ordinary tracking',
   )
 }
 
