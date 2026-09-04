@@ -6,6 +6,17 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.13] - 2026-09-04
+
+### Changed
+- 자동 충돌 관찰의 접근·충돌·충돌 후 관리 배속을 모두 `0.1×`로 통일해 충돌 직전과 직후에 `0.03×` 또는 `0.08×`까지 과도하게 느려지지 않도록 했습니다.
+
+### Verification
+- collision watch timing regression에서 approach/impact/post-impact 자동 관리 배속이 모두 `0.1×` 이상이며 현재 정책값이 정확히 `0.1×`로 유지되는지 검증합니다.
+
+### Unchanged
+- 충돌 관찰 phase별 hold/ramp 시간, 사용자 수동 배속 우선권, 카메라/정보 패널 유지 시간, 충돌 물리·렌더링·VFX는 변경하지 않습니다.
+
 ## [0.24.12] - 2026-09-04
 
 ### Changed
@@ -248,7 +259,7 @@
 
 ### Performance
 - deep-field는 기존 shared point texture를 재사용하는 단일 `THREE.Points` draw call로 구성하며 추가 position/color buffer는 약 32.8 KiB입니다. galaxy raw RGBA data는 48 KiB에서 128 KiB로 증가하지만 모두 renderer 초기화 시에만 생성합니다.
-- space texture와 galaxy texture 해상도는 각각 512×256 / 64×64로 유지하고, per-frame procedural noise·allocation·twinkle·raymarch·volumetric effect를 추가하지 않았습니다.
+- space texture와 galaxy texture 해상도는 각각 512×256 / 64×64로 유지하고, per-frame procedural noise·allocation·twinkle·raymarch·volumetric effect를 추가하지 않습니다.
 
 ### Verification
 - background regression이 기존 1,000-star foreground hierarchy 보존, 2,000~3,000 total star budget, faint deep-field constraints, local cluster 수, 6~10 galaxy/type/seed variation, Milky Way grain·branched dust·faint haze 존재, texture budget 및 deep-field dispose를 검증하도록 확장했습니다.
@@ -289,7 +300,7 @@
 
 ### Performance
 - galaxy texture 3개는 renderer 초기화 시에만 생성되며 총 raw RGBA data는 약 48 KiB입니다. Sprite/material/object는 각 3개, 예상 추가 draw call은 약 3개입니다.
-- frame loop의 추가 작업은 galaxy group의 camera position copy뿐이며 per-frame allocation, procedural noise animation, raymarch, volumetric rendering은 추가하지 않습니다.
+- frame loop의 추가 작업은 galaxy group의 camera position copy뿐이며 per-frame allocation, procedural noise animation, raymarch, volumetric effect를 추가하지 않습니다.
 
 ### Unchanged
 - physics/solver/collision, mass/radius/velocity/trajectory, celestial body shader, collision/destruction VFX production 동작은 변경하지 않습니다.
@@ -976,7 +987,7 @@
 - 위성은 대기 발광 없이 거친 레골리스·크레이터형 명암과 낮은 반사율을 사용하도록 변경했습니다.
 - 고체 파편은 암석 표면 대비를 높이고 최소 시각 반경을 `0.04`에서 `0.022`로 낮춰 과도하게 큰 발광 덩어리처럼 보이지 않도록 조정했습니다.
 - 비항성 천체의 표면색과 궤적은 항성 스펙트럼 팔레트로 강제 변환하지 않고 천체 고유 색을 유지하도록 변경했습니다.
-- 렌더 시작 전에 천체 종류별 재질·궤적 색·corona 표시 여부를 동기화해 scene draw 순서와 무관하게 올바른 시각 상태가 적용되도록 했습니다.
+- 렌더 시작 전에 천체 종류별 재질·궤적 색·corona 표시 여부를 동기화해 scene draw 순서와 무관하게 올바른 시각 상태가 적용되도록 변경했습니다.
 
 ### Fixed
 - 행성·위성·고체 파편이 항성과 동일한 2중 additive corona sprite를 매 프레임 표시해 자체 발광 천체처럼 보이던 렌더 순서 회귀를 수정했습니다.
