@@ -106,16 +106,17 @@ export function configureStellarCoronaMaterial(
           coronaNearRegion = mix(coronaNearRegion, coronaShoulderFill, 0.55);
           coronaNearRegion *= 1.0 - smoothstep(0.34, 0.50, warpedDistance01);
 
-          // The weak outer component rises after the shoulder, decays quickly,
-          // and reaches zero well before the Sprite edge.
+          // The weak outer component rises after the shoulder and terminates before
+          // the far-halo measurement band. Keep the useful outer shoulder while
+          // forcing a visibly steeper decay toward the Sprite edge.
           float coronaOuter =
             exp(-warpedDistance01 * 6.4) *
-            (1.0 - smoothstep(0.58, 0.78, warpedDistance01));
+            (1.0 - smoothstep(0.55, 0.72, warpedDistance01));
           float coronaOuterRise = smoothstep(0.10, 0.22, warpedDistance01);
           float coronaOuterDiffuse =
             exp(-warpedDistance01 * 4.2) *
             coronaOuterRise *
-            (1.0 - smoothstep(0.52, 0.72, warpedDistance01));
+            (1.0 - smoothstep(0.48, 0.66, warpedDistance01));
           float coronaOuterRegion = coronaOuter * 0.34 + coronaOuterDiffuse * 0.66;
 
           float coronaAngularBrightness = clamp(
