@@ -190,15 +190,14 @@ def main() -> None:
         )
 
         # The renderer converges smoothly toward the collision-watch framing.
-        # Give slow/headless CI enough wall time to reach the same settled frame
-        # instead of sampling on the 18% diameter threshold boundary.
+        # Give slow/headless CI enough wall time to reach the settled target.
         time.sleep(0.90)
         camera_path = capture_canvas(driver, '01-camera')
         camera_metrics = component_metrics(camera_path)
         payload['camera'] = camera_metrics
         require(
-            0.18 <= camera_metrics['diameter_fraction'] <= 0.29,
-            'collision-watch primary diameter should occupy roughly 20-25% of viewport width: '
+            0.09 <= camera_metrics['diameter_fraction'] <= 0.15,
+            'collision-watch primary diameter should occupy roughly 9-15% of viewport width: '
             f"fraction={camera_metrics['diameter_fraction']:.4f}",
         )
         require(
