@@ -116,7 +116,8 @@ export function configureStellarCoronaMaterial(
           float coronaOuterDiffuse =
             exp(-warpedDistance01 * 4.2) *
             coronaOuterRise *
-            (1.0 - smoothstep(0.48, 0.66, warpedDistance01));
+            (1.0 - smoothstep(0.48, 0.66, warpedDistance01)) *
+            (1.0 - smoothstep(0.52, 0.72, warpedDistance01));
           float coronaOuterRegion = coronaOuter * 0.34 + coronaOuterDiffuse * 0.66;
 
           float coronaAngularBrightness = clamp(
