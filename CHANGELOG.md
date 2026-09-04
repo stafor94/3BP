@@ -6,6 +6,18 @@
 
 > `v0.1.0`부터의 Git 커밋 기록과 `package.json` 버전 전환을 역추적해 복원한 변경 이력입니다. 임시/no-op 커밋과 배포 트리거처럼 사용자 동작에 영향을 주지 않는 내부 작업은 제외했습니다.
 
+## [0.24.16] - 2026-09-04
+
+### Fixed
+- production tracking/collision-watch 렌더 경로에서 corona Sprite의 실제 scale과 opacity를 함께 확대해, 외곽 발광이 photosphere 반경의 약 0.5배 안에서 사라지던 문제를 수정했습니다.
+- corona의 near-limb shoulder와 diffuse outer lobe를 넓히고 외곽 감쇠를 늦춰 주변 공간까지 이어지는 발광을 강화하되, 비대칭 warp와 Sprite 가장자리의 부드러운 소거로 균일한 거대 halo, neon ring, starburst 형태를 피했습니다.
+
+### Verification
+- 항성 렌더링 회귀 검증에 실제 Sprite scale/opacity 범위와 diffuse glow carrier가 photosphere 반경의 2배 이상까지 확보되는 화면상 반경 계약을 추가했습니다.
+
+### Unchanged
+- photosphere shader, 표면 색상, center-to-limb 응답, 그라뉼레이션, 항성 물리 상태와 카메라 framing은 변경하지 않습니다.
+
 ## [0.24.15] - 2026-09-04
 
 ### Fixed

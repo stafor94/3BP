@@ -68,14 +68,16 @@ export function configureStellarCoronaMaterial(
           vec2 coronaDelta = vMapUv - vec2(0.5);
           float coronaRadius = length(coronaDelta) * 2.0;
           float coronaAngle = atan(coronaDelta.y, coronaDelta.x);
-          float coronaPhotosphereRadius = clamp(uCoronaPhotosphereRadiusUv, 0.54, 0.82);
+          // This value is derived from the Sprite's real scale (2 / scale), so
+          // do not clamp it back to the old compact carrier footprint.
+          float coronaPhotosphereRadius = clamp(uCoronaPhotosphereRadiusUv, 0.40, 0.82);
           float coronaSpan = max(1.0 - coronaPhotosphereRadius, 0.08);
           float coronaDistance01 = max(coronaRadius - coronaPhotosphereRadius, 0.0) / coronaSpan;
           float coronaPhase = uCoronaTime * 0.0016;
           float coronaAngularA = sin(coronaAngle * 5.0 + uCoronaSeed * 0.071 + coronaPhase);
           float coronaAngularB = sin(coronaAngle * 9.0 - uCoronaSeed * 0.113 - coronaPhase * 0.73);
           float coronaAngularWarp = coronaAngularA * 0.050 + coronaAngularB * 0.024;
-          coronaAngularWarp *= 0.42;
+          coronaAngularWarp *= 0.68;
           float coronaWarpWeight = smoothstep(0.10, 0.90, coronaDistance01);
           float warpedDistance01 = max(
             coronaDistance01 * (1.0 + coronaAngularWarp * coronaWarpWeight),
@@ -95,22 +97,22 @@ export function configureStellarCoronaMaterial(
           // legible at production mobile scale. The broad lobe avoids turning the
           // extra energy into a thin outline while leaving the photosphere masked.
           float coronaNearLimb = exp(-pow(warpedDistance01 / 0.14, 2.0));
-          float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.34, 1.55));
-          float coronaNearRegion = coronaNearLimb * 0.44 + coronaNearShoulder * 0.56;
+          float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.42, 1.48));
+          float coronaNearRegion = coronaNearLimb * 0.38 + coronaNearShoulder * 0.62;
 
           // Keep the historical fast tail present for continuity, but make the
           // visible outer region come primarily from a much weaker, slower diffuse
           // component. It rises after the near-limb shoulder and is forced to zero
           // before the Sprite edge so it cannot read as a separate circular halo.
           float coronaOuter =
-            exp(-warpedDistance01 * 5.4) *
-            (1.0 - smoothstep(0.72, 1.0, warpedDistance01));
+            exp(-warpedDistance01 * 4.8) *
+            (1.0 - smoothstep(0.82, 1.0, warpedDistance01));
           float coronaOuterRise = smoothstep(0.10, 0.28, warpedDistance01);
           float coronaOuterDiffuse =
-            exp(-warpedDistance01 * 2.85) *
+            exp(-warpedDistance01 * 2.10) *
             coronaOuterRise *
-            (1.0 - smoothstep(0.74, 0.96, warpedDistance01));
-          float coronaOuterRegion = coronaOuter * 0.12 + coronaOuterDiffuse * 0.88;
+            (1.0 - smoothstep(0.88, 0.995, warpedDistance01));
+          float coronaOuterRegion = coronaOuter * 0.10 + coronaOuterDiffuse * 0.90;
 
           float coronaAngularBrightness = clamp(
             1.0 + coronaAngularA * 0.018 + coronaAngularB * 0.008,
@@ -120,7 +122,7 @@ export function configureStellarCoronaMaterial(
           float coronaSpriteEdge = 1.0 - smoothstep(0.90, 0.985, coronaRadius);
           float coronaAlpha =
             coronaOutsideMask *
-            (coronaNearRegion * 0.86 + coronaOuterRegion * 0.34) *
+            (coronaNearRegion * 0.88 + coronaOuterRegion * 0.42) *
             coronaAngularBrightness *
             coronaSpriteEdge;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);

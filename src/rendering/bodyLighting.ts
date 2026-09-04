@@ -379,9 +379,10 @@ function setBodyGlowVisibility(
   const renderRadius = Math.max(body.radius, STELLAR_VISUAL_MIN_RADIUS)
   const coronaSeed = getBodySeed(body.id)
 
-  // Pass 5 reuses the existing inner glow Sprite as the only stellar corona carrier.
-  // Its shader draws only the photosphere-adjacent band; the old radial texture
-  // alpha no longer defines the stellar halo shape.
+  // Reuse the existing inner glow Sprite as the only stellar corona carrier.
+  // Scale and opacity are deliberately applied here, after the generic renderer
+  // update, so the production tracking/collision-watch projection receives the
+  // full broad corona footprint rather than only a shader change on a small quad.
   if (glowInner instanceof THREE.Sprite && glowInner.material instanceof THREE.SpriteMaterial) {
     configureStellarCoronaMaterial(glowInner.material, {
       seed: coronaSeed,
