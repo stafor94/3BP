@@ -378,6 +378,7 @@ export function createStellarPhotosphereMaterialValues(values: Record<string, an
     fragmentShader: stellarPhotosphereFragmentShader,
     uniforms: createStellarUniforms(values.uniforms ?? {}),
     alphaToCoverage: true,
+    toneMapped: true,
   }
 }
 
@@ -385,6 +386,7 @@ export function configureStellarPhotosphereMaterial(material: THREE.ShaderMateri
   material.fragmentShader = stellarPhotosphereFragmentShader
   material.uniforms = createStellarUniforms(material.uniforms)
   material.alphaToCoverage = true
+  material.toneMapped = true
   material.userData.bodyRenderPath = STELLAR_PHOTOSPHERE_RENDER_PATH
   material.needsUpdate = true
 }

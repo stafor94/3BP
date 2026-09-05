@@ -252,6 +252,18 @@ function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
   assert(stellarMaterialSource.includes('float whiteHotCore = pow(viewMu, 22.0) * uWhiteHotMix * 0.72;'), 'white-hot contribution must stay narrow and weaker than the render-profile bound')
   assert(!stellarMaterialSource.includes('toneMapStellarHuePreserving'), 'stellar photosphere must not restore a local shoulder compressor')
   assert(!stellarMaterialSource.includes('stellarSurfaceModulation'), 'stellar photosphere must not restore post-tone-map RGB modulation')
+  assert(
+    stellarMaterialSource.includes('alphaToCoverage: true,\n    toneMapped: true,'),
+    'stellar material creation must opt into renderer tone mapping',
+  )
+  assert(
+    stellarMaterialSource.includes('material.alphaToCoverage = true\n  material.toneMapped = true'),
+    'runtime generic-to-stellar conversion must restore renderer tone mapping',
+  )
+  assert(
+    simulationRendererSource.includes('fragmentShader: bodyFragmentShader,\n    toneMapped: false,'),
+    'generic body material creation must keep its existing toneMapped=false contract',
+  )
   const toneMappingChunks = stellarMaterialSource.match(/#include <tonemapping_fragment>/g) ?? []
   assert(toneMappingChunks.length === 1, 'stellar photosphere must execute exactly one renderer tone-mapping chunk')
   assert(stellarMaterialSource.includes('#include <tonemapping_fragment>\n    #include <colorspace_fragment>'), 'no stellar RGB modulation may run after renderer tone mapping')
