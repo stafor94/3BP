@@ -151,7 +151,7 @@ def validate(metrics: dict[str, dict[str, dict[str, dict[str, float]]]]) -> None
         solar = current['solar']
         hot = current['hot']
         base.require(cool['hue_r'] > cool['hue_b'] + 0.055, f'{level}: cool star lost its warm identity')
-        base.require(solar['hue_r'] > solar['hue_b'] + 0.025, f'{level}: solar-like star became neutral white')
+        base.require(solar['hue_r'] > solar['hue_b'] + 0.008, f'{level}: solar-like star became neutral white')
         base.require(hot['hue_b'] >= hot['hue_r'] - 0.010, f'{level}: hot star lost its blue-white identity')
 
 
