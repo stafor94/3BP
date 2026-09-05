@@ -179,7 +179,8 @@ export const stellarPhotosphereFragmentShader = `
     // resolve once enlarged views provide enough pixels per feature. Fine breakup
     // remains conservative so it cannot shimmer or form cell boundaries.
     float primaryLod = smoothstep(1.80, 3.80, primaryPixels);
-    float secondaryLod = smoothstep(1.30, 2.75, secondaryPixels);
+    float secondaryLod = smoothstep(1.30, 2.10, secondaryPixels);
+    secondaryLod *= mix(1.0, 1.15, secondaryLod);
     float fineLod = smoothstep(1.85, 4.20, finePixels);
 
     float convectionA = valueNoise(
