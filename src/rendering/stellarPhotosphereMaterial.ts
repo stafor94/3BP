@@ -179,7 +179,7 @@ export const stellarPhotosphereFragmentShader = `
     // resolve once enlarged views provide enough pixels per feature. Fine breakup
     // remains conservative so it cannot shimmer or form cell boundaries.
     float primaryLod = smoothstep(1.80, 3.80, primaryPixels);
-    float secondaryLod = smoothstep(1.75, 1.95, secondaryPixels);
+    float secondaryLod = smoothstep(1.25, 2.80, secondaryPixels);
     float fineLod = smoothstep(1.85, 4.20, finePixels);
 
     float convectionA = valueNoise(
@@ -357,7 +357,6 @@ const genericOnlyUniforms = [
   'uLightColors',
   'uLightStrengths',
 ] as const
-
 function createStellarUniforms(uniforms: Record<string, any>) {
   const nextUniforms = { ...uniforms }
   genericOnlyUniforms.forEach((name) => delete nextUniforms[name])
