@@ -175,12 +175,11 @@ export const stellarPhotosphereFragmentShader = `
       1.0,
       smoothstep(0.55, 1.80, convectionPixels)
     );
-    // The primary pair is deliberately mid-scale: at the production mobile
-    // tracking diameter it still spans several pixels instead of disappearing
-    // and leaving only unresolved fine noise. Fine breakup remains conservative
-    // so it cannot shimmer or turn the smooth value field into cell boundaries.
-    float primaryLod = smoothstep(0.48, 1.45, primaryPixels);
-    float secondaryLod = smoothstep(0.58, 1.65, secondaryPixels);
+    // Retire the primary pair at normal mobile tracking size; it should only
+    // resolve once enlarged views provide enough pixels per feature. Fine breakup
+    // remains conservative so it cannot shimmer or form cell boundaries.
+    float primaryLod = smoothstep(1.80, 3.80, primaryPixels);
+    float secondaryLod = smoothstep(1.60, 3.20, secondaryPixels);
     float fineLod = smoothstep(1.85, 4.20, finePixels);
 
     float convectionA = valueNoise(
