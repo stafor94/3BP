@@ -357,6 +357,7 @@ const genericOnlyUniforms = [
   'uLightColors',
   'uLightStrengths',
 ] as const
+
 function createStellarUniforms(uniforms: Record<string, any>) {
   const nextUniforms = { ...uniforms }
   genericOnlyUniforms.forEach((name) => delete nextUniforms[name])
