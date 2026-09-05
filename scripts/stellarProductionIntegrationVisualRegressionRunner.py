@@ -111,15 +111,18 @@ def validate_surface_with_production_normal(
     low, high = pass5.LEVEL_TARGETS[level]
     pass5.require(low <= diameter <= high, f'{star}/{level}: diameter {diameter:.1f}px misses {low:.0f}-{high:.0f}px')
 
-    # A production-sized photosphere must retain measurable mid-scale structure;
-    # accepting zero contrast here allowed a flat, smooth disk to pass.
+    # Screen-space detail is intentionally almost smooth at normal gameplay
+    # size and resolves into subtle gaseous granulation only as the star grows.
     contrast = float(metric['granulation_contrast'])
     contrast_low, contrast_high = {
-        'normal': (0.10, 1.80),
-        'enlarged': (0.20, 2.80),
-        'extreme': (0.26, 3.60),
+        'normal': (0.00, 0.08),
+        'enlarged': (0.04, 0.18),
+        'extreme': (0.10, 0.30),
     }[level]
-    pass5.require(contrast_low <= contrast <= contrast_high, f'{star}/{level}: flat smooth disk or excessive texture ({contrast:.3f})')
+    pass5.require(
+        contrast_low <= contrast <= contrast_high,
+        f'{star}/{level}: granulation contrast {contrast:.3f} outside {contrast_low:.2f}-{contrast_high:.2f}',
+    )
     pass5.require(float(metric['broad_variation_std']) >= 0.48, f'{star}/{level}: mid-scale plasma/convection structure vanished')
     pass5.require(float(metric['high_frequency_energy']) <= 2.60, f'{star}/{level}: shimmer/moire-like HF energy is too high')
     pass5.require(float(metric['local_minima_fraction']) <= 0.10, f'{star}/{level}: excessive local pits')

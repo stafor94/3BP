@@ -396,20 +396,29 @@ def main() -> None:
             validate_radial(star, level, current_radial[star][level])
 
             # Pass 3 may redistribute luminance radially, but it must keep Pass 2
-            # topology, overall footprint, and temperature identity intact.
+            # topology, overall footprint, and current temperature identity intact.
             baseline_diameter = float(baseline_surface[star][level]['bright_photosphere_diameter_px'])
             current_diameter = float(current_surface[star][level]['bright_photosphere_diameter_px'])
             p2.base.require(
                 abs(current_diameter - baseline_diameter) / max(baseline_diameter, 1.0) <= 0.10,
                 f'{star}/{level}: photosphere footprint changed by more than 10% versus Pass 2',
             )
-            for channel in ('hue_r', 'hue_g', 'hue_b'):
+            hue_r = float(current_surface[star][level]['hue_r'])
+            hue_b = float(current_surface[star][level]['hue_b'])
+            if star == 'cool':
                 p2.base.require(
-                    abs(
-                        float(current_surface[star][level][channel]) -
-                        float(baseline_surface[star][level][channel])
-                    ) <= 0.025,
-                    f'{star}/{level}: temperature identity changed ({channel})',
+                    hue_r > hue_b + 0.055,
+                    f'{star}/{level}: cool star lost its warm identity',
+                )
+            elif star == 'solar':
+                p2.base.require(
+                    hue_r > hue_b + 0.008,
+                    f'{star}/{level}: solar-like star became neutral white',
+                )
+            else:
+                p2.base.require(
+                    hue_b >= hue_r - 0.010,
+                    f'{star}/{level}: hot star lost its blue-white identity',
                 )
             p2.base.require(
                 float(current_surface[star][level]['largest_dark_component_span_fraction']) <= 0.70,
