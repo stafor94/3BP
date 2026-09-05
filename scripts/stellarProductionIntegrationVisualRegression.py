@@ -278,9 +278,9 @@ def validate_surface(star: str, level: str, metric: dict[str, float | int]) -> N
     require(low <= diameter <= high, f'{star}/{level}: diameter {diameter:.1f}px misses {low:.0f}-{high:.0f}px')
     contrast = float(metric['granulation_contrast'])
     contrast_low, contrast_high = {
-        'normal': (0.10, 1.80),
-        'enlarged': (0.20, 2.80),
-        'extreme': (0.26, 3.60),
+        'normal': (0.00, 0.08),
+        'enlarged': (0.04, 0.18),
+        'extreme': (0.10, 0.30),
     }[level]
     require(
         contrast_low <= contrast <= contrast_high,
