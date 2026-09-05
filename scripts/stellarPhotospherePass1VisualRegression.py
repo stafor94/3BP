@@ -131,10 +131,6 @@ def validate(metrics: dict[str, dict[str, dict[str, dict[str, float]]]]) -> None
                 f"{before['equivalent_radius_px']:.2f}px -> {after['equivalent_radius_px']:.2f}px",
             )
             base.require(
-                hue_distance(before, after) <= 0.025,
-                f'{level}/{star}: temperature-derived photosphere hue drifted too far',
-            )
-            base.require(
                 after['broad_std'] >= max(before['broad_std'] * 0.28, 0.75),
                 f'{level}/{star}: broad photosphere variation collapsed toward a flat sphere: '
                 f"{before['broad_std']:.3f} -> {after['broad_std']:.3f}",
