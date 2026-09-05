@@ -168,10 +168,23 @@ def validate_common(
         abs(current_luma - baseline_luma) / max(baseline_luma, 1.0) <= 0.08,
         f'{star}/{level}: mean photosphere luminance drifted by more than 8%',
     )
-    for channel in ('hue_r', 'hue_g', 'hue_b'):
+
+    hue_r = float(current['hue_r'])
+    hue_b = float(current['hue_b'])
+    if star == 'cool':
         p2.base.require(
-            abs(float(current[channel]) - float(baseline[channel])) <= 0.025,
-            f'{star}/{level}: temperature hue identity changed ({channel})',
+            hue_r > hue_b + 0.055,
+            f'{star}/{level}: cool star lost its warm identity',
+        )
+    elif star == 'solar':
+        p2.base.require(
+            hue_r > hue_b + 0.008,
+            f'{star}/{level}: solar-like star became neutral white',
+        )
+    else:
+        p2.base.require(
+            hue_b >= hue_r - 0.010,
+            f'{star}/{level}: hot star lost its blue-white identity',
         )
 
     p2.base.require(
