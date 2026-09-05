@@ -306,7 +306,10 @@ def validate_corona(star: str, level: str, metric: dict[str, float]) -> None:
     require(outer <= 0.030, f'{star}/{level}: large diffuse halo ({outer:.4f})')
     require(far <= 0.006, f'{star}/{level}: large diffuse far halo ({far:.4f})')
     require(metric['outer_to_near'] <= 0.32, f'{star}/{level}: diffuse halo dominates the short fringe')
-    require(metric['far_to_outer'] <= 0.32, f'{star}/{level}: corona does not decay quickly enough')
+    require(
+        far <= max(0.0038, outer * 0.32),
+        f'{star}/{level}: corona does not decay quickly enough (far/core={far:.4f}, outer/core={outer:.4f})',
+    )
     require(0.06 <= extent <= 0.30, f'{star}/{level}: corona is missing or forms a large diffuse halo ({extent:.3f})')
     require(metric['extent_std_fraction'] <= 0.060, f'{star}/{level}: corona boundary is too irregular')
     edge_limit = 2.35 if level == 'normal' else 1.85

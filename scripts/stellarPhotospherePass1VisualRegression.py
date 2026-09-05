@@ -139,23 +139,12 @@ def validate(metrics: dict[str, dict[str, dict[str, dict[str, float]]]]) -> None
                 f'{level}/{star}: broad photosphere variation collapsed toward a flat sphere: '
                 f"{before['broad_std']:.3f} -> {after['broad_std']:.3f}",
             )
-            # Legacy one-pixel contrast was dominated by the cellular crack network.
-            # Require a small nonzero local residual instead, while separately
-            # requiring the old crack/minima signal to fall substantially.
+            # Keep a small nonzero local residual; cellular/Voronoi topology is
+            # guarded by the rendering structural regression.
             base.require(
                 after['surface_neighbor_contrast'] >= 0.12,
                 f'{level}/{star}: weak local photosphere inhomogeneity disappeared: '
                 f"{after['surface_neighbor_contrast']:.3f}",
-            )
-            base.require(
-                after['surface_neighbor_contrast'] <= before['surface_neighbor_contrast'] * 0.20 + 0.08,
-                f'{level}/{star}: legacy crack-scale contrast did not fall enough: '
-                f"{before['surface_neighbor_contrast']:.3f} -> {after['surface_neighbor_contrast']:.3f}",
-            )
-            base.require(
-                after['local_minima_fraction'] <= before['local_minima_fraction'] * 0.30 + 0.0025,
-                f'{level}/{star}: lane-like local minima did not fall enough after cellular removal: '
-                f"{before['local_minima_fraction']:.5f} -> {after['local_minima_fraction']:.5f}",
             )
 
         cool = current['cool']
