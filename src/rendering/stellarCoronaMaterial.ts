@@ -106,14 +106,13 @@ export function configureStellarCoronaMaterial(
           coronaNearRegion = mix(coronaNearRegion, coronaShoulderFill, 0.55);
           coronaNearRegion *= 1.0 - smoothstep(0.34, 0.50, warpedDistance01);
 
-          // Compress only the silhouette-adjacent peak, recovering full strength
-          // across the existing shoulder. This removes the one-pixel mobile neon
-          // ring without adding energy to the outer corona or extending its tail.
-          float coronaEdgeSoftening = mix(
-            0.80,
-            1.0,
-            smoothstep(0.02, 0.24, warpedDistance01)
-          );
+          // Preserve the silhouette contribution that already passes the limb gate,
+          // and add energy only to the next few outside pixels. The narrow band
+          // lowers edge/shoulder contrast without extending or brightening the tail.
+          float coronaImmediateShoulder =
+            smoothstep(0.075, 0.095, warpedDistance01) *
+            (1.0 - smoothstep(0.15, 0.22, warpedDistance01));
+          coronaNearRegion *= 1.0 + coronaImmediateShoulder * 0.15;
 
           // The weak outer component rises after the shoulder and terminates before
           // the far-halo measurement band. Keep the useful outer shoulder while
@@ -138,7 +137,6 @@ export function configureStellarCoronaMaterial(
           float coronaAlpha =
             coronaOutsideMask *
             (coronaNearRegion * 0.74 + coronaOuterRegion * 0.24) *
-            coronaEdgeSoftening *
             0.52 *
             coronaAngularBrightness *
             coronaSpriteEdge;
