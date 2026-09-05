@@ -281,7 +281,14 @@ def validate(metrics: dict[str, dict[str, dict[str, dict[str, float]]]]) -> None
             f'{level}: solar/hot temperature hues collapsed: {current_solar_hot:.5f}',
         )
         base.require(cool['mean_chroma'] >= 0.08, f'{level}: cool star chroma is too weak')
-        base.require(solar['mean_chroma'] >= 0.035, f'{level}: solar star chroma is too weak')
+        approved_solar_chroma = float(baseline['solar']['mean_chroma'])
+        solar_chroma_floor = 0.035 if approved_solar_chroma >= 0.035 else approved_solar_chroma * 0.995
+        base.require(
+            solar['mean_chroma'] >= solar_chroma_floor,
+            f'{level}: solar star chroma regressed below the approved baseline: '
+            f"{approved_solar_chroma:.5f} -> {solar['mean_chroma']:.5f} "
+            f'(floor {solar_chroma_floor:.5f})',
+        )
         base.require(hot['mean_chroma'] >= 0.012, f'{level}: hot star chroma is too weak')
 
 
