@@ -404,7 +404,7 @@ export function updateStellarPhotosphereMaterial(
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
   // Keep the mid-scale convection readable at ordinary mobile tracking size;
   // fine detail is separately derivative-gated in the shader.
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.65
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 0.90
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
