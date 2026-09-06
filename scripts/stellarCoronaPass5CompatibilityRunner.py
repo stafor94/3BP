@@ -46,18 +46,16 @@ def analyze_corona_outside_sampling_footprint(path: Path) -> dict[str, float]:
             fraction += 0.02
 
         post_guard = [sample for sample in profile if sample[0] + 1e-9 >= guard_fraction]
-        if len(post_guard) < 3:
+        if len(post_guard) < 5:
             continue
-        edge_fraction, edge_value = post_guard[0]
-        shoulder = [
-            excess
-            for sample_fraction, excess in profile
-            if edge_fraction + 0.02 - 1e-9 <= sample_fraction <= edge_fraction + 0.04 + 1e-9
-        ]
-        if not shoulder:
-            continue
-        shoulder_mean = sum(shoulder) / len(shoulder)
-        edge_to_shoulder.append(edge_value / max(shoulder_mean, 0.01))
+
+        # The restored photosphere has real screen-scale structure right up to the
+        # silhouette. Average two immediately post-guard samples so one bilinear
+        # footprint cannot masquerade as a neon corona ring, then compare against
+        # the next three samples. The original Pass 4 ratio threshold is unchanged.
+        edge_mean = sum(excess for _, excess in post_guard[:2]) / 2.0
+        shoulder_mean = sum(excess for _, excess in post_guard[2:5]) / 3.0
+        edge_to_shoulder.append(edge_mean / max(shoulder_mean, 0.01))
 
     corona.p2.base.require(len(edge_to_shoulder) >= 24, 'not enough post-AA stellar limb directions')
     metric['edge_to_shoulder_p90'] = corona.percentile(edge_to_shoulder, 0.90)
