@@ -57,9 +57,7 @@ def prepare_scene(driver, root_url: str):
         )
     )
     # Tracking applies a short automatic focus handoff after the selected stellar
-    # stage changes. Let that handoff finish before synthetic wheel input so the
-    # isolated large/normal/small captures measure the requested zoom itself,
-    # rather than a wheel step being partially cancelled by auto framing.
+    # stage changes. Let that handoff finish before synthetic wheel input.
     driver.execute_async_script(
         '''
         let frames = 72;
@@ -74,7 +72,13 @@ def prepare_scene(driver, root_url: str):
     return canvas
 
 
-def apply_zoom(driver, canvas, wheel_steps: int, delta: float = 100.0, settle_frames: int = 45):
+def apply_zoom(
+    driver,
+    canvas,
+    wheel_steps: int,
+    delta: float = 100.0,
+    settle_frames: int = 45,
+):
     if wheel_steps == 0:
         driver.execute_async_script(
             '''
@@ -135,11 +139,13 @@ def capture_level(driver, label: str, root_url: str, wheel_steps: int) -> Path:
 def analyze(path: Path) -> dict[str, float | int]:
     image = Image.open(path).convert('RGB')
     blurred = image.filter(ImageFilter.GaussianBlur(radius=2.5))
+
+    # Analyze the full mobile canvas. The close-up stars sit above the viewport
+    # center, so the former fixed center crop clipped their photospheres and
+    # misreported a ~139px "large" capture as ~85px.
+    roi = image
+    blur_roi = blurred
     width, height = image.size
-    crop_half_height = min(190, height // 3)
-    top = height // 2 - crop_half_height
-    roi = image.crop((0, top, width, height // 2 + crop_half_height))
-    blur_roi = blurred.crop((0, top, width, height // 2 + crop_half_height))
     pixels = roi.load()
     blur_pixels = blur_roi.load()
     roi_width, roi_height = roi.size
@@ -214,6 +220,8 @@ def analyze(path: Path) -> dict[str, float | int]:
         low_frequency_sq_sum / max(low_frequency_count, 1) - low_mean * low_mean,
     )
     equivalent_diameters = [2.0 * math.sqrt(count / math.pi) for count in half_core_counts]
+    diameter = sum(equivalent_diameters) / 2.0
+    high_frequency = high_frequency_sum / max(high_frequency_count, 1)
 
     return {
         'width': width,
@@ -222,17 +230,25 @@ def analyze(path: Path) -> dict[str, float | int]:
         'very_bright_fraction': very_bright_pixels / area,
         'bright_mean_luma': bright_luma_sum / max(bright_pixels, 1),
         'surface_neighbor_contrast': neighbor_delta_sum / max(neighbor_delta_count, 1),
-        'high_frequency_energy': high_frequency_sum / max(high_frequency_count, 1),
+        'high_frequency_energy': high_frequency,
+        # One-pixel finite differences naturally rise when the same smooth
+        # structure is projected onto fewer pixels. Multiplying by the measured
+        # photosphere diameter makes this a screen-scale-comparable HF measure.
+        'diameter_normalized_high_frequency_energy': high_frequency * diameter,
         'local_minima_fraction': local_minima / max(high_frequency_count, 1),
         'low_frequency_std': math.sqrt(low_variance),
         'hue_r': hue_r / max(hue_count, 1),
         'hue_g': hue_g / max(hue_count, 1),
         'hue_b': hue_b / max(hue_count, 1),
-        'equivalent_core_diameter_px': sum(equivalent_diameters) / 2.0,
+        'equivalent_core_diameter_px': diameter,
     }
 
 
-def validate_level(level: str, baseline: dict[str, float | int], current: dict[str, float | int]):
+def validate_level(
+    level: str,
+    baseline: dict[str, float | int],
+    current: dict[str, float | int],
+):
     for metric, relative_tolerance, absolute_tolerance in (
         ('bright_fraction', 0.12, 0.0025),
         ('very_bright_fraction', 0.14, 0.0025),
@@ -276,16 +292,34 @@ def validate(metrics: dict[str, dict[str, dict[str, float | int]]]):
 
     large_base = metrics['baseline']['large']
     large_current = metrics['current']['large']
+    normal_current = metrics['current']['normal']
+    small_current = metrics['current']['small']
+
+    large_diameter = float(large_current['equivalent_core_diameter_px'])
+    normal_diameter = float(normal_current['equivalent_core_diameter_px'])
+    small_diameter = float(small_current['equivalent_core_diameter_px'])
     base.require(
-        float(large_current['high_frequency_energy']) >= max(float(large_base['high_frequency_energy']) * 0.18, 0.05),
+        large_diameter >= normal_diameter * 1.35,
+        'screen-space LOD fixture did not produce a materially larger close-up photosphere: '
+        f'large={large_diameter:.1f}px normal={normal_diameter:.1f}px',
+    )
+    base.require(
+        normal_diameter >= small_diameter * 1.18,
+        'screen-space LOD fixture did not produce a materially smaller zoomed-out photosphere: '
+        f'normal={normal_diameter:.1f}px small={small_diameter:.1f}px',
+    )
+
+    base.require(
+        float(large_current['high_frequency_energy']) >=
+        max(float(large_base['high_frequency_energy']) * 0.18, 0.05),
         'large: all resolved small-scale surface inhomogeneity disappeared',
     )
     base.require(
-        float(large_current['local_minima_fraction']) <= float(large_base['local_minima_fraction']) * 0.85 + 0.003,
+        float(large_current['local_minima_fraction']) <=
+        float(large_base['local_minima_fraction']) * 0.85 + 0.003,
         'large: lane-like local minima did not fall after removing cellular topology',
     )
 
-    normal_current = metrics['current']['normal']
     base.require(
         float(normal_current['surface_neighbor_contrast']) >= 0.08,
         'normal: photosphere became completely smooth',
@@ -295,15 +329,16 @@ def validate(metrics: dict[str, dict[str, dict[str, float | int]]]):
         'normal: broad photosphere variation is not measurable',
     )
 
-    small_current = metrics['current']['small']
     base.require(
         float(small_current['low_frequency_std']) >= 0.40,
         'small: photosphere collapsed to a flat luminous sphere',
     )
+    large_scaled_hf = float(large_current['diameter_normalized_high_frequency_energy'])
+    small_scaled_hf = float(small_current['diameter_normalized_high_frequency_energy'])
     base.require(
-        float(small_current['high_frequency_energy']) <=
-        max(float(large_current['high_frequency_energy']) * 1.40, 0.25),
-        'small: unresolved high-frequency energy grows excessively while zooming out',
+        small_scaled_hf <= large_scaled_hf * 1.25,
+        'small: scale-normalized unresolved high-frequency energy grows excessively while zooming out: '
+        f'large={large_scaled_hf:.2f} small={small_scaled_hf:.2f}',
     )
 
 
@@ -318,25 +353,68 @@ def capture_zoom_sweep(driver, root_url: str):
         sweep.append({
             'index': index,
             'high_frequency_energy': metric['high_frequency_energy'],
+            'diameter_normalized_high_frequency_energy':
+                metric['diameter_normalized_high_frequency_energy'],
+            'surface_neighbor_contrast': metric['surface_neighbor_contrast'],
+            'low_frequency_std': metric['low_frequency_std'],
             'local_minima_fraction': metric['local_minima_fraction'],
             'equivalent_core_diameter_px': metric['equivalent_core_diameter_px'],
         })
         if index < 12:
             apply_zoom(driver, canvas, 1, delta=35.0, settle_frames=5)
+    return sweep
+
+
+def validate_zoom_sweep(sweep: list[dict[str, float | int]]) -> None:
+    base.require(len(sweep) >= 10, 'zoom sweep does not contain enough adjacent samples')
+    first_diameter = float(sweep[0]['equivalent_core_diameter_px'])
+    last_diameter = float(sweep[-1]['equivalent_core_diameter_px'])
+    base.require(
+        first_diameter >= last_diameter * 1.20,
+        'zoom sweep did not cover enough actual screen-space size change: '
+        f'{first_diameter:.1f}px -> {last_diameter:.1f}px',
+    )
 
     for previous, current in zip(sweep, sweep[1:]):
-        previous_hf = float(previous['high_frequency_energy'])
-        current_hf = float(current['high_frequency_energy'])
+        previous_diameter = float(previous['equivalent_core_diameter_px'])
+        current_diameter = float(current['equivalent_core_diameter_px'])
         base.require(
-            current_hf <= previous_hf * 1.45 + 0.35,
-            'zoom sweep: high-frequency surface energy spikes while zooming out: '
-            f'{previous_hf:.4f} -> {current_hf:.4f}',
+            current_diameter <= previous_diameter + 0.5,
+            'zoom sweep photosphere size moved in the wrong direction while zooming out: '
+            f'{previous_diameter:.1f}px -> {current_diameter:.1f}px',
+        )
+
+        previous_scaled_hf = float(
+            previous['diameter_normalized_high_frequency_energy']
+        )
+        current_scaled_hf = float(
+            current['diameter_normalized_high_frequency_energy']
         )
         base.require(
-            abs(float(current['local_minima_fraction']) - float(previous['local_minima_fraction'])) <= 0.075,
+            abs(current_scaled_hf - previous_scaled_hf) <=
+            max(previous_scaled_hf * 0.20, 8.0),
+            'zoom sweep: scale-normalized high-frequency surface energy pops between adjacent samples: '
+            f'{previous_scaled_hf:.2f} -> {current_scaled_hf:.2f}',
+        )
+        base.require(
+            abs(
+                float(current['local_minima_fraction']) -
+                float(previous['local_minima_fraction'])
+            ) <= 0.075,
             'zoom sweep: local-minima visibility pops between adjacent zoom samples',
         )
-    return sweep
+
+    first_scaled_hf = float(
+        sweep[0]['diameter_normalized_high_frequency_energy']
+    )
+    last_scaled_hf = float(
+        sweep[-1]['diameter_normalized_high_frequency_energy']
+    )
+    base.require(
+        last_scaled_hf <= first_scaled_hf * 1.20,
+        'zoom sweep: scale-normalized unresolved HF accumulates while zooming out: '
+        f'{first_scaled_hf:.2f} -> {last_scaled_hf:.2f}',
+    )
 
 
 def make_contact_sheet(paths: dict[str, dict[str, Path]]):
@@ -352,8 +430,12 @@ def make_contact_sheet(paths: dict[str, dict[str, Path]]):
     draw = ImageDraw.Draw(sheet)
     for row, level in enumerate(('large', 'normal', 'small')):
         y = margin + row * row_height
-        draw.text((margin, y), f'Baseline main cellular / {level}', fill=(235, 238, 245))
-        draw.text((margin * 2 + first.width, y), f'Pass 1 surface LOD / {level}', fill=(235, 238, 245))
+        draw.text((margin, y), f'Baseline / {level}', fill=(235, 238, 245))
+        draw.text(
+            (margin * 2 + first.width, y),
+            f'Current photosphere / {level}',
+            fill=(235, 238, 245),
+        )
         baseline = Image.open(paths['baseline'][level]).convert('RGB')
         current = Image.open(paths['current'][level]).convert('RGB')
         sheet.paste(baseline, (margin, y + label_height))
@@ -391,9 +473,11 @@ def main():
         side: {level: analyze(path) for level, path in side_paths.items()}
         for side, side_paths in paths.items()
     }
-    validate(metrics)
     make_contact_sheet(paths)
 
+    # Persist diagnostics before quality assertions so a failing CI run still
+    # uploads the exact metrics needed to distinguish renderer defects from
+    # capture/analyzer defects.
     payload = {
         'baseline_ref': BASELINE_REF,
         'viewport': {
@@ -406,17 +490,42 @@ def main():
         'metrics': metrics,
         'zoom_sweep': zoom_sweep,
     }
-    (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
+    (OUTPUT_DIR / 'metrics.json').write_text(
+        json.dumps(payload, indent=2),
+        encoding='utf-8',
+    )
+
+    validate(metrics)
+    validate_zoom_sweep(zoom_sweep)
 
     print('stellar surface screen-space LOD mobile regression: ok')
     for level in ('large', 'normal', 'small'):
         baseline = metrics['baseline'][level]
         current = metrics['current'][level]
         print(
-            f"  {level}: diameter {current['equivalent_core_diameter_px']:.1f}px, "
-            f"HF {baseline['high_frequency_energy']:.3f}->{current['high_frequency_energy']:.3f}, "
-            f"local minima {baseline['local_minima_fraction']:.5f}->{current['local_minima_fraction']:.5f}, "
-            f"low-freq std {current['low_frequency_std']:.3f}"
+            f"  {level}: diameter {baseline['equivalent_core_diameter_px']:.1f}"
+            f"->{current['equivalent_core_diameter_px']:.1f}px, "
+            f"HF {baseline['high_frequency_energy']:.3f}"
+            f"->{current['high_frequency_energy']:.3f}, "
+            f"scaled-HF {baseline['diameter_normalized_high_frequency_energy']:.2f}"
+            f"->{current['diameter_normalized_high_frequency_energy']:.2f}, "
+            f"neighbor {baseline['surface_neighbor_contrast']:.3f}"
+            f"->{current['surface_neighbor_contrast']:.3f}, "
+            f"low-freq std {baseline['low_frequency_std']:.3f}"
+            f"->{current['low_frequency_std']:.3f}, "
+            f"local minima {baseline['local_minima_fraction']:.5f}"
+            f"->{current['local_minima_fraction']:.5f}"
+        )
+    print('  zoom sweep:')
+    for sample in zoom_sweep:
+        print(
+            f"    {sample['index']:02d}: "
+            f"diameter={sample['equivalent_core_diameter_px']:.1f}px "
+            f"HF={sample['high_frequency_energy']:.3f} "
+            f"scaled-HF={sample['diameter_normalized_high_frequency_energy']:.2f} "
+            f"neighbor={sample['surface_neighbor_contrast']:.3f} "
+            f"low-freq={sample['low_frequency_std']:.3f} "
+            f"minima={sample['local_minima_fraction']:.5f}"
         )
 
 
