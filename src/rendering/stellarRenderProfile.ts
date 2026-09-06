@@ -16,7 +16,7 @@ export function getCompressedStellarLuminosity01(luminositySolar: number) {
 
   // Rendered brightness deliberately spans a much smaller range than physical
   // luminosity. This keeps multi-order-of-magnitude stellar luminosities legible
-  // on SDR displays without erasing the photosphere hue through clipping.
+  // on SDR displays; temperature identity is carried by the surrounding light.
   return clamp((Math.log10(safeLuminosity) + 2.5) / 8.5, 0, 1)
 }
 
@@ -32,14 +32,13 @@ export function getStellarRenderProfile(
   )
 
   return {
-    photosphereIntensity: 0.92 + luminosity01 * 0.10 + temperature01 * 0.035,
-    whiteHotMix: 0.008 + temperature01 * 0.032 + luminosity01 * 0.012,
-    // Corona stays a short atmospheric fringe around the photosphere. Stellar
-    // identity and apparent brightness come from the textured emitting surface,
-    // not from a large diffuse Sprite footprint.
-    coronaScale: 2.90 + luminosity01 * 0.14,
-    coronaOpacity: 0.18 + luminosity01 * 0.055,
-    // Only the faint outer tail may desaturate, and even there very slightly.
-    coronaOuterWhiteMix: 0.014 + luminosity01 * 0.020,
+    // Keep all three core channels on the photographic highlight shoulder.
+    photosphereIntensity: 4.0 + luminosity01 * 0.45 + temperature01 * 0.10,
+    whiteHotMix: 0.98,
+    // One existing sprite carries immediate glow and a much wider diffuse tail.
+    // Its edge is beyond the visible tail so no circular cutoff is perceptible.
+    coronaScale: 8.0 + luminosity01 * 0.4,
+    coronaOpacity: 0.88 + luminosity01 * 0.06,
+    coronaOuterWhiteMix: 0.02,
   }
 }

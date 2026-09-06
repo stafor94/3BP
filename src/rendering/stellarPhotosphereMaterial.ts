@@ -106,12 +106,6 @@ export const stellarPhotosphereFragmentShader = `
   varying vec3 vWorldNormal;
   varying vec3 vWorldPosition;
 
-  const float STELLAR_CONVECTION_FREQUENCY = 2.6;
-  const float STELLAR_WARP_FREQUENCY = 5.2;
-  const float STELLAR_PRIMARY_FREQUENCY = 13.0;
-  const float STELLAR_PRIMARY_SECONDARY_FREQUENCY = 21.0;
-  const float STELLAR_FINE_FREQUENCY = 58.0;
-
   float hash31(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.yzx + 33.33);
@@ -137,163 +131,28 @@ export const stellarPhotosphereFragmentShader = `
     );
   }
 
-  float getStellarNormalPixelFootprint(vec3 objectNormal) {
-    vec3 normalWidth = fwidth(objectNormal);
-    return max(max(normalWidth.x, normalWidth.y), max(normalWidth.z, 0.000001));
-  }
-
-  float getStellarFeaturePixels(float normalPixelFootprint, float frequency) {
-    return 1.0 / max(normalPixelFootprint * frequency, 0.0001);
-  }
-
   float drawStellarSurfaceVariation(vec3 objectNormal) {
-    vec3 seedOffset = vec3(
-      uSurfaceSeed * 0.051 + uSurfaceVariant * 2.17,
-      uSurfaceSeed * 0.089 - uSurfaceVariant * 1.61,
-      uSurfaceSeed * 0.137 + uSurfaceVariant * 1.31
-    );
-
-    float normalPixelFootprint = getStellarNormalPixelFootprint(objectNormal);
-    float convectionPixels = getStellarFeaturePixels(
-      normalPixelFootprint,
-      STELLAR_CONVECTION_FREQUENCY
-    );
-    float primaryPixels = getStellarFeaturePixels(
-      normalPixelFootprint,
-      STELLAR_PRIMARY_FREQUENCY
-    );
-    float secondaryPixels = getStellarFeaturePixels(
-      normalPixelFootprint,
-      STELLAR_PRIMARY_SECONDARY_FREQUENCY
-    );
-    float finePixels = getStellarFeaturePixels(
-      normalPixelFootprint,
-      STELLAR_FINE_FREQUENCY
-    );
-    float convectionLod = mix(
-      0.84,
-      1.0,
-      smoothstep(0.55, 1.80, convectionPixels)
-    );
-    // The primary pair is deliberately mid-scale: at the production mobile
-    // tracking diameter it still spans several pixels instead of disappearing
-    // and leaving only unresolved fine noise. Fine breakup remains conservative
-    // so it cannot shimmer or turn the smooth value field into cell boundaries.
-    float primaryLod = smoothstep(0.48, 1.45, primaryPixels);
-    float secondaryLod = smoothstep(0.58, 1.65, secondaryPixels);
-    float fineLod = smoothstep(1.85, 4.20, finePixels);
-
-    float convectionA = valueNoise(
-      objectNormal * STELLAR_CONVECTION_FREQUENCY + seedOffset * 0.41
-    );
-    float convectionB = valueNoise(
-      objectNormal.yzx * STELLAR_CONVECTION_FREQUENCY -
-      seedOffset * 0.29 +
-      vec3(3.17, -5.31, 1.93)
-    );
-    float convection = mix(convectionA, convectionB, 0.38);
-    float convectionEvolution = 1.0 + 0.014 * sin(
-      uTime * 0.0031 + uSurfaceSeed * 0.009
-    );
-
-    // A small, low-frequency coordinate distortion breaks the interpolation
-    // lattice without defining cells or edges. It is static in surface space;
-    // time only changes amplitudes below, so detail never slides over the star.
-    float warpA = valueNoise(
-      objectNormal * STELLAR_WARP_FREQUENCY +
-      seedOffset * 0.23 +
-      vec3(-4.7, 2.1, 6.3)
-    );
-    float warpB = valueNoise(
-      objectNormal.zxy * (STELLAR_WARP_FREQUENCY * 1.13) -
-      seedOffset * 0.19 +
-      vec3(1.8, 7.4, -3.2)
-    );
-    vec3 warpVector = vec3(
-      warpA - 0.5,
-      warpB - 0.5,
-      (warpA - warpB) * 0.72
-    );
-    vec3 warpedNormal = normalize(objectNormal + warpVector * 0.075);
-
-    // Primary granulation is a decorrelated signed band assembled from several
-    // nearby scales. No sample encodes a nearest point, boundary distance, or
-    // closed edge; dark structure is only the natural trough of this field.
-    float primaryA = valueNoise(
-      warpedNormal * STELLAR_PRIMARY_FREQUENCY +
-      seedOffset * 0.79 +
-      vec3(-2.7, 4.1, 7.3)
-    );
-    float primaryB = valueNoise(
-      warpedNormal.zxy * STELLAR_PRIMARY_SECONDARY_FREQUENCY -
-      seedOffset * 0.67 +
-      vec3(6.4, 1.8, -3.9)
-    );
-    float primaryC = valueNoise(
-      warpedNormal.yzx * (STELLAR_PRIMARY_FREQUENCY * 1.24) +
-      seedOffset * 0.53 +
-      vec3(8.6, -6.1, 2.7)
-    );
-    float primaryLow = (primaryA - 0.5) * 0.58 * primaryLod;
-    float primaryHigh = (primaryB - 0.5) * 0.42 * secondaryLod;
-    float primaryCross = (primaryC - 0.5) * 0.38 * secondaryLod;
-    float primaryGranulation = primaryLow - primaryHigh + primaryCross;
-    primaryGranulation +=
-      (primaryA - 0.5) * (primaryC - 0.5) * 0.18 * secondaryLod;
-    float primaryEvolution = 1.0 + 0.012 * sin(
-      uTime * 0.0043 + uSurfaceSeed * 0.011 + 0.7
-    );
-
-    float fineBreakup = valueNoise(
-      warpedNormal.yzx * STELLAR_FINE_FREQUENCY -
-      seedOffset * 0.57 +
-      vec3(9.2, -1.4, 5.6)
-    );
-
-    float convectionVariation =
-      (convection - 0.5) * 0.052 * convectionLod * convectionEvolution;
-    float resolvedGranulationBoost = mix(1.18, 1.62, secondaryLod);
-    float primaryVariation =
-      primaryGranulation * 0.132 * primaryEvolution * resolvedGranulationBoost;
-    float fineVariation =
-      (fineBreakup - 0.5) * 0.003 * fineLod;
-    float variation =
-      convectionVariation +
-      primaryVariation +
-      fineVariation;
-
-    return clamp(1.0 + variation * uDetailStrength, 0.86, 1.14);
+    // Photographic highlights carry only a minute, broad brightness variation.
+    // Fade it out at gameplay size; no mid/fine granulation or contrast boost.
+    float footprint = max(length(fwidth(objectNormal)), 0.000001);
+    float resolved = 1.0 - smoothstep(0.012, 0.045, footprint);
+    vec3 offset = vec3(uSurfaceSeed * 0.051, uSurfaceSeed * 0.089, uSurfaceVariant);
+    float broad = valueNoise(objectNormal * 2.6 + offset);
+    float evolution = 1.0 + 0.01 * sin(uTime * 0.0031 + uSurfaceSeed * 0.009);
+    return 1.0 + (broad - 0.5) * 0.012 * resolved * evolution * uDetailStrength;
   }
 
   float drawStellarEmission(float viewMu) {
-    // Keep the Pass 2 disk-average HDR budget while making the center-to-limb
-    // depth more legible. The center peak is unchanged; energy is redistributed
-    // out of the outer disk instead of creating a separate bright core.
-    float broadDepth = pow(viewMu, 0.32);
-    float centerDepth = pow(viewMu, 1.35);
-    return 0.90 + broadDepth * 0.12 + centerDepth * 0.300;
-  }
-
-  float getStellarDetailEnvelope(float viewMu) {
-    // Keep convection/plasma contrast strongest across the center and mid disk,
-    // then compress it before projection packs the texture into the limb. The
-    // nonzero floor preserves living surface variation without making the edge
-    // as noisy as the center or collapsing it into a smooth radial band.
-    return mix(0.30, 1.0, smoothstep(0.18, 0.84, viewMu));
-  }
-
-  float drawStellarFringe(float viewMu) {
-    float fresnel = 1.0 - viewMu;
-    float fringeRise = smoothstep(0.52, 0.76, fresnel);
-    float fringeFall = 1.0 - smoothstep(0.94, 0.995, fresnel);
-    return fringeRise * fringeFall * uRimStrength;
+    // A luminous limb remains on the ACES shoulder, connected to the sprite's
+    // overlapping immediate glow. Radial depth must not expose a shaded sphere.
+    return 0.78 + 0.22 * smoothstep(0.0, 0.75, viewMu);
   }
 
   float getStellarEdgeCoverage(float viewMu) {
-    // Keep antialiasing tightly on the geometric silhouette. A broad alpha ramp
-    // over the limb-darkened photosphere reads as a charcoal outline on black.
-    float viewMuWidth = min(max(fwidth(viewMu) * 0.50, 0.008), 0.040);
-    return smoothstep(0.0, viewMuWidth, viewMu);
+    // Feather inside the silhouette where the immediate glow already overlaps.
+    // Derivatives supply a pixel-scale floor for small projected disks.
+    float feather = max(0.34, fwidth(viewMu) * 1.25);
+    return smoothstep(0.0, feather, viewMu);
   }
 
   void main() {
@@ -304,36 +163,12 @@ export const stellarPhotosphereFragmentShader = `
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
     float viewMu = max(dot(normalWorld, viewDirection), 0.0);
     float surfaceDetail = drawStellarSurfaceVariation(objectNormal);
-    float emission = drawStellarEmission(viewMu);
-    float detailEnvelope = getStellarDetailEnvelope(viewMu);
-    float fringe = drawStellarFringe(viewMu);
     float edgeCoverage = getStellarEdgeCoverage(viewMu);
-
-    // Mean photosphere energy is driven by the smooth center-to-limb emission.
-    // Fringe contribution is intentionally tiny so it cannot become a bright
-    // outline. Procedural detail stays a bounded linear/HDR modulation.
-    float meanEmission = (emission + fringe * 0.22) * uEmissionStrength;
-    float surfaceVariation = clamp((surfaceDetail - 1.0) * 1.08, -0.15, 0.13);
-    surfaceVariation *= detailEnvelope;
-    float linearIntensity = meanEmission * (1.0 + surfaceVariation);
-
-    // Near-neutral stellar colors put all three channels on the ACES shoulder at
-    // once. Reserve a bounded amount of pre-ACES headroom only for that case;
-    // warm and blue-biased stars retain the existing intensity calibration.
-    float identityChannelFloor = min(min(uIdentityColor.r, uIdentityColor.g), uIdentityColor.b);
-    float neutralHue01 = smoothstep(0.50, 0.78, identityChannelFloor);
-    linearIntensity *= mix(1.0, 0.72, neutralHue01);
-
-    // Recover only a small amount of surface contrast lost to the ACES shoulder;
-    // no topology-producing signal is introduced here.
-    linearIntensity *= 1.0 + surfaceVariation * 0.08;
-    vec3 color = uIdentityColor * linearIntensity;
-
-    // White-hot treatment is a very small pre-ACES center desaturation, not an
-    // independent white disk. Narrowing and reducing it preserves temperature ID.
-    float whiteHotCore = pow(viewMu, 22.0) * uWhiteHotMix * 0.72;
-    float peak = max(max(color.r, color.g), color.b);
-    color = mix(color, vec3(peak), whiteHotCore);
+    float linearIntensity = drawStellarEmission(viewMu) * uEmissionStrength * surfaceDetail;
+    // All temperatures have a nearly neutral overexposed core. The original
+    // temperature color survives mainly in the lower-energy rim and halo.
+    float whiteHotCore = mix(0.86, uWhiteHotMix, smoothstep(0.0, 0.55, viewMu));
+    vec3 color = mix(uIdentityColor, vec3(1.0), whiteHotCore) * linearIntensity;
 
     gl_FragColor = vec4(color, uOpacity * edgeCoverage);
     #include <tonemapping_fragment>
@@ -402,9 +237,8 @@ export function updateStellarPhotosphereMaterial(
 ) {
   const identityColor = material.uniforms.uIdentityColor?.value
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
-  // Keep the mid-scale convection readable at ordinary mobile tracking size;
-  // fine detail is separately derivative-gated in the shader.
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.30
+  // Only a faint broad variation may resolve when enlarged.
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 1.0
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
@@ -457,3 +291,4 @@ export function syncStellarPhotosphereState(
 
   return bodies.map((body) => inheritMergedStellarEvolution(body, previousBodies))
 }
+

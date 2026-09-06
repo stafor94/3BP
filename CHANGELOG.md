@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.24.18] - 2026-09-06
+
+### Fixed
+- Replaced surface-detail stellar rendering with a nearly white photographic HDR core, feathered luminous edge, and a broad temperature-tinted diffuse halo in the existing single corona draw.
+- Removed gameplay granulation amplification; enlarged surfaces retain only minute low-frequency brightness variation.
+- Replaced contradictory surface-detail/compact-halo acceptance with paired production mobile light-profile, color, noise, and continuous-zoom checks against the pre-change main.
+
+
 3BP의 사용자에게 보이는 기능 변경, 물리/렌더링 동작 변경, 버그 수정, 성능 개선을 버전별로 기록합니다.
 
 형식은 [Keep a Changelog](https://keepachangelog.com/)의 원칙을 참고하고, 버전 번호는 [Semantic Versioning](https://semver.org/) 및 `VERSIONING.md` 정책을 따릅니다.
@@ -1762,3 +1770,4 @@
 - 모바일에서 접을 수 있는 제어 패널과 시간 기반 궤적 표시/유지시간 설정을 추가했습니다.
 - 1체·2체·3체 프리셋 선택, 천체 수 필터, 다양한 초기 궤도 프리셋을 추가했습니다.
 - 앱 제목 옆에 버전을 표시하고 Semantic Versioning용 스크립트와 `VERSIONING.md` 정책을 추가했습니다.
+
