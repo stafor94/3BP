@@ -56,6 +56,21 @@ def prepare_scene(driver, root_url: str):
             canvas,
         )
     )
+    # Tracking applies a short automatic focus handoff after the selected stellar
+    # stage changes. Let that handoff finish before synthetic wheel input so the
+    # isolated large/normal/small captures measure the requested zoom itself,
+    # rather than a wheel step being partially cancelled by auto framing.
+    driver.execute_async_script(
+        '''
+        let frames = 72;
+        const done = arguments[arguments.length - 1];
+        const settle = () => {
+          if (frames-- <= 0) { done(); return; }
+          requestAnimationFrame(settle);
+        };
+        requestAnimationFrame(settle);
+        ''',
+    )
     return canvas
 
 
