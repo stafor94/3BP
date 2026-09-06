@@ -113,3 +113,25 @@ the measured size (cool/enlarged missed the target before any after capture).
 Calibration and geometry therefore remain on the original compact #146 disk,
 with identical wheel inputs reused for v0.24.18 and this revision. All before/after
 images still compare latest main; no acceptance threshold was relaxed.
+
+## Outer-halo follow-up: acceptance before experimentation
+
+Baseline: main `076fb962267658e58cf56c8699423567fca155a5` (v0.24.19).
+The supplied 50428.mp4 (7.253 seconds, 1080x1708) and 50394.jpg reference
+montage were opened directly, including a 4-fps sequence and a native-size
+video frame. The video retains the white core and soft glow, while its faint
+outer distribution reads nearly circular. It does not establish temperature
+separation or a performance regression.
+
+Before any runtime change, capture the production mobile temperature/size
+matrix. Experiment only with the existing outer-halo distribution: broad,
+weak, body-seeded and time-independent. Keep the white core, round near rim,
+temperature identity, carrier size/opacity and existing 1+1 draw structure.
+No new pass, diffraction, lens flare, surface detail, or non-stellar change.
+
+Adoption requires directly reviewed paired latest-main frames, normal mobile
+priority, all nine temperature/size combinations, overlapping stars, continuous
+zoom and movement, and measured frame time. Existing photographic, soft-rim,
+noise, outline/ring and color gates remain active. A pattern that reads as
+petals, stripes or smoke fails even if CI passes. Revert the experiment if the
+visual improvement is unclear; version only an adopted runtime change.
