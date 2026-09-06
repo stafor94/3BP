@@ -104,7 +104,7 @@ jobs:
         run: python scripts/stellarCoronaPass5CompatibilityRunner.py
       - name: Stellar HDR and temperature-color mobile A/B regression
         env:
-          STELLAR_HDR_BASELINE_REF: fe1d138268a40ce7707df64ac60a0ab384a995bc
+          STELLAR_HDR_BASELINE_REF: c77432d5759e84fe71baf687cf0d160086b9b20c
         run: python scripts/stellarHdrVisualRegression.py
       - name: Upload historical topology-removal A/B captures
         if: always()

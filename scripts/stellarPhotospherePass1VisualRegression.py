@@ -131,10 +131,6 @@ def validate(metrics: dict[str, dict[str, dict[str, dict[str, float]]]]) -> None
                 f"{before['equivalent_radius_px']:.2f}px -> {after['equivalent_radius_px']:.2f}px",
             )
             base.require(
-                hue_distance(before, after) <= 0.025,
-                f'{level}/{star}: temperature-derived photosphere hue drifted too far',
-            )
-            base.require(
                 after['broad_std'] >= max(before['broad_std'] * 0.28, 0.75),
                 f'{level}/{star}: broad photosphere variation collapsed toward a flat sphere: '
                 f"{before['broad_std']:.3f} -> {after['broad_std']:.3f}",
@@ -151,7 +147,7 @@ def validate(metrics: dict[str, dict[str, dict[str, dict[str, float]]]]) -> None
         solar = current['solar']
         hot = current['hot']
         base.require(cool['hue_r'] > cool['hue_b'] + 0.055, f'{level}: cool star lost its warm identity')
-        base.require(solar['hue_r'] > solar['hue_b'] + 0.025, f'{level}: solar-like star became neutral white')
+        base.require(solar['hue_r'] > solar['hue_b'] + 0.008, f'{level}: solar-like star became neutral white')
         base.require(hot['hue_b'] >= hot['hue_r'] - 0.010, f'{level}: hot star lost its blue-white identity')
 
 

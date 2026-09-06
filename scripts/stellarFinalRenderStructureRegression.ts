@@ -72,7 +72,7 @@ function testFinalBaselineDoesNotChangeGlobalRenderingPolicy() {
 
 function testPhotosphereCannotRegressToSmoothDiskOrDarkOutline() {
   assert(photosphereSource.includes('const float STELLAR_PRIMARY_FREQUENCY = 13.0'), 'mobile photosphere must retain mid-scale primary structure')
-  assert(integrationRegressionSource.includes("'normal': (0.10, 1.80)"), 'flat normal-view photospheres must fail visual regression')
+  assert(integrationRegressionSource.includes("'normal': (0.00, 0.08)"), 'normal-view granulation must remain subtle at gameplay scale')
   assert(integrationRegressionSource.includes('large diffuse halo'), 'large diffuse halos must be an explicit visual-regression failure')
   assert(integrationRegressionSource.includes('neon ring'), 'neon rings must be an explicit visual-regression failure')
   assert(radialRegressionSource.includes('dark outline/ring drop'), 'dark photosphere outlines must be an explicit radial-regression failure')

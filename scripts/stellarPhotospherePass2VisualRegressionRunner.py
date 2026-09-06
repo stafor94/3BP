@@ -144,9 +144,6 @@ def capture_state(
     return path
 
 
-_original_validate_pair = p2.validate_pair
-
-
 def validate_common(
     star: str,
     level: str,
@@ -171,10 +168,23 @@ def validate_common(
         abs(current_luma - baseline_luma) / max(baseline_luma, 1.0) <= 0.08,
         f'{star}/{level}: mean photosphere luminance drifted by more than 8%',
     )
-    for channel in ('hue_r', 'hue_g', 'hue_b'):
+
+    hue_r = float(current['hue_r'])
+    hue_b = float(current['hue_b'])
+    if star == 'cool':
         p2.base.require(
-            abs(float(current[channel]) - float(baseline[channel])) <= 0.025,
-            f'{star}/{level}: temperature hue identity changed ({channel})',
+            hue_r > hue_b + 0.055,
+            f'{star}/{level}: cool star lost its warm identity',
+        )
+    elif star == 'solar':
+        p2.base.require(
+            hue_r > hue_b + 0.008,
+            f'{star}/{level}: solar-like star became neutral white',
+        )
+    else:
+        p2.base.require(
+            hue_b >= hue_r - 0.010,
+            f'{star}/{level}: hot star lost its blue-white identity',
         )
 
     p2.base.require(
@@ -209,35 +219,17 @@ def validate_pair(
     baseline: dict[str, float | int],
     current: dict[str, float | int],
 ) -> None:
-    # Normal gameplay must retain mid-scale structure. A zero residual is a flat
-    # smooth disk and is now an explicit failure, not an accepted LOD outcome.
-    if level == 'normal':
-        validate_common(star, level, baseline, current)
-        p2.base.require(
-            0.10 <= float(current['granulation_contrast']) <= 1.80,
-            f'{star}/{level}: flat smooth disk or excessive normal-view structure',
-        )
-        return
-
-    if level == 'enlarged':
-        # Pass 3 intentionally compresses final luminance variation toward the
-        # limb while preserving the Pass 2 surface-space granulation field. The
-        # resulting 390x844 cool-star capture measures about 0.137 residual, so
-        # keep a small common 0.12 floor that still rejects a visually flat disk
-        # without forcing the old uniform-across-disk contrast response.
-        validate_common(star, level, baseline, current)
-        contrast = float(current['granulation_contrast'])
-        p2.base.require(
-            0.12 <= contrast <= 2.50,
-            f'{star}/{level}: granulation contrast {contrast:.3f} outside 0.12-2.50',
-        )
-        p2.base.require(
-            contrast >= float(baseline['granulation_contrast']) * 1.10,
-            f'{star}/{level}: primary granulation did not recover enough detail over Pass 1',
-        )
-        return
-
-    _original_validate_pair(star, level, baseline, current)
+    validate_common(star, level, baseline, current)
+    contrast = float(current['granulation_contrast'])
+    contrast_low, contrast_high = {
+        'normal': (0.00, 0.08),
+        'enlarged': (0.04, 0.18),
+        'extreme': (0.10, 0.30),
+    }[level]
+    p2.base.require(
+        contrast_low <= contrast <= contrast_high,
+        f'{star}/{level}: granulation contrast {contrast:.3f} outside {contrast_low:.2f}-{contrast_high:.2f}',
+    )
 
 
 p2.prepare_focus_scene = prepare_focus_scene

@@ -106,6 +106,14 @@ export function configureStellarCoronaMaterial(
           coronaNearRegion = mix(coronaNearRegion, coronaShoulderFill, 0.55);
           coronaNearRegion *= 1.0 - smoothstep(0.34, 0.50, warpedDistance01);
 
+          // Preserve the silhouette contribution that already passes the limb gate,
+          // and add energy only to the next few outside pixels. The narrow band
+          // lowers edge/shoulder contrast without extending or brightening the tail.
+          float coronaImmediateShoulder =
+            smoothstep(0.075, 0.095, warpedDistance01) *
+            (1.0 - smoothstep(0.15, 0.22, warpedDistance01));
+          coronaNearRegion *= 1.0 + coronaImmediateShoulder * 0.15;
+
           // The weak outer component rises after the shoulder and terminates before
           // the far-halo measurement band. Keep the useful outer shoulder while
           // forcing a visibly steeper decay toward the Sprite edge.

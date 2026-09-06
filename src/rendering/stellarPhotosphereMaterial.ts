@@ -175,12 +175,12 @@ export const stellarPhotosphereFragmentShader = `
       1.0,
       smoothstep(0.55, 1.80, convectionPixels)
     );
-    // The primary pair is deliberately mid-scale: at the production mobile
-    // tracking diameter it still spans several pixels instead of disappearing
-    // and leaving only unresolved fine noise. Fine breakup remains conservative
-    // so it cannot shimmer or turn the smooth value field into cell boundaries.
-    float primaryLod = smoothstep(0.48, 1.45, primaryPixels);
-    float secondaryLod = smoothstep(0.58, 1.65, secondaryPixels);
+    // Retire the primary pair at normal mobile tracking size; it should only
+    // resolve once enlarged views provide enough pixels per feature. Fine breakup
+    // remains conservative so it cannot shimmer or form cell boundaries.
+    float primaryLod = smoothstep(1.80, 3.80, primaryPixels);
+    float secondaryLod = smoothstep(1.30, 2.10, secondaryPixels);
+    secondaryLod *= mix(1.0, 1.15, secondaryLod);
     float fineLod = smoothstep(1.85, 4.20, finePixels);
 
     float convectionA = valueNoise(
@@ -404,7 +404,7 @@ export function updateStellarPhotosphereMaterial(
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
   // Keep the mid-scale convection readable at ordinary mobile tracking size;
   // fine detail is separately derivative-gated in the shader.
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.65
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 0.90
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
