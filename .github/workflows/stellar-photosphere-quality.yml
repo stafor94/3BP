@@ -11,6 +11,8 @@ on:
       - 'src/rendering/stellarRenderProfile.ts'
       - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
       - 'src/visualRegression/productionCameraHandoffFixture.ts'
+      - 'scripts/stellarPhotographicVisualRegression.py'
+      - 'docs/stellar-photographic-target.md'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarFinalRenderStructureRegression.ts'
       - 'scripts/stellarPhotosphereVisualRegression.py'
@@ -68,121 +70,13 @@ jobs:
           done
           cat /tmp/3bp-stellar-preview.log
           exit 1
-      - name: Pass 5 production SimulationView mobile integration regression
-        run: python scripts/stellarProductionIntegrationVisualRegressionRunner.py
-      - name: Final Pass 6 Helios production reproduction regression
-        run: python scripts/stellarHeliosFinalVisualRegression.py
-      - name: Pass 1 topology-removal regression
-        env:
-          STELLAR_PASS1_BASELINE_REF: 09153897130cd25d35820174b2b81b5dea5b80c7
-        run: python scripts/stellarPhotospherePass1VisualRegression.py
-      - name: Pass 2 normal enlarged extreme photosphere regression
-        env:
-          STELLAR_PASS2_BASELINE_REF: 3b023b49bef317ab841f7758b6ddf69fa10812b1
-        run: python scripts/stellarPhotospherePass2VisualRegressionRunner.py
-      - name: Pass 3 radial emission and limb-detail regression
-        env:
-          STELLAR_PASS3_BASELINE_REF: f75bcf8a3b6a7be65cd88e379e10b43d346f75b5
-        run: python scripts/stellarPhotospherePass3RadialRegression.py
-      - name: Historical topology-removal mobile A/B evidence
-        env:
-          STELLAR_PHOTOSPHERE_BASELINE_REF: 2da4afda358485326967dfbca6cd010b54dedb42
-        run: python scripts/stellarCellularPhotosphereVisualRegression.py
-      - name: Pass 3 screen-space granulation LOD mobile regression
-        env:
-          STELLAR_GRANULATION_LOD_BASELINE_REF: 901b2dd596cb3a0f240853aa851981087f92ae04
-        run: python scripts/stellarGranulationLodVisualRegression.py
-      - name: Verify distinct mobile screen sizes and zoom coverage
-        run: python scripts/stellarGranulationLodScreenSizeAudit.py
-      - name: Pass 4 stellar limb and edge mobile A/B regression
-        env:
-          STELLAR_LIMB_BASELINE_REF: 284d113e82523f90ae5ca92444f0eab0bbb98b26
-        run: python scripts/stellarLimbVisualRegression.py
-      - name: Stellar corona current outcome regression
-        env:
-          STELLAR_CORONA_BASELINE_REF: 4e7b58098d8fd5c96deb8e8caf4d823409eec359
-        run: python scripts/stellarCoronaPass5CompatibilityRunner.py
-      - name: Stellar HDR and temperature-color mobile A/B regression
-        env:
-          STELLAR_HDR_BASELINE_REF: c77432d5759e84fe71baf687cf0d160086b9b20c
-        run: python scripts/stellarHdrVisualRegression.py
-      - name: Upload historical topology-removal A/B captures
+      - name: Photographic production light A/B regression
+        run: python scripts/stellarPhotographicVisualRegression.py
+      - name: Upload photographic production A/B captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stellar-photosphere-topology-removal-historical-ab
-          path: stellar-photosphere-visual-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload Pass 1 topology-removal captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-photosphere-pass1-topology-removal
-          path: stellar-pass1-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload Pass 2 three-scale captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-photosphere-pass2-three-scale
-          path: stellar-pass2-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload Pass 3 radial emission captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-photosphere-pass3-radial-emission
-          path: stellar-pass3-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload screen-space LOD mobile captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-granulation-screen-space-lod
-          path: stellar-surface-lod-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload stellar limb mobile A/B captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-limb-pass4-mobile-ab
-          path: stellar-limb-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload stellar corona captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-corona-current-3x3
-          path: stellar-corona-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload stellar HDR temperature A/B captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-hdr-temperature-mobile-ab
-          path: stellar-hdr-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload Pass 5 production mobile integration captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-pass5-production-mobile-integration
-          path: stellar-production-pass5-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Upload final Pass 6 Helios production captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-pass6-helios-production-baseline
-          path: stellar-pass6-helios-artifacts
-          if-no-files-found: warn
+          name: stellar-photographic-production-ab
+          path: stellar-photographic-artifacts
+          if-no-files-found: error
           retention-days: 7

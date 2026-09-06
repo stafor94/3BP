@@ -68,89 +68,33 @@ export function configureStellarCoronaMaterial(
           vec2 coronaDelta = vMapUv - vec2(0.5);
           float coronaRadius = length(coronaDelta) * 2.0;
           float coronaAngle = atan(coronaDelta.y, coronaDelta.x);
-          float coronaPhotosphereRadius = clamp(uCoronaPhotosphereRadiusUv, 0.56, 0.82);
-          float coronaSpan = max(1.0 - coronaPhotosphereRadius, 0.08);
-          float coronaDistance01 = max(coronaRadius - coronaPhotosphereRadius, 0.0) / coronaSpan;
+          float coronaPhotosphereRadius = clamp(uCoronaPhotosphereRadiusUv, 0.20, 0.82);
+          float radiusInPhotospheres = coronaRadius / coronaPhotosphereRadius;
           float coronaPhase = uCoronaTime * 0.0016;
           float coronaAngularA = sin(coronaAngle * 5.0 + uCoronaSeed * 0.071 + coronaPhase);
           float coronaAngularB = sin(coronaAngle * 9.0 - uCoronaSeed * 0.113 - coronaPhase * 0.73);
-          float coronaAngularWarp = coronaAngularA * 0.050 + coronaAngularB * 0.024;
-          coronaAngularWarp *= 0.68;
-          float coronaWarpWeight = smoothstep(0.10, 0.90, coronaDistance01);
-          float warpedDistance01 = max(
-            coronaDistance01 * (1.0 + coronaAngularWarp * coronaWarpWeight),
-            0.0
-          );
+          float distanceOutside = max(radiusInPhotospheres - 0.95, 0.0);
+          float angularWarp = 1.0 + (coronaAngularA * 0.05 + coronaAngularB * 0.025)
+            * smoothstep(0.0, 0.7, distanceOutside);
+          float distanceR = distanceOutside * angularWarp;
 
-          // Start at the silhouette but widen the first outside transition when
-          // the star is only a few dozen pixels wide. This keeps the normal mobile
-          // footprint from collapsing the corona into one bright neon edge pixel,
-          // while retaining the existing compact transition at larger footprints.
-          float coronaEdgeAa = max(fwidth(coronaRadius), 0.004);
-          float coronaOutsideWidth = max(coronaEdgeAa * 1.35, 0.020);
-          float coronaOutsideMask = smoothstep(
-            coronaPhotosphereRadius - 0.002,
-            coronaPhotosphereRadius + coronaOutsideWidth,
-            coronaRadius
-          );
-
-          // Keep a compact shoulder visible at production mobile scale without
-          // letting it become either a detached halo or a thin neon outline.
-          float coronaNearLimb = exp(-pow(warpedDistance01 / 0.12, 2.0));
-          float coronaNearShoulder = exp(-pow(warpedDistance01 / 0.27, 1.62));
-          float coronaNearRegion = coronaNearLimb * 0.46 + coronaNearShoulder * 0.54;
-          // Fill only the immediate shoulder so the first bright edge pixel cannot
-          // read as a neon ring. The hard compact cutoff keeps this redistribution
-          // from turning into the broad diffuse halo removed by the same pass.
-          float coronaShoulderFill = exp(-pow(warpedDistance01 / 0.36, 1.8));
-          coronaNearRegion = mix(coronaNearRegion, coronaShoulderFill, 0.55);
-          coronaNearRegion *= 1.0 - smoothstep(0.34, 0.50, warpedDistance01);
-
-          // Preserve the silhouette contribution that already passes the limb gate,
-          // and add energy only to the next few outside pixels. The narrow band
-          // lowers edge/shoulder contrast without extending or brightening the tail.
-          float coronaImmediateShoulder =
-            smoothstep(0.075, 0.095, warpedDistance01) *
-            (1.0 - smoothstep(0.15, 0.22, warpedDistance01));
-          coronaNearRegion *= 1.0 + coronaImmediateShoulder * 0.15;
-
-          // The weak outer component rises after the shoulder and terminates before
-          // the far-halo measurement band. Keep the useful outer shoulder while
-          // forcing a visibly steeper decay toward the Sprite edge.
-          float coronaOuter =
-            exp(-warpedDistance01 * 6.4) *
-            (1.0 - smoothstep(0.55, 0.72, warpedDistance01));
-          float coronaOuterRise = smoothstep(0.10, 0.22, warpedDistance01);
-          float coronaOuterDiffuse =
-            exp(-warpedDistance01 * 4.2) *
-            coronaOuterRise *
-            (1.0 - smoothstep(0.48, 0.66, warpedDistance01)) *
-            (1.0 - smoothstep(0.52, 0.72, warpedDistance01));
-          float coronaOuterRegion = coronaOuter * 0.34 + coronaOuterDiffuse * 0.66;
-
-          float coronaAngularBrightness = clamp(
-            1.0 + coronaAngularA * 0.018 + coronaAngularB * 0.008,
-            0.96,
-            1.04
-          );
-          float coronaSpriteEdge = 1.0 - smoothstep(0.90, 0.985, coronaRadius);
-          float coronaAlpha =
-            coronaOutsideMask *
-            (coronaNearRegion * 0.74 + coronaOuterRegion * 0.24) *
-            0.52 *
-            coronaAngularBrightness *
-            coronaSpriteEdge;
+          // Three overlapping, monotonically decaying light distributions.
+          // No outside-only rising mask: it left an unlit seam at the silhouette.
+          // The bright inner component overlaps the photosphere's alpha feather.
+          float pixelR = fwidth(radiusInPhotospheres);
+          float immediateWidth = max(0.12, pixelR * 1.5);
+          float immediateGlow = exp(-distanceR / immediateWidth) * 0.62;
+          float softShoulder = exp(-distanceR / 0.42) * 0.28;
+          float diffuseHalo = exp(-distanceR / 1.0) * 0.10;
+          float carrierFade = 1.0 - smoothstep(0.88, 0.995, coronaRadius);
+          float coronaAlpha = (immediateGlow + softShoulder + diffuseHalo) * carrierFade;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);
 
-          // Preserve temperature identity through most of the corona. Only the
-          // weakest outer tail receives the already tightly bounded desaturation.
-          float coronaOuterColorWeight = smoothstep(0.28, 0.84, warpedDistance01);
-          float coronaPeak = max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b);
-          diffuseColor.rgb = mix(
-            diffuseColor.rgb,
-            vec3(coronaPeak),
-            uCoronaOuterWhiteMix * coronaOuterColorWeight
-          );`,
+          // Near-white immediate glow hands off continuously to temperature color.
+          // Unlike the core, low-energy outer light must not be highlight-clipped.
+          float nearWhite = 0.72 * exp(-distanceR / 0.24);
+          float whiteMix = mix(uCoronaOuterWhiteMix, 0.78, nearWhite);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), whiteMix);`,
         )
       material.userData.stellarCoronaUniforms = uniforms
     }
@@ -166,3 +110,4 @@ export function configureStellarCoronaMaterial(
     uniforms.uCoronaOuterWhiteMix.value = frame.outerWhiteMix
   }
 }
+
