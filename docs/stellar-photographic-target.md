@@ -64,6 +64,16 @@ fail even with zero surface noise. In fixture names, `cool` means low Kelvin
 ## Evidence status
 
 The supplied JPG and PR #146 production 3×3/zoom artifacts were directly viewed.
+The first paired production run's normal/enlarged/extreme 3×3, Helios normal
+scene and continuous zoom strip were also directly viewed: pale textured disks
+become white luminous cores with visible warm/solar/blue-white surroundings.
+No black outline, detached neon band or dominant surface noise was observed.
+Its initial metric failure localized the normal-size Start button instead of the
+star. Localization now excludes fixed UI bands without repainting saved images,
+and checks disk aspect ratio and actual size. Halo color is measured after
+subtracting the paired baseline background, avoiding its blue color bias.
+The same captured images pass all nine light gates, color identity and 36 zoom
+samples under these measurement corrections; no acceptance threshold changed.
 No latest gameplay video is present among this turn's attachments; older workspace
 videos are not evidence of the latest build. This limitation must stay explicit
 until the requested video is provided and checked. Final CI and direct A/B review

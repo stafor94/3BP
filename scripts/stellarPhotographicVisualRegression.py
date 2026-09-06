@@ -50,7 +50,17 @@ def rgb_at(image, x, y):
 
 
 def geometry(path):
-    return p2.locate_photosphere(Image.open(path).convert('RGB'))
+    image = Image.open(path).convert('RGB')
+    # Browser element captures may include fixed DOM despite the hide/restore
+    # fallback. At normal size the Start button is larger than the star. Restrict
+    # localization to the unobstructed gameplay band; preserve every saved pixel
+    # and sample the original full image for all light/color measurements.
+    top, bottom = int(image.height * .18), int(image.height * .80)
+    result = p2.locate_photosphere(image.crop((0, top, image.width, bottom)))
+    result['center_y'] += top
+    aspect = float(result['bbox_width_px']) / float(result['bbox_height_px'])
+    require(.9 <= aspect <= 1.1, f'{path}: located component is not a stellar disk')
+    return result
 
 
 def analyze(path, geo):
@@ -137,9 +147,14 @@ def validate(current, before, name):
     require(p['1.7'] >= before['radial_luma']['1.7'] + .02, f'{name}: halo not visibly improved over #146')
 
 
-def validate_temperature_identity(metrics):
+def validate_temperature_identity(metrics, baseline):
     for level in LEVELS:
-        colors = {star: metrics[star][level]['radial_rgb']['1.4'] for star in STARS}
+        # Isolate emitted light from the blue scene background at the exact same
+        # positions. The fixed #146 baseline has no corona left at 1.4R. Raw RGB
+        # would incorrectly demand orange compensation for the background itself.
+        colors = {star: [a - b for a, b in zip(
+            metrics[star][level]['radial_rgb']['1.4'],
+            baseline[star][level]['radial_rgb']['1.4'])] for star in STARS}
         # Kelvin cool is orange; hot is blue-white. Core color is tested separately.
         warm = colors['cool'][0] - colors['cool'][2]
         solar = colors['solar'][0] - colors['solar'][2]
@@ -182,6 +197,9 @@ def main():
                         paths[revision][star][level], ui[revision][star][level] = scene, full_ui
                         telemetry[revision][star][level] = state
                         geo = geometry(scene) if revision == 'before' else metrics['before'][star][level]['geometry']
+                        low, high = production.LEVEL_TARGETS[level]
+                        require(low <= geo['bright_photosphere_diameter_px'] <= high,
+                                f'{scene}: paired production disk misses {level} screen-size coverage')
                         metrics[revision][star][level] = analyze(scene, geo)
                 contact(ui[revision], OUT / f'{revision}-production-mobile-3x3.png')
                 contact(paths[revision], OUT / f'{revision}-stars-3x3.png', crop=True)
@@ -219,7 +237,7 @@ def main():
             except AssertionError as error:
                 errors.append(str(error))
     try:
-        validate_temperature_identity(metrics['after'])
+        validate_temperature_identity(metrics['after'], metrics['before'])
         for a, b in zip(sweep, sweep[1:]):
             require(abs(a['radial_luma']['1.7'] - b['radial_luma']['1.7']) < .035, 'halo brightness pops during zoom')
             require(b['surface_noise'] <= 1.5, 'surface noise appears during zoom')
