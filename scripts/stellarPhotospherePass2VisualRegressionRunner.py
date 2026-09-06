@@ -144,9 +144,6 @@ def capture_state(
     return path
 
 
-_original_validate_pair = p2.validate_pair
-
-
 def validate_common(
     star: str,
     level: str,
@@ -292,7 +289,23 @@ def validate_pair(
         )
         return
 
-    _original_validate_pair(star, level, baseline, current)
+    if level == 'extreme':
+        # Preserve the historical Pass 2 extreme-view structure contract while
+        # avoiding the obsolete pre-HDR absolute channel comparison embedded in
+        # the original validator.
+        validate_common(star, level, baseline, current)
+        contrast = float(current['granulation_contrast'])
+        p2.base.require(
+            0.22 <= contrast <= 3.40,
+            f'{star}/{level}: granulation contrast {contrast:.3f} outside 0.22-3.40',
+        )
+        p2.base.require(
+            contrast >= float(baseline['granulation_contrast']) * 1.10,
+            f'{star}/{level}: primary granulation did not recover enough detail over Pass 1',
+        )
+        return
+
+    raise AssertionError(f'unsupported Pass 2 zoom level: {level}')
 
 
 p2.prepare_focus_scene = prepare_focus_scene
