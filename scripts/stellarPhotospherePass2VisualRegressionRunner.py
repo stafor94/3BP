@@ -171,12 +171,11 @@ def validate_common(
         abs(current_luma - baseline_luma) / max(baseline_luma, 1.0) <= 0.08,
         f'{star}/{level}: mean photosphere luminance drifted by more than 8%',
     )
-    for channel in ('hue_r', 'hue_g', 'hue_b'):
-        p2.base.require(
-            abs(float(current[channel]) - float(baseline[channel])) <= 0.025,
-            f'{star}/{level}: temperature hue identity changed ({channel})',
-        )
 
+    # The Pass 1 baseline predates the approved renderer-tone-mapped HDR/color
+    # calibration, so its absolute RGB channel ratios are not a valid hue target
+    # for later passes. Temperature identity is validated below against the
+    # current HDR contract and for cross-zoom stability instead.
     p2.base.require(
         float(current['broad_variation_std']) >= 0.35,
         f'{star}/{level}: broad convection vanished',
@@ -201,6 +200,62 @@ def validate_common(
         float(current['largest_dark_component_span_fraction']) <= 0.70,
         f'{star}/{level}: a dark structure spans too much of the photosphere',
     )
+
+
+def hue_distance(
+    a: dict[str, float | int],
+    b: dict[str, float | int],
+) -> float:
+    return sum(
+        (float(a[channel]) - float(b[channel])) ** 2
+        for channel in ('hue_r', 'hue_g', 'hue_b')
+    ) ** 0.5
+
+
+def validate_temperature_identity(
+    current_metrics: dict[str, dict[str, dict[str, float | int]]],
+) -> None:
+    # Match the approved HDR temperature contract rather than comparing against
+    # the pre-HDR Pass 1 palette. This remains a hard identity gate: cool must be
+    # warm, solar-like must retain a warm bias, hot must stay blue-white, and the
+    # three classes must remain perceptually separated at every zoom level.
+    for level in p2.LEVELS:
+        cool = current_metrics['cool'][level]
+        solar = current_metrics['solar'][level]
+        hot = current_metrics['hot'][level]
+        p2.base.require(
+            float(cool['hue_r']) > float(cool['hue_b']) + 0.055,
+            f'{level}: cool star lost its warm temperature hue',
+        )
+        p2.base.require(
+            float(solar['hue_r']) > float(solar['hue_b']) + 0.008,
+            f'{level}: solar-like star became neutral white',
+        )
+        p2.base.require(
+            float(hot['hue_b']) >= float(hot['hue_r']) - 0.010,
+            f'{level}: hot star lost its blue-white temperature hue',
+        )
+        p2.base.require(
+            hue_distance(cool, solar) >= 0.018,
+            f'{level}: cool/solar temperature hues collapsed',
+        )
+        p2.base.require(
+            hue_distance(solar, hot) >= 0.010,
+            f'{level}: solar/hot temperature hues collapsed',
+        )
+
+    # Screen-space LOD may reveal additional structure but must not recolor a
+    # star. A per-channel 0.006 bound is substantially tighter than the obsolete
+    # +/-0.025 cross-revision check while measuring the invariant Pass 2 owns.
+    for star in p2.STAR_STAGES:
+        normal = current_metrics[star]['normal']
+        for level in ('enlarged', 'extreme'):
+            metric = current_metrics[star][level]
+            for channel in ('hue_r', 'hue_g', 'hue_b'):
+                p2.base.require(
+                    abs(float(metric[channel]) - float(normal[channel])) <= 0.006,
+                    f'{star}/{level}: zoom-dependent temperature hue drift ({channel})',
+                )
 
 
 def validate_pair(
@@ -312,6 +367,8 @@ def main() -> None:
     for star in p2.STAR_STAGES:
         for level in p2.LEVELS:
             p2.validate_pair(star, level, baseline_metrics[star][level], current_metrics[star][level])
+
+    validate_temperature_identity(current_metrics)
 
     for star in p2.STAR_STAGES:
         normal = float(current_metrics[star]['normal']['granulation_contrast'])
