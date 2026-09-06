@@ -131,9 +131,45 @@ def validate_surface_with_production_normal(
     )
 
 
+def validate_temperature_hues_and_detail_progression(
+    surface: dict[str, dict[str, dict[str, float | int]]],
+) -> None:
+    # Screen-space LOD must add resolved structure continuously with scale. This
+    # makes a flat gameplay disk followed by suddenly appearing zoom detail an
+    # explicit production regression rather than a visually subjective review.
+    for star in pass5.STAR_ORDER:
+        normal = float(surface[star]['normal']['granulation_contrast'])
+        enlarged = float(surface[star]['enlarged']['granulation_contrast'])
+        extreme = float(surface[star]['extreme']['granulation_contrast'])
+        pass5.require(
+            enlarged >= normal + 0.04,
+            f'{star}: enlarged photosphere did not add resolved surface structure ({normal:.3f}->{enlarged:.3f})',
+        )
+        pass5.require(
+            extreme >= enlarged + 0.04,
+            f'{star}: extreme photosphere did not add resolved surface structure ({enlarged:.3f}->{extreme:.3f})',
+        )
+
+    # #143 deliberately restored renderer ACES tone mapping. Its approved solar
+    # baseline has only a small warm bias, so the old +0.025 pre-tone-map gate is
+    # impossible without changing the approved color pipeline. Match the dedicated
+    # HDR regression's +0.008 identity floor while retaining cross-temperature
+    # hue-distance checks so solar cannot collapse to neutral white.
+    for level in pass5.LEVELS:
+        cool = surface['cool'][level]
+        solar = surface['solar'][level]
+        hot = surface['hot'][level]
+        pass5.require(float(cool['hue_r']) > float(cool['hue_b']) + 0.055, f'{level}: cool star lost warm hue')
+        pass5.require(float(solar['hue_r']) > float(solar['hue_b']) + 0.008, f'{level}: solar star became neutral white')
+        pass5.require(float(hot['hue_b']) >= float(hot['hue_r']) - 0.010, f'{level}: 8 M_sun star lost blue-white hue')
+        pass5.require(pass5.hue_distance(cool, solar) >= 0.018, f'{level}: cool/solar hues collapsed')
+        pass5.require(pass5.hue_distance(solar, hot) >= 0.010, f'{level}: solar/hot hues collapsed')
+
+
 pass5.capture_canvas = capture_canvas_without_mobile_chrome
 pass5.corona.analyze_corona = analyze_corona_outside_sampling_footprint
 pass5.validate_surface = validate_surface_with_production_normal
+pass5.validate_temperature_hues = validate_temperature_hues_and_detail_progression
 
 
 if __name__ == '__main__':
