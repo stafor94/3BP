@@ -271,7 +271,7 @@ export const stellarPhotosphereFragmentShader = `
     // out of the outer disk instead of creating a separate bright core.
     float broadDepth = pow(viewMu, 0.32);
     float centerDepth = pow(viewMu, 1.35);
-    return 0.90 + broadDepth * 0.12 + centerDepth * 0.29;
+    return 0.90 + broadDepth * 0.12 + centerDepth * 0.295;
   }
 
   float getStellarDetailEnvelope(float viewMu) {
@@ -404,7 +404,7 @@ export function updateStellarPhotosphereMaterial(
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
   // Keep the mid-scale convection readable at ordinary mobile tracking size;
   // fine detail is separately derivative-gated in the shader.
-  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.15
+  if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 2.20
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
   if (material.uniforms.uEmissionStrength) {
