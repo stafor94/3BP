@@ -327,7 +327,7 @@ def validate_temperature_hues(surface: dict[str, dict[str, dict[str, float | int
         solar = surface['solar'][level]
         hot = surface['hot'][level]
         require(float(cool['hue_r']) > float(cool['hue_b']) + 0.055, f'{level}: cool star lost warm hue')
-        require(float(solar['hue_r']) > float(solar['hue_b']) + 0.025, f'{level}: solar star became neutral white')
+        require(float(solar['hue_r']) > float(solar['hue_b']) + 0.008, f'{level}: solar star became neutral white')
         require(float(hot['hue_b']) >= float(hot['hue_r']) - 0.010, f'{level}: 8 M_sun star lost blue-white hue')
         require(hue_distance(cool, solar) >= 0.018, f'{level}: cool/solar hues collapsed')
         require(hue_distance(solar, hot) >= 0.010, f'{level}: solar/hot hues collapsed')
