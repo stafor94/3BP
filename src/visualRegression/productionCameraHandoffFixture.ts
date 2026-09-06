@@ -75,6 +75,15 @@ function makeFinalHeliosFixture(): BodyState[] {
 export function getProductionCameraHandoffFixture(): BodyState[] | null {
   const query = new URLSearchParams(window.location.search)
   const stellarFixture = query.get(STELLAR_FIXTURE_QUERY)
+  if (stellarFixture === 'halo-pair') {
+    // Separate in depth: overlapping projected halos without a collision.
+    return (['cool', 'hot'] as const).map((key, index) => ({
+      ...makeProductionStellarFixture(key),
+      id: `halo-pair-${key}`,
+      position: { x: index ? 0.15 : -0.15, y: 0, z: index ? -0.4 : 0.4 },
+      velocity: { x: 0, y: 0, z: 0 },
+    }))
+  }
   if (stellarFixture === FINAL_HELIOS_FIXTURE_QUERY_VALUE) {
     // Final Pass 6 reproduction: real App/SimulationView/renderer/tracking UI,
     // with the production multi-body orbital preset around the historical 8 M☉

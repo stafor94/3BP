@@ -12,6 +12,7 @@ on:
       - 'src/visualRegression/StellarTopologyVisualHarness.tsx'
       - 'src/visualRegression/productionCameraHandoffFixture.ts'
       - 'scripts/stellarPhotographicVisualRegression.py'
+      - 'scripts/stellarOuterHaloVisualRegression.py'
       - 'docs/stellar-photographic-target.md'
       - 'scripts/stellarRenderingRegression.ts'
       - 'scripts/stellarFinalRenderStructureRegression.ts'
@@ -72,6 +73,8 @@ jobs:
           exit 1
       - name: Photographic production light A/B regression
         run: python scripts/stellarPhotographicVisualRegression.py
+      - name: Latest-main outer halo production A/B and frame pacing
+        run: python scripts/stellarOuterHaloVisualRegression.py
       - name: Upload photographic production A/B captures
         if: always()
         uses: actions/upload-artifact@v4
