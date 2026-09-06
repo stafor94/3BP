@@ -2,7 +2,7 @@
 """Production photographic light acceptance; see docs/stellar-photographic-target.md.
 
 Reuse production UI/capture helpers, never the historical surface-detail gates.
-Geometry and wheel input are taken from the same pre-change production baseline,
+Geometry and wheel input are taken from the original compact production reference,
 so an extended halo cannot masquerade as a larger photosphere in the metrics.
 """
 from __future__ import annotations
@@ -185,7 +185,7 @@ def capture_sweep(driver, url, steps, revision):
         path = OUT / f'{revision}-zoom-{index:02d}.png'
         production.capture_canvas(driver, canvas, path)
         paths.append(path)
-        if revision == 'before':
+        if revision == 'reference':
             geometries.append(geometry(path))
     production.make_zoom_strip(paths, OUT / f'{revision}-zoom-strip.png')
     return paths, geometries
@@ -197,9 +197,20 @@ def main():
     paths, ui, telemetry, metrics = {}, {}, {}, {}
     driver = base.make_driver()
     try:
+        # Measure the disk on the original compact reference. A low brightness
+        # threshold on v0.24.18 includes its halo and changes the physical zoom
+        # target depending on temperature; that is not photosphere geometry.
+        metrics['reference'] = {}
+        with p2.baseline_preview(REFERENCE) as reference_url:
+            production.configure_production_storage(driver, reference_url)
+            steps = production.calibrate_zoom_steps(driver, reference_url)
+            for star in STARS:
+                metrics['reference'][star] = {}
+                for level in LEVELS:
+                    scene, _, _ = capture(driver, reference_url, 'reference', star, level, steps[level])
+                    metrics['reference'][star][level] = analyze(scene, geometry(scene))
+            _, reference_sweep_geo = capture_sweep(driver, reference_url, steps['extreme'], 'reference')
         with p2.baseline_preview(BASELINE) as baseline_url:
-            production.configure_production_storage(driver, baseline_url)
-            steps = production.calibrate_zoom_steps(driver, baseline_url)
             for revision, url in [('before', baseline_url), ('after', base.CURRENT_URL)]:
                 production.configure_production_storage(driver, url)
                 paths[revision], ui[revision], telemetry[revision], metrics[revision] = {}, {}, {}, {}
@@ -209,7 +220,7 @@ def main():
                         scene, full_ui, state = capture(driver, url, revision, star, level, steps[level])
                         paths[revision][star][level], ui[revision][star][level] = scene, full_ui
                         telemetry[revision][star][level] = state
-                        geo = geometry(scene) if revision == 'before' else metrics['before'][star][level]['geometry']
+                        geo = metrics['reference'][star][level]['geometry']
                         low, high = production.LEVEL_TARGETS[level]
                         require(low <= geo['bright_photosphere_diameter_px'] <= high,
                                 f'{scene}: paired production disk misses {level} screen-size coverage')
@@ -217,10 +228,8 @@ def main():
                 contact(ui[revision], OUT / f'{revision}-production-mobile-3x3.png')
                 contact(paths[revision], OUT / f'{revision}-stars-3x3.png', crop=True)
                 sweep_paths, sweep_geo = capture_sweep(driver, url, steps['extreme'], revision)
-                if revision == 'before':
-                    baseline_sweep_geo = sweep_geo
-                else:
-                    sweep = [analyze(path, geo) for path, geo in zip(sweep_paths, baseline_sweep_geo)]
+                if revision == 'after':
+                    sweep = [analyze(path, geo) for path, geo in zip(sweep_paths, reference_sweep_geo)]
                 # Real multi-body App + SimulationView scene, including trails.
                 helios.configure_storage(driver, url)
                 for level in LEVELS:
@@ -231,18 +240,6 @@ def main():
                     production.capture_canvas(driver, canvas, scene)
                     production.capture_full_ui(driver, OUT / f'{revision}-helios-{level}-ui.png')
                     require(context['trail_enabled'], 'production Helios scene must retain trails')
-        # Preserve #147's original acceptance without subtracting the already-lit
-        # v0.24.18 halo as if it were empty background.
-        metrics['reference'] = {}
-        with p2.baseline_preview(REFERENCE) as reference_url:
-            production.configure_production_storage(driver, reference_url)
-            for star in STARS:
-                metrics['reference'][star] = {}
-                for level in LEVELS:
-                    scene, _, _ = capture(driver, reference_url, 'reference', star, level, steps[level])
-                    geo = metrics['before'][star][level]['geometry']
-                    metrics['reference'][star][level] = analyze(scene, geo)
-            # Helpers assert the live UI/telemetry and do not swap materials.
     finally:
         driver.quit()
     for label in ('production-mobile-3x3', 'stars-3x3', 'zoom-strip'):
@@ -250,7 +247,7 @@ def main():
     for level in LEVELS:
         side_by_side(OUT / f'before-helios-{level}-ui.png', OUT / f'after-helios-{level}-ui.png', OUT / f'ab-helios-{level}.png')
     payload = {'baseline_sha': BASELINE, 'photographic_reference_sha': REFERENCE, 'viewport': [390, 844], 'wheel_steps': steps,
-               'geometry_source': 'paired baseline production frame; identical wheel input',
+               'geometry_source': 'compact #146 reference disk; identical wheel input across reference/main/after',
                'metrics': metrics, 'telemetry': telemetry, 'zoom_sweep': sweep}
     (OUT / 'metrics.json').write_text(json.dumps(payload, indent=2))
     errors = []

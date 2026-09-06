@@ -106,3 +106,10 @@ Inspect all three temperatures at normal/enlarged/extreme, mobile App scenes,
 Helios scenes and continuous zoom strips. The supplied screenshot is visual
 context; no latest gameplay video was attached. User-device motion confirmation
 must not be claimed from still captures.
+
+The first capture attempt exposed stale size calibration: the helper's 82/255
+brightness threshold counts v0.24.18's halo as disk, and its temperature changes
+the measured size (cool/enlarged missed the target before any after capture).
+Calibration and geometry therefore remain on the original compact #146 disk,
+with identical wheel inputs reused for v0.24.18 and this revision. All before/after
+images still compare latest main; no acceptance threshold was relaxed.
