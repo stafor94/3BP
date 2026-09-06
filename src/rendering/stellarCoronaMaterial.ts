@@ -82,8 +82,11 @@ export function configureStellarCoronaMaterial(
           // No outside-only rising mask: it left an unlit seam at the silhouette.
           // The bright inner component overlaps the photosphere's alpha feather.
           float pixelR = fwidth(radiusInPhotospheres);
-          float immediateWidth = max(0.12, pixelR * 1.5);
-          float immediateGlow = exp(-distanceR / immediateWidth) * 0.62;
+          // A Gaussian shoulder has zero slope where it meets the disk.
+          // The former exponential lost most near-light within 0.12R, leaving
+          // a crisp silhouette despite the broad, faint outer halo.
+          float immediateWidth = max(0.24, pixelR * 1.5);
+          float immediateGlow = exp(-pow(distanceR / immediateWidth, 2.0)) * 0.62;
           float softShoulder = exp(-distanceR / 0.42) * 0.28;
           float diffuseHalo = exp(-distanceR / 1.0) * 0.10;
           float carrierFade = 1.0 - smoothstep(0.88, 0.995, coronaRadius);

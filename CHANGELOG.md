@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.24.19] - 2026-09-06
+
+### Fixed
+- Smoothed the stellar disk-to-glow transition with a Gaussian immediate-light shoulder while preserving white cores, temperature halos, and faint surface variation.
+- Added production comparisons against v0.24.18 alongside the unchanged photographic-light acceptance against the original reference baseline.
+
 ## [0.24.18] - 2026-09-06
 
 ### Fixed
