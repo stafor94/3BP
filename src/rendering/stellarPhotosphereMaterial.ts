@@ -271,7 +271,7 @@ export const stellarPhotosphereFragmentShader = `
     // out of the outer disk instead of creating a separate bright core.
     float broadDepth = pow(viewMu, 0.32);
     float centerDepth = pow(viewMu, 1.35);
-    return 0.90 + broadDepth * 0.12 + centerDepth * 0.295;
+    return 0.90 + broadDepth * 0.12 + centerDepth * 0.300;
   }
 
   float getStellarDetailEnvelope(float viewMu) {
