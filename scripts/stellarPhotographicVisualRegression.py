@@ -20,7 +20,8 @@ import stellarHeliosFinalVisualRegression as helios
 base = production.p2.base
 p2 = production.p2
 OUT = Path('stellar-photographic-artifacts')
-BASELINE = '339537525fa5ce77e42040f7144e5ea1480c0921'
+BASELINE = '3c0863ee2b77614634ac6926c4cfebf568b2e0fb'
+REFERENCE = '339537525fa5ce77e42040f7144e5ea1480c0921'
 STARS = ('cool', 'solar', 'hot')
 LEVELS = ('normal', 'enlarged', 'extreme')
 RADII = (0.90, 0.98, 1.04, 1.10, 1.20, 1.40, 1.70, 2.0, 2.3)
@@ -127,8 +128,8 @@ def side_by_side(before, after, output):
     sheet = Image.new('RGB', (a.width + b.width, max(a.height, b.height) + 24), '#070a10')
     sheet.paste(a, (0, 24)); sheet.paste(b, (a.width, 24))
     draw = ImageDraw.Draw(sheet)
-    draw.text((8, 6), 'BEFORE #146', fill='white')
-    draw.text((a.width + 8, 6), 'AFTER photographic light', fill='white')
+    draw.text((8, 6), 'BEFORE v0.24.18', fill='white')
+    draw.text((a.width + 8, 6), 'AFTER soft light transition', fill='white')
     sheet.save(output)
 
 
@@ -145,6 +146,18 @@ def validate(current, before, name):
     require(all(b <= a + .025 for a, b in zip(values, values[1:])), f'{name}: dark_outline or neon_ring radial rebound')
     require(p['0.98'] - p['1.04'] <= .45, f'{name}: hard cut edge instead of soft luminous rim')
     require(p['1.7'] >= before['radial_luma']['1.7'] + .02, f'{name}: halo not visibly improved over #146')
+
+
+def validate_soft_transition(current, before, name):
+    p, b = current['radial_luma'], before['radial_luma']
+    # Paired production pixels: soften the immediate silhouette without expanding
+    # the outer veil. Retain the original light/color/noise gates independently.
+    require(p['0.98'] - p['1.1'] <= (b['0.98'] - b['1.1']) * .90,
+            f'{name}: immediate edge contrast did not decrease visibly')
+    require(p['1.2'] >= b['1.2'] + .025,
+            f'{name}: bright transition shoulder did not broaden')
+    require(abs(p['1.7'] - b['1.7']) <= .035,
+            f'{name}: outer halo expanded instead of softening the edge')
 
 
 def validate_temperature_identity(metrics, baseline):
@@ -218,14 +231,25 @@ def main():
                     production.capture_canvas(driver, canvas, scene)
                     production.capture_full_ui(driver, OUT / f'{revision}-helios-{level}-ui.png')
                     require(context['trail_enabled'], 'production Helios scene must retain trails')
-            # Helpers above assert the live UI/telemetry and do not swap materials.
+        # Preserve #147's original acceptance without subtracting the already-lit
+        # v0.24.18 halo as if it were empty background.
+        metrics['reference'] = {}
+        with p2.baseline_preview(REFERENCE) as reference_url:
+            production.configure_production_storage(driver, reference_url)
+            for star in STARS:
+                metrics['reference'][star] = {}
+                for level in LEVELS:
+                    scene, _, _ = capture(driver, reference_url, 'reference', star, level, steps[level])
+                    geo = metrics['before'][star][level]['geometry']
+                    metrics['reference'][star][level] = analyze(scene, geo)
+            # Helpers assert the live UI/telemetry and do not swap materials.
     finally:
         driver.quit()
     for label in ('production-mobile-3x3', 'stars-3x3', 'zoom-strip'):
         side_by_side(OUT / f'before-{label}.png', OUT / f'after-{label}.png', OUT / f'ab-{label}.png')
     for level in LEVELS:
         side_by_side(OUT / f'before-helios-{level}-ui.png', OUT / f'after-helios-{level}-ui.png', OUT / f'ab-helios-{level}.png')
-    payload = {'baseline_sha': BASELINE, 'viewport': [390, 844], 'wheel_steps': steps,
+    payload = {'baseline_sha': BASELINE, 'photographic_reference_sha': REFERENCE, 'viewport': [390, 844], 'wheel_steps': steps,
                'geometry_source': 'paired baseline production frame; identical wheel input',
                'metrics': metrics, 'telemetry': telemetry, 'zoom_sweep': sweep}
     (OUT / 'metrics.json').write_text(json.dumps(payload, indent=2))
@@ -233,11 +257,12 @@ def main():
     for star in STARS:
         for level in LEVELS:
             try:
-                validate(metrics['after'][star][level], metrics['before'][star][level], f'{star}/{level}')
+                validate(metrics['after'][star][level], metrics['reference'][star][level], f'{star}/{level}')
+                validate_soft_transition(metrics['after'][star][level], metrics['before'][star][level], f'{star}/{level}')
             except AssertionError as error:
                 errors.append(str(error))
     try:
-        validate_temperature_identity(metrics['after'], metrics['before'])
+        validate_temperature_identity(metrics['after'], metrics['reference'])
         for a, b in zip(sweep, sweep[1:]):
             require(abs(a['radial_luma']['1.7'] - b['radial_luma']['1.7']) < .035, 'halo brightness pops during zoom')
             require(b['surface_noise'] <= 1.5, 'surface noise appears during zoom')

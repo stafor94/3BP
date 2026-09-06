@@ -78,3 +78,31 @@ No latest gameplay video is present among this turn's attachments; older workspa
 videos are not evidence of the latest build. This limitation must stay explicit
 until the requested video is provided and checked. Final CI and direct A/B review
 results are recorded in the PR after the production artifacts are available.
+
+
+## v0.24.19: disk-to-glow transition
+
+Baseline: main `3c0863ee2b77614634ac6926c4cfebf568b2e0fb` (v0.24.18).
+The supplied gameplay screenshot has a white core and visible halo, but the
+immediate exponential glow (0.12 photosphere radii) falls too quickly and leaves
+a distinct disk silhouette. Production still renders directly with ACES exposure
+1 and no postprocessing bloom; changing exposure is not the fix.
+
+Only the immediate component of the existing stellar Sprite changes: a Gaussian
+shoulder at 0.24R has zero initial slope and connects the core to the unchanged
+soft shoulder and diffuse halo. Core emission, surface variation, temperature,
+outer distribution, carrier size, blending, draw count and simulation are unchanged.
+No additional angular asymmetry is planned unless production evidence needs it.
+
+Before implementation, acceptance was fixed to: visibly reduced edge contrast,
+broader bright transition at normal size, retained white core/color identity,
+no texture/outline/ring, and no wider outer veil. Paired v0.24.18 captures test a
+10% edge-contrast reduction (.98R to 1.1R), a .025 luminance gain at 1.2R and at
+most .035 change at 1.7R. These supplement, not replace or relax, all original
+photographic gates. The original #146 production reference is captured separately
+for the existing halo-gain and background-subtracted temperature checks.
+
+Inspect all three temperatures at normal/enlarged/extreme, mobile App scenes,
+Helios scenes and continuous zoom strips. The supplied screenshot is visual
+context; no latest gameplay video was attached. User-device motion confirmation
+must not be claimed from still captures.
