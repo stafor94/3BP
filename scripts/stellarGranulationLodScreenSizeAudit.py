@@ -31,23 +31,43 @@ def main() -> None:
     large_diameter = float(current['large']['equivalent_core_diameter_px'])
     normal_diameter = float(current['normal']['equivalent_core_diameter_px'])
     small_diameter = float(current['small']['equivalent_core_diameter_px'])
-    # The fixture's large and normal wheel inputs both settle in the full-detail
-    # camera range, so their measured bright footprint can differ by a few pixels
-    # in either direction. The small case must still be materially smaller.
     require(
-        small_diameter <= min(large_diameter, normal_diameter) * 0.88,
-        'small-screen photosphere footprint must be materially smaller than both full-detail views',
+        large_diameter >= normal_diameter * 1.35,
+        'large capture must be materially larger than normal in measured screen pixels',
     )
     require(
-        max(large_diameter, normal_diameter) <= min(large_diameter, normal_diameter) * 1.12,
-        'large and normal full-detail fixture footprints drifted unexpectedly far apart',
+        normal_diameter >= small_diameter * 1.18,
+        'small capture must be materially smaller than normal in measured screen pixels',
     )
-    require(len(sweep) >= 10, 'continuous zoom sweep must contain enough adjacent samples to catch LOD popping')
 
-    print('stellar Pass 1 screen-size/zoom audit: ok')
+    require(len(sweep) >= 10, 'continuous zoom sweep must contain enough adjacent samples to catch LOD popping')
+    first_diameter = float(sweep[0]['equivalent_core_diameter_px'])
+    last_diameter = float(sweep[-1]['equivalent_core_diameter_px'])
+    require(
+        first_diameter >= last_diameter * 1.20,
+        'continuous zoom sweep must cover at least a 20% screen-space diameter change',
+    )
+    for previous, sample in zip(sweep, sweep[1:]):
+        require(
+            float(sample['equivalent_core_diameter_px']) <=
+            float(previous['equivalent_core_diameter_px']) + 0.5,
+            'continuous zoom sweep diameter must move consistently downward while zooming out',
+        )
+        require(
+            'diameter_normalized_high_frequency_energy' in sample,
+            'continuous zoom sweep must record scale-normalized HF energy',
+        )
+
+    print('stellar screen-size/zoom audit: ok')
     print(f'  viewport: {viewport["width"]}x{viewport["height"]}')
-    print(f'  measured diameters: large={large_diameter:.1f}px normal={normal_diameter:.1f}px small={small_diameter:.1f}px')
-    print(f'  adjacent zoom samples: {len(sweep)}')
+    print(
+        f'  measured diameters: large={large_diameter:.1f}px '
+        f'normal={normal_diameter:.1f}px small={small_diameter:.1f}px'
+    )
+    print(
+        f'  sweep coverage: {first_diameter:.1f}px -> {last_diameter:.1f}px '
+        f'({len(sweep)} adjacent samples)'
+    )
 
 
 if __name__ == '__main__':
