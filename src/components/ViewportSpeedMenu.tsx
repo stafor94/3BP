@@ -117,10 +117,7 @@ export function ViewportSpeedMenu({
             <span className="tracked-body-type">{trackedType}</span>
           </span>
           {detailValue && (
-            <span className="tracked-body-detail">
-              <span>{detailLabel}</span>
-              <b>{detailValue}</b>
-            </span>
+            <span className="tracked-body-detail">{detailValue}</span>
           )}
           <span className="tracked-body-metric mass">
             <span className="metric-label">{t.mass}</span>
