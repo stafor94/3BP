@@ -150,3 +150,15 @@
     max-width: 52px;
   }
 }
+
+@media (max-width: 360px) {
+  .viewport-speed-menu {
+    flex-wrap: wrap;
+    max-width: calc(100vw - 28px);
+  }
+
+  .viewport-tracked-body {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
+}
