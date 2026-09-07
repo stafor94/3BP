@@ -87,14 +87,8 @@ export function configureStellarCoronaMaterial(
           // a crisp silhouette despite the broad, faint outer halo.
           float immediateWidth = max(0.24, pixelR * 1.5);
           float immediateGlow = exp(-pow(distanceR / immediateWidth, 2.0)) * 0.62;
-          // Redistribute only outer light; preserve the inner 0.30R exactly.
-          // The C1 radial remap moves tail energy into the shoulder without
-          // changing the immediate Gaussian or the existing angular terms.
-          float outerDistance = max(distanceR - 0.30, 0.0);
-          float falloffDistance = distanceR + 1.0 * outerDistance * outerDistance
-            * (distanceR - 1.305067) * exp(-outerDistance / 0.65);
-          float softShoulder = exp(-falloffDistance / 0.42) * 0.28;
-          float diffuseHalo = exp(-falloffDistance / 1.0) * 0.10;
+          float softShoulder = exp(-distanceR / 0.42) * 0.28;
+          float diffuseHalo = exp(-distanceR / 1.0) * 0.10;
           float carrierFade = 1.0 - smoothstep(0.88, 0.995, coronaRadius);
           float coronaAlpha = (immediateGlow + softShoulder + diffuseHalo) * carrierFade;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);
