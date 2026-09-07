@@ -21,6 +21,7 @@ import {
 import { isTrackingMassEligible } from '../trackingMassPolicy'
 import { findTrackingCandidate } from '../trackingSelection'
 import type { BodyCount, BodyState, PresetId, SpaceMode, StellarEvolutionStage } from '../types'
+import { STAGE_LABELS } from '../stellarStageLabels'
 import { APP_VERSION } from '../version'
 import { BodyTypeSelector } from './BodyTypeSelector'
 import '../body-scale-controls.css'
@@ -41,6 +42,7 @@ type Props = {
   trailEnabled: boolean
   trailDuration: number
   trackedBodyId: string | null
+  bodySelection: { id: string } | null
   collisionWatchEnabled: boolean
   onTrailEnabledChange: (enabled: boolean) => void
   onTrailDurationChange: (duration: number) => void
@@ -60,25 +62,6 @@ const SPEEDS = [0.1, 0.5, 1, 2, 3, 5, 10]
 const BODY_COUNTS: BodyCount[] = [1, 2, 3, 4, 5, 6]
 const SPACE_MODES: SpaceMode[] = ['2d', '3d']
 const vectorKeys = ['x', 'y', 'z'] as const
-
-const STAGE_LABELS: Record<Language, Record<StellarEvolutionStage, string>> = {
-  ko: {
-    protostar: '원시성',
-    mainSequence: '주계열성',
-    subgiant: '준거성',
-    giant: '거성',
-    supergiant: '초거성',
-    whiteDwarf: '백색왜성',
-  },
-  en: {
-    protostar: 'Protostar',
-    mainSequence: 'Main sequence',
-    subgiant: 'Subgiant',
-    giant: 'Giant',
-    supergiant: 'Supergiant',
-    whiteDwarf: 'White dwarf',
-  },
-}
 
 function formatNumberValue(value: number) {
   return Number.isFinite(value) ? String(Number(value.toFixed(6))) : '0'
@@ -175,6 +158,7 @@ export function ControlPanel({
   trailEnabled,
   trailDuration,
   trackedBodyId,
+  bodySelection,
   collisionWatchEnabled,
   onTrailEnabledChange,
   onTrailDurationChange,
@@ -194,6 +178,12 @@ export function ControlPanel({
   const [panelBodies, setPanelBodies] = useState<BodyState[]>(() =>
     bodies.filter(isInitialPanelBody).map(clonePanelBody),
   )
+  const [expandedBodyIds, setExpandedBodyIds] = useState<string[] | null>(null)
+
+  useEffect(() => {
+    if (bodySelection) setExpandedBodyIds([bodySelection.id])
+  }, [bodySelection])
+
   const [trackingSourceId, setTrackingSourceId] = useState<string | null>(null)
   const previousRunningRef = useRef(isRunning)
   const setupKeyRef = useRef(`${preset}:${bodyCount}:${spaceMode}`)
@@ -213,6 +203,7 @@ export function ControlPanel({
     if (setupChanged) {
       setupKeyRef.current = setupKey
       hasStartedRef.current = false
+      setExpandedBodyIds(null)
     }
 
     if (resetRequestedRef.current && !isRunning && isCleanInitialSet) {
@@ -476,9 +467,20 @@ export function ControlPanel({
               ? getSurfacePresetsForBodyType(bodyType)
               : []
 
+            const isExpanded = expandedBodyIds === null
+              ? panelBodies.length <= 3
+              : expandedBodyIds.includes(body.id)
             return (
-              <details className="body-card" key={body.id} open={panelBodies.length <= 3}>
-                <summary>
+              <details className="body-card" key={body.id} open={isExpanded}>
+                <summary onClick={(event) => {
+                  event.preventDefault()
+                  setExpandedBodyIds((current) => {
+                    const expanded = current ?? (panelBodies.length <= 3 ? panelBodies.map((item) => item.id) : [])
+                    return expanded.includes(body.id)
+                      ? expanded.filter((id) => id !== body.id)
+                      : [...expanded, body.id]
+                  })
+                }}>
                   <span className="body-dot" style={{ background: displayColor, color: displayColor }} />
                   <span className="body-summary-type">{t[bodyType]}</span>
                   <strong>{body.name}</strong>

@@ -4,6 +4,10 @@ import {
   getTrackedBodyTelemetry,
   subscribeTrackedBodyTelemetry,
 } from '../trackingTelemetry'
+import { getEffectiveBodyType } from '../bodyTypes'
+import { getStellarComputedProperties } from '../starColors'
+import { STAGE_LABELS } from '../stellarStageLabels'
+import { getResolvedSurfaceProfile } from '../surfacePresets'
 import type { BodyState } from '../types'
 import '../tracked-body-info.css'
 
@@ -77,6 +81,15 @@ export function ViewportSpeedMenu({
     : null
   const trackedType = trackedBody ? getBodyTypeLabel(trackedBody, language) : null
 
+  const bodyType = trackedBody ? getEffectiveBodyType(trackedBody) : null
+  const surface = trackedBody && (bodyType === 'planet' || bodyType === 'moon')
+    ? getResolvedSurfaceProfile(trackedBody, bodyType)
+    : null
+  const detailLabel = bodyType === 'star' ? t.stellarEvolutionStage : t.surfacePreset
+  const detailValue = trackedBody && bodyType === 'star'
+    ? STAGE_LABELS[language][getStellarComputedProperties(trackedBody).stage]
+    : surface ? (language === 'ko' ? surface.nameKo : surface.nameEn) : null
+
   return (
     <div className="viewport-speed-menu" ref={rootRef}>
       <button
@@ -97,12 +110,18 @@ export function ViewportSpeedMenu({
       {trackedBody && trackedVolume !== null && trackedType && (
         <div
           className="viewport-tracked-body"
-          aria-label={`${t.trackBody}: ${trackedBody.name}, ${trackedType}, ${t.mass} ${formatScalar(trackedBody.mass, language)}, ${language === 'ko' ? '부피' : 'Volume'} ${formatScalar(trackedVolume, language)}, ${t.radius} ${formatScalar(trackedBody.radius, language)}`}
+          aria-label={`${t.trackBody}: ${trackedBody.name}, ${trackedType}${detailValue ? `, ${detailLabel} ${detailValue}` : ''}, ${t.mass} ${formatScalar(trackedBody.mass, language)}, ${language === 'ko' ? '부피' : 'Volume'} ${formatScalar(trackedVolume, language)}, ${t.radius} ${formatScalar(trackedBody.radius, language)}`}
         >
           <span className="tracked-body-identity">
             <strong title={trackedBody.name}>{trackedBody.name}</strong>
             <span className="tracked-body-type">{trackedType}</span>
           </span>
+          {detailValue && (
+            <span className="tracked-body-detail">
+              <span>{detailLabel}</span>
+              <b>{detailValue}</b>
+            </span>
+          )}
           <span className="tracked-body-metric mass">
             <span className="metric-label">{t.mass}</span>
             <span className="metric-short" aria-hidden="true">M</span>

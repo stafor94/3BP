@@ -15,6 +15,7 @@ type Props = {
   isRunning: boolean
   language: Language
   trackedBodyId: string | null
+  onBodySelect: (sourceId: string) => void
   onTrackedBodyChange: (bodyId: string | null) => void
 }
 
@@ -91,6 +92,7 @@ export function BodyTrackingRail({
   isRunning,
   language,
   trackedBodyId,
+  onBodySelect,
   onTrackedBodyChange,
 }: Props) {
   const t = translations[language]
@@ -188,6 +190,7 @@ export function BodyTrackingRail({
             aria-pressed={isTracked}
             title={source.name}
             onClick={() => {
+              onBodySelect(source.id)
               if (isTracked) {
                 setTrackingSourceId(null)
                 publishTrackedBodyTelemetry(null)
