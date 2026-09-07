@@ -1,0 +1,45 @@
+name: Temporary changelog prepend
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  prepend:
+    if: github.head_ref == 'fix/tracked-body-single-line-0.25.1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Prepend 0.25.1 changelog entry
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('CHANGELOG.md')
+          text = path.read_text(encoding='utf-8')
+          marker = '## [0.25.1] - 2026-09-08'
+          if marker not in text:
+              header = '# Changelog\n'
+              if not text.startswith(header):
+                  raise SystemExit('Unexpected CHANGELOG header')
+              rest = text[len(header):].lstrip('\n')
+              entry = (
+                  '## [0.25.1] - 2026-09-08\n\n'
+                  '### Fixed\n'
+                  '- 상단 선택 천체 정보를 한 줄로 유지하고 좁은 모바일 폭에서는 보조 라벨만 숨겨 진화 단계/표면 프리셋 값이 유지되도록 수정했습니다.\n'
+              )
+              path.write_text(header + '\n' + entry + '\n' + rest, encoding='utf-8')
+          PY
+          if git diff --quiet -- CHANGELOG.md; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CHANGELOG.md
+          git commit -m 'docs: add 0.25.1 changelog entry'
+          git push origin HEAD:${{ github.head_ref }}
