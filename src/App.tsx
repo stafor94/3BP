@@ -185,6 +185,7 @@ export default function App() {
   const [trailEnabled, setTrailEnabled] = useState(initialSetup.trailEnabled)
   const [trailDuration, setTrailDuration] = useState(initialSetup.trailDuration)
   const [trailSampleBatch, setTrailSampleBatch] = useState<TrailSampleBatch>({ sequence: 0, samples: [] })
+  const [bodySelection, setBodySelection] = useState<{ id: string } | null>(null)
   const [trackedBodyId, setTrackedBodyId] = useState<string | null>(null)
   const [language, setLanguage] = useState<Language>(getInitialLanguage)
   const [collisionPrediction, setCollisionPrediction] = useState<CollisionPrediction | null>(null)
@@ -870,6 +871,7 @@ export default function App() {
         onSpeedChange={changeSpeed}
       />
       <BodyTrackingRail
+        onBodySelect={(id) => setBodySelection({ id })}
         bodies={bodies}
         bodyCount={bodyCount}
         bodyScale={bodyScale}
@@ -915,6 +917,7 @@ export default function App() {
         )}
       </section>
       <ControlPanel
+        bodySelection={bodySelection}
         bodies={bodies}
         bodyCount={bodyCount}
         spaceMode={spaceMode}
