@@ -1,0 +1,95 @@
+name: Temporary tracked body UI validation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.head_ref == 'fix/tracked-body-single-line-0.25.1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm install
+      - name: Build
+        run: npm run build
+      - name: Install browser runtime
+        run: python -m pip install --disable-pip-version-check --quiet selenium==4.35.0
+      - name: Start preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/3bp-preview.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/3BP/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/3bp-preview.log
+          exit 1
+      - name: Check tracked body single-line layout
+        run: |
+          python - <<'PY'
+          import shutil
+          from selenium import webdriver
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.chrome.service import Service
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.support.ui import WebDriverWait
+
+          options = Options()
+          options.add_argument('--headless=new')
+          options.add_argument('--window-size=1200,900')
+          options.add_argument('--no-sandbox')
+          options.add_argument('--disable-dev-shm-usage')
+          options.add_argument('--ignore-gpu-blocklist')
+          options.add_argument('--enable-webgl')
+          options.add_argument('--enable-unsafe-swiftshader')
+          options.add_argument('--use-gl=angle')
+          options.add_argument('--use-angle=swiftshader')
+          chrome = shutil.which('google-chrome') or shutil.which('google-chrome-stable') or shutil.which('chromium')
+          if chrome:
+              options.binary_location = chrome
+          chromedriver = shutil.which('chromedriver')
+          driver = webdriver.Chrome(service=Service(chromedriver), options=options) if chromedriver else webdriver.Chrome(options=options)
+
+          def rect(element):
+              return driver.execute_script('const r=arguments[0].getBoundingClientRect(); return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height,cx:(r.left+r.right)/2,cy:(r.top+r.bottom)/2};', element)
+
+          try:
+              for width, height, mobile in ((1024, 768, False), (390, 844, True), (320, 700, True)):
+                  driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride', {
+                      'width': width, 'height': height, 'deviceScaleFactor': 1, 'mobile': mobile,
+                  })
+                  driver.get('http://127.0.0.1:4173/3BP/')
+                  wait = WebDriverWait(driver, 15, poll_frequency=0.05)
+                  wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, '.simulation-view canvas')) == 1)
+                  button = wait.until(lambda d: next((b for b in d.find_elements(By.CSS_SELECTOR, '.body-tracking-button') if b.is_enabled()), None))
+                  driver.execute_script('arguments[0].click()', button)
+                  panel = wait.until(lambda d: d.find_element(By.CSS_SELECTOR, '.viewport-tracked-body'))
+                  detail = wait.until(lambda d: d.find_element(By.CSS_SELECTOR, '.tracked-body-detail b'))
+                  mass = d_mass = driver.find_element(By.CSS_SELECTOR, '.tracked-body-metric.mass b')
+                  volume = driver.find_element(By.CSS_SELECTOR, '.tracked-body-metric.volume b')
+
+                  label = f'{width}x{height}'
+                  wrap = driver.execute_script('return getComputedStyle(arguments[0]).flexWrap', panel)
+                  assert wrap == 'nowrap', f'{label}: tracked body flex-wrap={wrap}'
+                  assert detail.is_displayed() and detail.text.strip(), f'{label}: detail value missing'
+                  assert mass.is_displayed() and mass.text.strip(), f'{label}: mass value missing'
+                  assert volume.is_displayed() and volume.text.strip(), f'{label}: volume value missing'
+
+                  pr = rect(panel)
+                  for name, element in (('detail', detail), ('mass', mass), ('volume', volume)):
+                      r = rect(element)
+                      assert r['left'] >= pr['left'] - 1 and r['right'] <= pr['right'] + 1, f'{label}: {name} clipped horizontally'
+
+                  children = [e for e in driver.find_elements(By.CSS_SELECTOR, '.viewport-tracked-body > span') if e.is_displayed()]
+                  centers = [rect(e)['cy'] for e in children]
+                  assert centers and max(centers) - min(centers) <= 2, f'{label}: tracked body children are not on one line'
+                  print(f'{label}: nowrap; detail={detail.text.strip()}; mass={mass.text.strip()}; volume={volume.text.strip()}')
+          finally:
+              driver.quit()
+          PY
