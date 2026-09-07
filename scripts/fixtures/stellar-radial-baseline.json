@@ -1,0 +1,1171 @@
+{
+  "source_run": 34061068130,
+  "main_sha": "076fb962267658e58cf56c8699423567fca155a5",
+  "viewport": [
+    390,
+    844
+  ],
+  "wheel_steps": {
+    "normal": 0,
+    "enlarged": 20,
+    "extreme": 35
+  },
+  "metrics": {
+    "reference": {
+      "cool": {
+        "normal": {
+          "geometry": {
+            "center_x": 194.50391304347826,
+            "center_y": 449.9078260869565,
+            "equivalent_radius_px": 27.05758189903005,
+            "bright_photosphere_diameter_px": 54.1151637980601,
+            "component_pixels": 2300,
+            "bbox_width_px": 54,
+            "bbox_height_px": 55
+          },
+          "core_rgb": [
+            233.1979274611399,
+            208.9461139896373,
+            177.2518134715026
+          ],
+          "core_luma": 0.8306420432794879,
+          "surface_noise": 0.4211043904540207,
+          "radial_luma": {
+            "0.9": 0.8021947362308383,
+            "0.98": 0.5246361148873566,
+            "1.04": 0.08111646546054739,
+            "1.1": 0.05648051190853515,
+            "1.2": 0.03080345286734919,
+            "1.4": 0.024394509803921573,
+            "1.7": 0.026896825889184548,
+            "2.0": 0.02748235294117647,
+            "2.3": 0.02748235294117647
+          },
+          "radial_rgb": {
+            "0.9": [
+              228.7534889475844,
+              201.2233173676656,
+              166.36772032206218
+            ],
+            "0.98": [
+              149.85884004144248,
+              131.42765496323392,
+              109.76677387479737
+            ],
+            "1.04": [
+              21.86181921030708,
+              20.097146673247707,
+              23.03873445459199
+            ],
+            "1.1": [
+              14.62314561844926,
+              14.007750079189123,
+              17.663530769502607
+            ],
+            "1.2": [
+              6.5598277146957935,
+              7.716082464859554,
+              13.043198478700358
+            ],
+            "1.4": [
+              5.0,
+              6.0,
+              12.0
+            ],
+            "1.7": [
+              5.0,
+              6.892184845836212,
+              12.0
+            ],
+            "2.0": [
+              5.0,
+              7.0,
+              13.0
+            ],
+            "2.3": [
+              5.0,
+              7.0,
+              13.0
+            ]
+          }
+        }
+      },
+      "solar": {
+        "normal": {
+          "geometry": {
+            "center_x": 194.49869791666666,
+            "center_y": 449.9236111111111,
+            "equivalent_radius_px": 27.081100010292303,
+            "bright_photosphere_diameter_px": 54.162200020584606,
+            "component_pixels": 2304,
+            "bbox_width_px": 54,
+            "bbox_height_px": 55
+          },
+          "core_rgb": [
+            221.41985522233713,
+            217.95139607032058,
+            214.23784901758015
+          ],
+          "core_luma": 0.85655165642679,
+          "surface_noise": 0.3518318647204228,
+          "radial_luma": {
+            "0.9": 0.8307290917342969,
+            "0.98": 0.5335238314102323,
+            "1.04": 0.08850436328599011,
+            "1.1": 0.06750153808801336,
+            "1.2": 0.03484485099715903,
+            "1.4": 0.024394509803921573,
+            "1.7": 0.02691789242110446,
+            "2.0": 0.02748235294117647,
+            "2.3": 0.02748235294117647
+          },
+          "radial_rgb": {
+            "0.9": [
+              215.28674149379646,
+              211.28674149379646,
+              207.1146763753652
+            ],
+            "0.98": [
+              137.48026870231877,
+              135.7199061437289,
+              135.08857353879995
+            ],
+            "1.04": [
+              20.880935856002367,
+              22.59848470315049,
+              27.242235668256825
+            ],
+            "1.1": [
+              15.917393328497116,
+              17.07546254615061,
+              22.388969221579025
+            ],
+            "1.2": [
+              7.195424042065154,
+              8.828086936589875,
+              14.429945649354892
+            ],
+            "1.4": [
+              5.0,
+              6.0,
+              12.0
+            ],
+            "1.7": [
+              5.0,
+              6.899695983475443,
+              12.0
+            ],
+            "2.0": [
+              5.0,
+              7.0,
+              13.0
+            ],
+            "2.3": [
+              5.0,
+              7.0,
+              13.0
+            ]
+          }
+        }
+      },
+      "hot": {
+        "normal": {
+          "geometry": {
+            "center_x": 194.51020408163265,
+            "center_y": 449.92140686061657,
+            "equivalent_radius_px": 27.075222397632672,
+            "bright_photosphere_diameter_px": 54.150444795265344,
+            "component_pixels": 2303,
+            "bbox_width_px": 54,
+            "bbox_height_px": 55
+          },
+          "core_rgb": [
+            209.10455486542443,
+            217.76501035196688,
+            231.94202898550725
+          ],
+          "core_luma": 0.850774032395567,
+          "surface_noise": 0.35498305608218444,
+          "radial_luma": {
+            "0.9": 0.8226793251227785,
+            "0.98": 0.5328598602305018,
+            "1.04": 0.08688504486385347,
+            "1.1": 0.0661677469916826,
+            "1.2": 0.036552971871170445,
+            "1.4": 0.024394509803921573,
+            "1.7": 0.026919937243390327,
+            "2.0": 0.02748235294117647,
+            "2.3": 0.02748235294117647
+          },
+          "radial_rgb": {
+            "0.9": [
+              200.67700905349164,
+              210.72261367960581,
+              227.29200107870008
+            ],
+            "0.98": [
+              129.19785217016673,
+              136.46461580932515,
+              149.7549551325647
+            ],
+            "1.04": [
+              19.115182040688026,
+              22.231214141423145,
+              30.360587042749728
+            ],
+            "1.1": [
+              13.866593448826526,
+              16.930323962198095,
+              25.15470938912005
+            ],
+            "1.2": [
+              7.255273748649717,
+              9.289425547062969,
+              15.71661325382407
+            ],
+            "1.4": [
+              5.0,
+              6.0,
+              12.0
+            ],
+            "1.7": [
+              5.0,
+              6.900425051824012,
+              12.0
+            ],
+            "2.0": [
+              5.0,
+              7.0,
+              13.0
+            ],
+            "2.3": [
+              5.0,
+              7.0,
+              13.0
+            ]
+          }
+        }
+      }
+    },
+    "before": {
+      "cool": {
+        "normal": {
+          "geometry": {
+            "center_x": 194.50391304347826,
+            "center_y": 449.9078260869565,
+            "equivalent_radius_px": 27.05758189903005,
+            "bright_photosphere_diameter_px": 54.1151637980601,
+            "component_pixels": 2300,
+            "bbox_width_px": 54,
+            "bbox_height_px": 55
+          },
+          "core_rgb": [
+            255,
+            255,
+            255
+          ],
+          "core_luma": 0.9999999999999999,
+          "surface_noise": 0.0,
+          "radial_luma": {
+            "0.9": 0.9999999999999999,
+            "0.98": 0.7832787119224781,
+            "1.04": 0.497949408068656,
+            "1.1": 0.3718851088548471,
+            "1.2": 0.25250438518776946,
+            "1.4": 0.14938854519518677,
+            "1.7": 0.09227952585033686,
+            "2.0": 0.06795933369438759,
+            "2.3": 0.052253084115286744
+          },
+          "radial_rgb": {
+            "0.9": [
+              255.0,
+              255.0,
+              255.0
+            ],
+            "0.98": [
+              208.20644419737343,
+              197.82344369229583,
+              193.74036807673633
+            ],
+            "1.04": [
+              140.22774485968642,
+              123.97604454509705,
+              117.68716678233434
+            ],
+            "1.1": [
+              106.23153147553882,
+              92.21811378309147,
+              87.13967020248549
+            ],
+            "1.2": [
+              72.92774098022974,
+              62.37095334772306,
+              59.23095091679839
+            ],
+            "1.4": [
+              43.11077059257484,
+              36.7966962402305,
+              36.17357404125157
+            ],
+            "1.7": [
+              25.88231099739562,
+              22.709628072281397,
+              24.747559231217963
+            ],
+            "2.0": [
+              17.933873939566883,
+              16.88043693025296,
+              20.0
+            ],
+            "2.3": [
+              13.0,
+              13.0,
+              17.494964673104164
+            ]
+          }
+        }
+      },
+      "solar": {
+        "normal": {
+          "geometry": {
+            "center_x": 194.49869791666666,
+            "center_y": 449.9236111111111,
+            "equivalent_radius_px": 27.081100010292303,
+            "bright_photosphere_diameter_px": 54.162200020584606,
+            "component_pixels": 2304,
+            "bbox_width_px": 54,
+            "bbox_height_px": 55
+          },
+          "core_rgb": [
+            255,
+            255,
+            255
+          ],
+          "core_luma": 0.9999999999999999,
+          "surface_noise": 0.0,
+          "radial_luma": {
+            "0.9": 0.9999999999999999,
+            "0.98": 0.8170958654676039,
+            "1.04": 0.5526011783037841,
+            "1.1": 0.41905505489979245,
+            "1.2": 0.2895236335963895,
+            "1.4": 0.17341302369146508,
+            "1.7": 0.10637215719498559,
+            "2.0": 0.07564414669113788,
+            "2.3": 0.05865213938459259
+          },
+          "radial_rgb": {
+            "0.9": [
+              255.0,
+              255.0,
+              255.0
+            ],
+            "0.98": [
+              209.42300883323753,
+              207.9639247362929,
+              209.14563774094245
+            ],
+            "1.04": [
+              142.24968252506108,
+              140.30149011497014,
+              143.03867357909044
+            ],
+            "1.1": [
+              107.49644057398686,
+              106.42000485111114,
+              109.3311393892352
+            ],
+            "1.2": [
+              73.9077185026238,
+              73.49569548478881,
+              76.89230197646197
+            ],
+            "1.4": [
+              43.70226788921039,
+              43.96624870997546,
+              48.262573555443424
+            ],
+            "1.7": [
+              26.0685057709115,
+              26.9476607475027,
+              31.99125749600566
+            ],
+            "2.0": [
+              17.924716586795356,
+              19.174090364023314,
+              24.448105699972192
+            ],
+            "2.3": [
+              13.0,
+              15.0,
+              20.283871787688526
+            ]
+          }
+        }
+      },
+      "hot": {
+        "normal": {
+          "geometry": {
+            "center_x": 194.51020408163265,
+            "center_y": 449.92140686061657,
+            "equivalent_radius_px": 27.075222397632672,
+            "bright_photosphere_diameter_px": 54.150444795265344,
+            "component_pixels": 2303,
+            "bbox_width_px": 54,
+            "bbox_height_px": 55
+          },
+          "core_rgb": [
+            255,
+            255,
+            255
+          ],
+          "core_luma": 0.9999999999999999,
+          "surface_noise": 0.0,
+          "radial_luma": {
+            "0.9": 0.9999999999999999,
+            "0.98": 0.7951970324118263,
+            "1.04": 0.5173910091550604,
+            "1.1": 0.3861386776890811,
+            "1.2": 0.2618550495280343,
+            "1.4": 0.15491833526164722,
+            "1.7": 0.09522012693693215,
+            "2.0": 0.06831151623092699,
+            "2.3": 0.054382745098039205
+          },
+          "radial_rgb": {
+            "0.9": [
+              255.0,
+              255.0,
+              255.0
+            ],
+            "0.98": [
+              197.7112367470055,
+              202.92868275835872,
+              216.16676487291062
+            ],
+            "1.04": [
+              123.98178127168504,
+              132.19366359838742,
+              152.78770679520065
+            ],
+            "1.1": [
+              91.19091741316606,
+              98.71032605651081,
+              117.45912151052698
+            ],
+            "1.2": [
+              60.69684917543596,
+              66.94827235786508,
+              82.92912887265857
+            ],
+            "1.4": [
+              34.660059512118224,
+              39.68308286930313,
+              51.99592758058322
+            ],
+            "1.7": [
+              20.729118693413,
+              24.347214691807878,
+              34.08578652516758
+            ],
+            "2.0": [
+              14.482871376172312,
+              17.435807180671127,
+              25.904278236788883
+            ],
+            "2.3": [
+              11.0,
+              14.0,
+              21.0
+            ]
+          }
+        }
+      }
+    },
+    "after": {
+      "cool": {
+        "normal": {
+          "geometry": {
+            "center_x": 194.50391304347826,
+            "center_y": 449.9078260869565,
+            "equivalent_radius_px": 27.05758189903005,
+            "bright_photosphere_diameter_px": 54.1151637980601,
+            "component_pixels": 2300,
+            "bbox_width_px": 54,
+            "bbox_height_px": 55
+          },
+          "core_rgb": [
+            255,
+            255,
+            255
+          ],
+          "core_luma": 0.9999999999999999,
+          "surface_noise": 0.0,
+          "radial_luma": {
+            "0.9": 0.9999999999999999,
+            "0.98": 0.8643576779170618,
+            "1.04": 0.6823322221558392,
+            "1.1": 0.5496206664737645,
+            "1.2": 0.3470962471368889,
+            "1.4": 0.15235310626900272,
+            "1.7": 0.09145982300400901,
+            "2.0": 0.06772283035284876,
+            "2.3": 0.052253084115286744
+          },
+          "radial_rgb": {
+            "0.9": [
+              255.0,
+              255.0,
+              255.0
+            ],
+            "0.98": [
+              231.0724491637926,
+              218.0696993846895,
+              212.21268942795726
+            ],
+            "1.04": [
+              192.9642055002264,
+              169.91833148538524,
+              158.51711747982486
+            ],
+            "1.1": [
+              158.28166198223425,
+              136.25983358477674,
+              125.34010572790336
+            ],
+            "1.2": [
+              101.49343518037753,
+              85.6263885947815,
+              78.83719636524498
+            ],
+            "1.4": [
+              43.96899011202136,
+              37.5279235839739,
+              36.8734605750945
+            ],
+            "1.7": [
+              25.654702612215726,
+              22.509143980188355,
+              24.508660886904778
+            ],
+            "2.0": [
+              17.921484184477237,
+              16.799796144234584,
+              20.0
+            ],
+            "2.3": [
+              13.0,
+              13.0,
+              17.494964673104164
+            ]
+          }
+        }
+      },
+      "solar": {
+        "normal": {
+          "geometry": {
+            "center_x": 194.49869791666666,
+            "center_y": 449.9236111111111,
+            "equivalent_radius_px": 27.081100010292303,
+            "bright_photosphere_diameter_px": 54.162200020584606,
+            "component_pixels": 2304,
+            "bbox_width_px": 54,
+            "bbox_height_px": 55
+          },
+          "core_rgb": [
+            255,
+            255,
+            255
+          ],
+          "core_luma": 0.9999999999999999,
+          "surface_noise": 0.0,
+          "radial_luma": {
+            "0.9": 0.9999999999999999,
+            "0.98": 0.907630351110089,
+            "1.04": 0.7592895676977093,
+            "1.1": 0.6212027569568952,
+            "1.2": 0.3995481731192063,
+            "1.4": 0.1766412115095202,
+            "1.7": 0.10561393877503036,
+            "2.0": 0.07564414669113788,
+            "2.3": 0.05865213938459259
+          },
+          "radial_rgb": {
+            "0.9": [
+              255.0,
+              255.0,
+              255.0
+            ],
+            "0.98": [
+              232.7451110059718,
+              231.04004233524452,
+              231.63837472349323
+            ],
+            "1.04": [
+              195.84515226627138,
+              192.922387772193,
+              193.96216975670575
+            ],
+            "1.1": [
+              160.41746855313684,
+              157.73283990011387,
+              159.16097109487455
+            ],
+            "1.2": [
+              102.83281501686506,
+              101.37735139200703,
+              104.11975010039717
+            ],
+            "1.4": [
+              44.45208803261325,
+              44.80057771600273,
+              49.19143818156404
+            ],
+            "1.7": [
+              25.81794034883281,
+              26.773728852578046,
+              31.77409133112286
+            ],
+            "2.0": [
+              17.924716586795356,
+              19.174090364023314,
+              24.448105699972192
+            ],
+            "2.3": [
+              13.0,
+              15.0,
+              20.283871787688526
+            ]
+          }
+        }
+      },
+      "hot": {
+        "normal": {
+          "geometry": {
+            "center_x": 194.51020408163265,
+            "center_y": 449.92140686061657,
+            "equivalent_radius_px": 27.075222397632672,
+            "bright_photosphere_diameter_px": 54.150444795265344,
+            "component_pixels": 2303,
+            "bbox_width_px": 54,
+            "bbox_height_px": 55
+          },
+          "core_rgb": [
+            255,
+            255,
+            255
+          ],
+          "core_luma": 0.9999999999999999,
+          "surface_noise": 0.0,
+          "radial_luma": {
+            "0.9": 0.9999999999999999,
+            "0.98": 0.8808884596647991,
+            "1.04": 0.7088788687913524,
+            "1.1": 0.5707527414878641,
+            "1.2": 0.36072802730465964,
+            "1.4": 0.15782649028101772,
+            "1.7": 0.09454544459822563,
+            "2.0": 0.0682404464442377,
+            "2.3": 0.054382745098039205
+          },
+          "radial_rgb": {
+            "0.9": [
+              255.0,
+              255.0,
+              255.0
+            ],
+            "0.98": [
+              218.6815756568584,
+              224.81985169252016,
+              240.2174002684942
+            ],
+            "1.04": [
+              170.39088629672722,
+              181.10379842931184,
+              207.9442171532808
+            ],
+            "1.1": [
+              135.6136551543812,
+              145.8694084475819,
+              171.5330342364728
+            ],
+            "1.2": [
+              84.00437795423838,
+              92.30594623913373,
+              112.31445234610374
+            ],
+            "1.4": [
+              35.34998894809385,
+              40.422334545104405,
+              52.912655188865656
+            ],
+            "1.7": [
+              20.551974738392506,
+              24.17903336190836,
+              33.89049699069852
+            ],
+            "2.0": [
+              14.47025917531733,
+              17.415385985771913,
+              25.892696476233738
+            ],
+            "2.3": [
+              11.0,
+              14.0,
+              21.0
+            ]
+          }
+        }
+      }
+    }
+  },
+  "telemetry": {
+    "after": {
+      "cool": {
+        "normal": {
+          "cameraDistanceToControlsTarget": 3.8440208903734447,
+          "cameraDistanceToTrackedBody": 3.8440208903734447,
+          "cameraPosition": {
+            "x": -1.2,
+            "y": 1.3194687963624911,
+            "z": 3.412546964413373
+          },
+          "cameraPositionBeforeFrame": {
+            "x": -1.2,
+            "y": 1.3194687963624911,
+            "z": 3.412546964413373
+          },
+          "cameraPositionStep": 0,
+          "cameraWriteSource": "normal-tracking",
+          "cameraWrites": [
+            {
+              "after": {
+                "cameraPosition": {
+                  "x": -1.2,
+                  "y": 1.3194687963624911,
+                  "z": 3.412546964413373
+                },
+                "controlsTarget": {
+                  "x": -1.2,
+                  "y": -0.45,
+                  "z": 0
+                },
+                "distance": 3.8440208903734447
+              },
+              "before": {
+                "cameraPosition": {
+                  "x": -1.2,
+                  "y": 1.3194687963624911,
+                  "z": 3.412546964413373
+                },
+                "controlsTarget": {
+                  "x": -1.2,
+                  "y": -0.45,
+                  "z": 0
+                },
+                "distance": 3.8440208903734447
+              },
+              "writer": "normal-tracking"
+            }
+          ],
+          "collisionCameraFocused": false,
+          "collisionCameraJustReleased": false,
+          "collisionImpactObserved": false,
+          "collisionWatchPairKey": null,
+          "collisionWatchPhase": null,
+          "controlsTarget": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "controlsTargetBeforeFrame": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "controlsUpdateAfter": {
+            "cameraPosition": {
+              "x": -1.2,
+              "y": 1.3194687963624911,
+              "z": 3.412546964413373
+            },
+            "controlsTarget": {
+              "x": -1.2,
+              "y": -0.45,
+              "z": 0
+            },
+            "distance": 3.8440208903734447
+          },
+          "controlsUpdateBefore": {
+            "cameraPosition": {
+              "x": -1.2,
+              "y": 1.3194687963624911,
+              "z": 3.412546964413373
+            },
+            "controlsTarget": {
+              "x": -1.2,
+              "y": -0.45,
+              "z": 0
+            },
+            "distance": 3.8440208903734447
+          },
+          "controlsUpdateChangedTransform": false,
+          "desiredCameraDistance": 3.7425644141134717,
+          "desiredCameraPosition": null,
+          "desiredCameraPositionStep": null,
+          "desiredTarget": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "desiredTargetStep": 0,
+          "distanceBeforeFrame": 3.8440208903734447,
+          "distanceStep": 0,
+          "finalCameraWriteSource": "normal-tracking",
+          "mode": "tracking",
+          "nowMs": 3523.4000000000233,
+          "renderFrameSequence": 104,
+          "renderStateGeneration": 2,
+          "resolvedTrackedBodyId": "pass5-star-cool",
+          "screenSpaceStep": 0,
+          "simulationSpeed": 1,
+          "simulationTime": 0,
+          "targetErrorToTrackedBody": 0,
+          "targetStep": 0,
+          "trackedBodyId": "pass5-star-cool",
+          "trackedBodyMass": 0.35,
+          "trackedBodyNdc": {
+            "x": 0,
+            "y": -2.7740725767096468e-17,
+            "z": 0.9948370113838848
+          },
+          "trackedBodyPixel": {
+            "x": 195,
+            "y": 422
+          },
+          "trackedBodyPosition": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "trackedBodyRadius": 0.09,
+          "trackedBodyVelocity": {
+            "x": 0.42,
+            "y": 0.16,
+            "z": 0
+          },
+          "trackedBodyVisible": true,
+          "trackedBodyWorldStep": 0,
+          "trackingFocusNeedsReset": false,
+          "trackingFocusSettleFrames": 0,
+          "trackingTransitionActive": false,
+          "trackingTransitionDestinationDistance": null,
+          "trackingTransitionDestinationPosition": null,
+          "trackingTransitionDestinationTarget": null,
+          "trackingTransitionFrameIndex": 0,
+          "trackingTransitionProgress": null,
+          "trackingTransitionStartDistance": null,
+          "trackingTransitionStartPosition": null,
+          "trackingTransitionStartTarget": null
+        }
+      },
+      "solar": {
+        "normal": {
+          "cameraDistanceToControlsTarget": 3.8440208903734447,
+          "cameraDistanceToTrackedBody": 3.8440208903734447,
+          "cameraPosition": {
+            "x": -1.2,
+            "y": 1.3194687963624911,
+            "z": 3.412546964413373
+          },
+          "cameraPositionBeforeFrame": {
+            "x": -1.2,
+            "y": 1.3194687963624911,
+            "z": 3.412546964413373
+          },
+          "cameraPositionStep": 0,
+          "cameraWriteSource": "normal-tracking",
+          "cameraWrites": [
+            {
+              "after": {
+                "cameraPosition": {
+                  "x": -1.2,
+                  "y": 1.3194687963624911,
+                  "z": 3.412546964413373
+                },
+                "controlsTarget": {
+                  "x": -1.2,
+                  "y": -0.45,
+                  "z": 0
+                },
+                "distance": 3.8440208903734447
+              },
+              "before": {
+                "cameraPosition": {
+                  "x": -1.2,
+                  "y": 1.3194687963624911,
+                  "z": 3.412546964413373
+                },
+                "controlsTarget": {
+                  "x": -1.2,
+                  "y": -0.45,
+                  "z": 0
+                },
+                "distance": 3.8440208903734447
+              },
+              "writer": "normal-tracking"
+            }
+          ],
+          "collisionCameraFocused": false,
+          "collisionCameraJustReleased": false,
+          "collisionImpactObserved": false,
+          "collisionWatchPairKey": null,
+          "collisionWatchPhase": null,
+          "controlsTarget": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "controlsTargetBeforeFrame": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "controlsUpdateAfter": {
+            "cameraPosition": {
+              "x": -1.2,
+              "y": 1.3194687963624911,
+              "z": 3.412546964413373
+            },
+            "controlsTarget": {
+              "x": -1.2,
+              "y": -0.45,
+              "z": 0
+            },
+            "distance": 3.8440208903734447
+          },
+          "controlsUpdateBefore": {
+            "cameraPosition": {
+              "x": -1.2,
+              "y": 1.3194687963624911,
+              "z": 3.412546964413373
+            },
+            "controlsTarget": {
+              "x": -1.2,
+              "y": -0.45,
+              "z": 0
+            },
+            "distance": 3.8440208903734447
+          },
+          "controlsUpdateChangedTransform": false,
+          "desiredCameraDistance": 3.7425644141134717,
+          "desiredCameraPosition": null,
+          "desiredCameraPositionStep": null,
+          "desiredTarget": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "desiredTargetStep": 0,
+          "distanceBeforeFrame": 3.8440208903734447,
+          "distanceStep": 0,
+          "finalCameraWriteSource": "normal-tracking",
+          "mode": "tracking",
+          "nowMs": 3386.0999999999767,
+          "renderFrameSequence": 102,
+          "renderStateGeneration": 2,
+          "resolvedTrackedBodyId": "pass5-star-solar",
+          "screenSpaceStep": 0,
+          "simulationSpeed": 1,
+          "simulationTime": 0,
+          "targetErrorToTrackedBody": 0,
+          "targetStep": 0,
+          "trackedBodyId": "pass5-star-solar",
+          "trackedBodyMass": 1,
+          "trackedBodyNdc": {
+            "x": 0,
+            "y": -2.7740725767096468e-17,
+            "z": 0.9948370113838848
+          },
+          "trackedBodyPixel": {
+            "x": 195,
+            "y": 422
+          },
+          "trackedBodyPosition": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "trackedBodyRadius": 0.09,
+          "trackedBodyVelocity": {
+            "x": 0.42,
+            "y": 0.16,
+            "z": 0
+          },
+          "trackedBodyVisible": true,
+          "trackedBodyWorldStep": 0,
+          "trackingFocusNeedsReset": false,
+          "trackingFocusSettleFrames": 0,
+          "trackingTransitionActive": false,
+          "trackingTransitionDestinationDistance": null,
+          "trackingTransitionDestinationPosition": null,
+          "trackingTransitionDestinationTarget": null,
+          "trackingTransitionFrameIndex": 0,
+          "trackingTransitionProgress": null,
+          "trackingTransitionStartDistance": null,
+          "trackingTransitionStartPosition": null,
+          "trackingTransitionStartTarget": null
+        }
+      },
+      "hot": {
+        "normal": {
+          "cameraDistanceToControlsTarget": 3.8440208903734447,
+          "cameraDistanceToTrackedBody": 3.8440208903734447,
+          "cameraPosition": {
+            "x": -1.2,
+            "y": 1.3194687963624911,
+            "z": 3.412546964413373
+          },
+          "cameraPositionBeforeFrame": {
+            "x": -1.2,
+            "y": 1.3194687963624911,
+            "z": 3.412546964413373
+          },
+          "cameraPositionStep": 0,
+          "cameraWriteSource": "normal-tracking",
+          "cameraWrites": [
+            {
+              "after": {
+                "cameraPosition": {
+                  "x": -1.2,
+                  "y": 1.3194687963624911,
+                  "z": 3.412546964413373
+                },
+                "controlsTarget": {
+                  "x": -1.2,
+                  "y": -0.45,
+                  "z": 0
+                },
+                "distance": 3.8440208903734447
+              },
+              "before": {
+                "cameraPosition": {
+                  "x": -1.2,
+                  "y": 1.3194687963624911,
+                  "z": 3.412546964413373
+                },
+                "controlsTarget": {
+                  "x": -1.2,
+                  "y": -0.45,
+                  "z": 0
+                },
+                "distance": 3.8440208903734447
+              },
+              "writer": "normal-tracking"
+            }
+          ],
+          "collisionCameraFocused": false,
+          "collisionCameraJustReleased": false,
+          "collisionImpactObserved": false,
+          "collisionWatchPairKey": null,
+          "collisionWatchPhase": null,
+          "controlsTarget": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "controlsTargetBeforeFrame": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "controlsUpdateAfter": {
+            "cameraPosition": {
+              "x": -1.2,
+              "y": 1.3194687963624911,
+              "z": 3.412546964413373
+            },
+            "controlsTarget": {
+              "x": -1.2,
+              "y": -0.45,
+              "z": 0
+            },
+            "distance": 3.8440208903734447
+          },
+          "controlsUpdateBefore": {
+            "cameraPosition": {
+              "x": -1.2,
+              "y": 1.3194687963624911,
+              "z": 3.412546964413373
+            },
+            "controlsTarget": {
+              "x": -1.2,
+              "y": -0.45,
+              "z": 0
+            },
+            "distance": 3.8440208903734447
+          },
+          "controlsUpdateChangedTransform": false,
+          "desiredCameraDistance": 3.7425644141134717,
+          "desiredCameraPosition": null,
+          "desiredCameraPositionStep": null,
+          "desiredTarget": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "desiredTargetStep": 0,
+          "distanceBeforeFrame": 3.8440208903734447,
+          "distanceStep": 0,
+          "finalCameraWriteSource": "normal-tracking",
+          "mode": "tracking",
+          "nowMs": 3220.899999999965,
+          "renderFrameSequence": 102,
+          "renderStateGeneration": 2,
+          "resolvedTrackedBodyId": "pass5-star-hot",
+          "screenSpaceStep": 0,
+          "simulationSpeed": 1,
+          "simulationTime": 0,
+          "targetErrorToTrackedBody": 0,
+          "targetStep": 0,
+          "trackedBodyId": "pass5-star-hot",
+          "trackedBodyMass": 8,
+          "trackedBodyNdc": {
+            "x": 0,
+            "y": -2.7740725767096468e-17,
+            "z": 0.9948370113838848
+          },
+          "trackedBodyPixel": {
+            "x": 195,
+            "y": 422
+          },
+          "trackedBodyPosition": {
+            "x": -1.2,
+            "y": -0.45,
+            "z": 0
+          },
+          "trackedBodyRadius": 0.09,
+          "trackedBodyVelocity": {
+            "x": 0.42,
+            "y": 0.16,
+            "z": 0
+          },
+          "trackedBodyVisible": true,
+          "trackedBodyWorldStep": 0,
+          "trackingFocusNeedsReset": false,
+          "trackingFocusSettleFrames": 0,
+          "trackingTransitionActive": false,
+          "trackingTransitionDestinationDistance": null,
+          "trackingTransitionDestinationPosition": null,
+          "trackingTransitionDestinationTarget": null,
+          "trackingTransitionFrameIndex": 0,
+          "trackingTransitionProgress": null,
+          "trackingTransitionStartDistance": null,
+          "trackingTransitionStartPosition": null,
+          "trackingTransitionStartTarget": null
+        }
+      }
+    }
+  }
+}
