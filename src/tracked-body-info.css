@@ -9,6 +9,7 @@
   height: 40px;
   min-height: 40px;
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -51,13 +52,16 @@
   font-weight: 800;
 }
 
+.tracked-body-detail,
 .tracked-body-metric {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
   color: #71839d;
+  white-space: nowrap;
 }
 
+.tracked-body-detail::before,
 .tracked-body-metric::before {
   content: '';
   width: 1px;
@@ -66,6 +70,7 @@
   background: rgba(144, 169, 205, 0.16);
 }
 
+.tracked-body-detail b,
 .tracked-body-metric b {
   color: #c7d3e6;
   font-size: 10px;
@@ -122,6 +127,7 @@
     padding-inline: 4px;
   }
 
+  .tracked-body-detail > span,
   .metric-label {
     display: none;
   }
@@ -145,30 +151,14 @@
   }
 }
 
-/* Keep the selected body's preset readable alongside its existing metrics. */
-.viewport-tracked-body {
-  height: auto;
-  flex-wrap: wrap;
-  max-width: 480px;
-  border-radius: 16px;
-}
+@media (max-width: 360px) {
+  .viewport-speed-menu {
+    flex-wrap: wrap;
+    max-width: calc(100vw - 28px);
+  }
 
-.tracked-body-detail {
-  order: 1;
-  flex-basis: 100%;
-  display: flex;
-  gap: 6px;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.tracked-body-detail b { color: #c7d3e6; }
-
-@media (max-width: 760px) {
-  .viewport-speed-menu { flex-wrap: wrap; }
   .viewport-tracked-body {
     flex-basis: 100%;
     max-width: 100%;
-    overflow: visible;
   }
 }
