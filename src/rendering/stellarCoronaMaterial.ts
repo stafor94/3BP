@@ -70,19 +70,13 @@ export function configureStellarCoronaMaterial(
           float coronaAngle = atan(coronaDelta.y, coronaDelta.x);
           float coronaPhotosphereRadius = clamp(uCoronaPhotosphereRadiusUv, 0.20, 0.82);
           float radiusInPhotospheres = coronaRadius / coronaPhotosphereRadius;
-          // Body identity, not elapsed time, anchors the light distribution.
-          float coronaAngularA = sin(coronaAngle * 5.0 + uCoronaSeed * 0.071);
-          float coronaAngularB = sin(coronaAngle * 9.0 - uCoronaSeed * 0.113);
+          float coronaPhase = uCoronaTime * 0.0016;
+          float coronaAngularA = sin(coronaAngle * 5.0 + uCoronaSeed * 0.071 + coronaPhase);
+          float coronaAngularB = sin(coronaAngle * 9.0 - uCoronaSeed * 0.113 - coronaPhase * 0.73);
           float distanceOutside = max(radiusInPhotospheres - 0.95, 0.0);
           float angularWarp = 1.0 + (coronaAngularA * 0.05 + coronaAngularB * 0.025)
             * smoothstep(0.0, 0.7, distanceOutside);
           float distanceR = distanceOutside * angularWarp;
-          // Retain the near glow exactly at the baseline phase. Only the outer
-          // falloff trades fine repeating lobes for a very broad, weak bias.
-          float broadBias = sin(coronaAngle + uCoronaSeed * 0.071) * 0.085
-            + sin(coronaAngle * 2.0 - uCoronaSeed * 0.113) * 0.025;
-          float outerDistanceR = mix(distanceR, distanceOutside * (1.0 + broadBias),
-            smoothstep(0.30, 1.0, distanceOutside));
 
           // Three overlapping, monotonically decaying light distributions.
           // No outside-only rising mask: it left an unlit seam at the silhouette.
@@ -93,8 +87,8 @@ export function configureStellarCoronaMaterial(
           // a crisp silhouette despite the broad, faint outer halo.
           float immediateWidth = max(0.24, pixelR * 1.5);
           float immediateGlow = exp(-pow(distanceR / immediateWidth, 2.0)) * 0.62;
-          float softShoulder = exp(-outerDistanceR / 0.42) * 0.28;
-          float diffuseHalo = exp(-outerDistanceR / 1.0) * 0.10;
+          float softShoulder = exp(-distanceR / 0.42) * 0.28;
+          float diffuseHalo = exp(-distanceR / 1.0) * 0.10;
           float carrierFade = 1.0 - smoothstep(0.88, 0.995, coronaRadius);
           float coronaAlpha = (immediateGlow + softShoulder + diffuseHalo) * carrierFade;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);
@@ -119,3 +113,4 @@ export function configureStellarCoronaMaterial(
     uniforms.uCoronaOuterWhiteMix.value = frame.outerWhiteMix
   }
 }
+
