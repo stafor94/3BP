@@ -32,10 +32,9 @@ export function getStellarRenderProfile(
   )
 
   return {
-    // Stay below the ACES channel-saturation range so the disk can retain the
-    // identity color. A separate additive center highlight provides the white-hot
-    // photographic core without bleaching the whole photosphere.
-    photosphereIntensity: 2.15 + luminosity01 * 0.25 + temperature01 * 0.10,
+    // Keep the temperature-colored disk well below the ACES white shoulder.
+    // A separate additive center highlight restores the compact photographic core.
+    photosphereIntensity: 1.05 + luminosity01 * 0.12 + temperature01 * 0.08,
     centerHighlightStrength: 0.82 + luminosity01 * 0.12,
     // One existing sprite carries immediate glow and a much wider diffuse tail.
     // Its edge is beyond the visible tail so no circular cutoff is perceptible.
