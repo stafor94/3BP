@@ -22,7 +22,10 @@ STARS = ('cool', 'solar', 'hot')
 DISK_RADII = (0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.72)
 RADII = (
     *DISK_RADII,
+    0.80,
+    0.83,
     0.86,
+    0.88,
     0.90,
     0.94,
     0.97,
@@ -132,7 +135,10 @@ def validate_disk_continuity(metrics, name):
         interval = f'{DISK_RADII[index]}R->{DISK_RADII[index + 1]}R'
         require(-0.008 <= inner - outer <= 0.035,
                 f'{name}: abrupt mid-disk luminance change at {interval}')
-        require(max(abs(a - b) for a, b in zip(rgb[index], rgb[index + 1])) <= 14,
+        # Allow the compact core's warm highlight to decay; keep the middle
+        # disk stricter, where a white-disk boundary is never expected.
+        rgb_limit = 18 if index == 0 else 14
+        require(max(abs(a - b) for a, b in zip(rgb[index], rgb[index + 1])) <= rgb_limit,
                 f'{name}: abrupt mid-disk RGB jump at {interval}')
         require(max(abs(a - b) for a, b in zip(chroma[index], chroma[index + 1])) <= 0.014,
                 f'{name}: abrupt mid-disk hue/chromaticity jump at {interval}')
@@ -161,7 +167,7 @@ def validate_star(metrics, name):
     require(0.10 <= radial['1.1'] <= 0.90, f'{name}: near_glow missing or overpowering')
     require(0.010 <= radial['1.7'] <= 0.30, f'{name}: diffuse_halo missing or overpowering')
 
-    handoff_radii = (0.90, 0.94, 0.97, 1.00, 1.03, 1.06, 1.10)
+    handoff_radii = (0.80, 0.83, 0.86, 0.88, 0.90, 0.94, 0.97, 1.00, 1.03, 1.06, 1.10)
     handoff = [radial[str(radius)] for radius in handoff_radii]
     running_min = handoff[0]
     max_rebound = 0.0

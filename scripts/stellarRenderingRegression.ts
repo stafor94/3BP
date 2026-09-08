@@ -194,7 +194,7 @@ function testCoronaRestoresEmissiveReadWithoutASeparateHalo() {
   assert(!stellarCoronaSource.includes('diskOverlapEnergy'), 'corona must not gate RGB through an annular overlap band')
   assert(!stellarCoronaSource.includes('coronaHandoff'), 'corona must not complement viewMu disk coverage')
   assert(stellarCoronaSource.includes('float signedDistance = radiusInPhotospheres - 1.0;'), 'corona must use signed radial distance from the physical limb')
-  assert(stellarCoronaSource.includes('smoothstep(-overlapWidth, overlapWidth, signedDistance)'), 'corona coverage must have a narrow pixel-aware overlap')
+  assert(stellarCoronaSource.includes('smoothstep(-overlapWidth, 0.0, signedDistance)'), 'corona coverage must have a narrow pixel-aware overlap')
   assert(stellarCoronaSource.includes('* coronaCoverage;'), 'external coverage must modulate corona alpha')
   assert(stellarCoronaSource.includes('diffuseColor.rgb = coronaColor;'), 'temperature color must not be enabled through a limb-only RGB annulus')
   assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'one existing sprite carries all stellar glow')

@@ -92,7 +92,9 @@ export function configureStellarCoronaMaterial(
           // Signed radial coverage confines the overlap to the physical limb,
           // rather than turning on a full-energy interior via viewMu handoff.
           float overlapWidth = max(0.025, pixelR * 1.5);
-          float coronaCoverage = smoothstep(-overlapWidth, overlapWidth, signedDistance);
+          // Complete coverage at the limb: a half-covered exterior at 1.0R
+          // would leave a dark seam before the fully visible glow.
+          float coronaCoverage = smoothstep(-overlapWidth, 0.0, signedDistance);
           float coronaAlpha =
             (immediateGlow + softShoulder + diffuseHalo)
             * carrierFade
