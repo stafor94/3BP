@@ -15,7 +15,8 @@ def visible_stars(path):
     # Exclude the top status, left tracking icons and collapsed bottom controls.
     bright = {(x, y) for y in range(80, image.height - 130)
               for x in range(60, image.width - 15)
-              if min(image.getpixel((x, y))) > 120}
+              if min(image.getpixel((x, y))) > 120
+              and max(image.getpixel((x, y))) > 200}
     count = 0
     while bright:
         pending = [bright.pop()]
