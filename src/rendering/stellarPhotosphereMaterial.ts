@@ -99,7 +99,7 @@ export const stellarPhotosphereFragmentShader = `
   uniform float uRimStrength;
   uniform float uOpacity;
   uniform float uEmissionStrength;
-  uniform float uWhiteHotMix;
+  uniform float uCenterHighlightStrength;
   uniform float uSurfaceVariant;
 
   varying vec3 vObjectNormal;
@@ -143,8 +143,8 @@ export const stellarPhotosphereFragmentShader = `
   }
 
   float drawStellarEmission(float viewMu) {
-    // A luminous limb remains on the ACES shoulder, connected to the sprite's
-    // overlapping immediate glow. Radial depth must not expose a shaded sphere.
+    // Keep the disk luminous without pushing every identity-color channel into
+    // the ACES white shoulder. Radial depth must not expose a shaded sphere.
     return 0.78 + 0.22 * smoothstep(0.0, 0.75, viewMu);
   }
 
@@ -165,10 +165,13 @@ export const stellarPhotosphereFragmentShader = `
     float surfaceDetail = drawStellarSurfaceVariation(objectNormal);
     float edgeCoverage = getStellarEdgeCoverage(viewMu);
     float linearIntensity = drawStellarEmission(viewMu) * uEmissionStrength * surfaceDetail;
-    // All temperatures have a nearly neutral overexposed core. The original
-    // temperature color survives mainly in the lower-energy rim and halo.
-    float whiteHotCore = mix(0.86, uWhiteHotMix, smoothstep(0.0, 0.55, viewMu));
-    vec3 color = mix(uIdentityColor, vec3(1.0), whiteHotCore) * linearIntensity;
+
+    // Preserve temperature identity across the disk, then add a compact white-hot
+    // highlight only near the projected center. This keeps the photographic core
+    // while leaving the mid-disk and limb visibly warm/cool after ACES tone mapping.
+    vec3 coloredEmission = uIdentityColor * linearIntensity;
+    float centerHighlightMask = smoothstep(0.86, 0.995, viewMu);
+    vec3 color = coloredEmission + vec3(uCenterHighlightStrength * centerHighlightMask);
 
     gl_FragColor = vec4(color, uOpacity * edgeCoverage);
     #include <tonemapping_fragment>
@@ -202,7 +205,7 @@ function createStellarUniforms(uniforms: Record<string, any>) {
   nextUniforms.uSurfaceSeed ??= { value: seed }
   nextUniforms.uTime ??= { value: 0 }
   nextUniforms.uEmissionStrength ??= { value: 1 }
-  nextUniforms.uWhiteHotMix ??= { value: 0 }
+  nextUniforms.uCenterHighlightStrength ??= { value: 0 }
   nextUniforms.uSurfaceVariant ??= { value: 0.5 }
   return nextUniforms
 }
@@ -244,8 +247,8 @@ export function updateStellarPhotosphereMaterial(
   if (material.uniforms.uEmissionStrength) {
     material.uniforms.uEmissionStrength.value = frame.renderProfile.photosphereIntensity
   }
-  if (material.uniforms.uWhiteHotMix) {
-    material.uniforms.uWhiteHotMix.value = frame.renderProfile.whiteHotMix
+  if (material.uniforms.uCenterHighlightStrength) {
+    material.uniforms.uCenterHighlightStrength.value = frame.renderProfile.centerHighlightStrength
   }
   if (material.uniforms.uSurfaceVariant) {
     material.uniforms.uSurfaceVariant.value = frame.evolutionPhase01
@@ -291,4 +294,3 @@ export function syncStellarPhotosphereState(
 
   return bodies.map((body) => inheritMergedStellarEvolution(body, previousBodies))
 }
-
