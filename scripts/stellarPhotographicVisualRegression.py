@@ -19,8 +19,9 @@ import stellarProductionIntegrationVisualRegression as production
 base = production.p2.base
 OUT = Path('stellar-photographic-artifacts')
 STARS = ('cool', 'solar', 'hot')
+DISK_RADII = (0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.72)
 RADII = (
-    0.72,
+    *DISK_RADII,
     0.86,
     0.90,
     0.94,
@@ -120,8 +121,39 @@ def analyze(image, geometry):
     }
 
 
+def validate_disk_continuity(metrics, name):
+    # Ring medians suppress surface texture without blurring away a disk boundary.
+    # RGB distance catches desaturation boundaries even for nearly neutral solar
+    # stars; normalized chromaticity avoids unstable HSV hue near white.
+    rgb = [metrics['radial_rgb'][str(radius)] for radius in DISK_RADII]
+    luma = [metrics['radial_luma'][str(radius)] for radius in DISK_RADII]
+    chroma = [[channel / sum(color) for channel in color] for color in rgb]
+    for index, (inner, outer) in enumerate(zip(luma, luma[1:])):
+        interval = f'{DISK_RADII[index]}R->{DISK_RADII[index + 1]}R'
+        require(-0.008 <= inner - outer <= 0.035,
+                f'{name}: abrupt mid-disk luminance change at {interval}')
+        require(max(abs(a - b) for a, b in zip(rgb[index], rgb[index + 1])) <= 14,
+                f'{name}: abrupt mid-disk RGB jump at {interval}')
+        require(max(abs(a - b) for a, b in zip(chroma[index], chroma[index + 1])) <= 0.014,
+                f'{name}: abrupt mid-disk hue/chromaticity jump at {interval}')
+
+    # A compact highlight has spent most of its contrast by 0.35R. A broad white
+    # disk instead concentrates its falloff in the 0.35R->0.55R colored annulus.
+    inner_drop = luma[0] - luma[2]
+    shoulder_drop = luma[2] - luma[4]
+    require(shoulder_drop <= max(0.008, inner_drop * 0.45),
+            f'{name}: broad white disk / colored annulus at 0.4R-0.6R')
+    for index in (3, 4):
+        for channel in range(3):
+            low = min(chroma[index - 1][channel], chroma[index + 1][channel])
+            high = max(chroma[index - 1][channel], chroma[index + 1][channel])
+            require(low - 0.003 <= chroma[index][channel] <= high + 0.003,
+                    f'{name}: independent colored annulus at {DISK_RADII[index]}R')
+
+
 def validate_star(metrics, name):
     radial = metrics['radial_luma']
+    validate_disk_continuity(metrics, name)
     # core_white now means luminous center only; neutrality is intentionally not
     # enforced because temperature identity may remain visible through the core.
     require(metrics['core_luma'] >= 0.84, f'{name}: core_white/core_bright is not luminous enough')
@@ -213,10 +245,6 @@ def main():
     finally:
         driver.quit()
 
-    for star in STARS:
-        validate_star(metrics[star], star)
-    validate_temperature_identity(metrics)
-
     make_contact_sheet(scene_paths, OUT / 'normal-scenes.png')
     make_contact_sheet(ui_paths, OUT / 'normal-ui.png')
     (OUT / 'metrics.json').write_text(json.dumps({
@@ -225,6 +253,10 @@ def main():
         'metrics': metrics,
         'telemetry': telemetry,
     }, indent=2))
+    for star in STARS:
+        validate_star(metrics[star], star)
+    validate_temperature_identity(metrics)
+
     print('Photographic production gate passed: cool/solar/hot normal gameplay color identity')
 
 

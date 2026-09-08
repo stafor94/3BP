@@ -170,8 +170,10 @@ export const stellarPhotosphereFragmentShader = `
     // highlight only near the projected center. This keeps the photographic core
     // while leaving the mid-disk and limb visibly warm/cool after ACES tone mapping.
     vec3 coloredEmission = uIdentityColor * linearIntensity;
-    float centerHighlightMask = smoothstep(0.86, 0.995, viewMu);
-    vec3 color = coloredEmission + vec3(uCenterHighlightStrength * centerHighlightMask);
+    float projectedRadius = sqrt(max(1.0 - viewMu * viewMu, 0.0));
+    float centerHighlightMask = exp(-pow(projectedRadius / 0.24, 2.0));
+    vec3 highlightColor = mix(uIdentityColor, vec3(1.0), 0.70);
+    vec3 color = coloredEmission + highlightColor * uCenterHighlightStrength * centerHighlightMask;
 
     gl_FragColor = vec4(color, uOpacity * edgeCoverage);
     #include <tonemapping_fragment>
