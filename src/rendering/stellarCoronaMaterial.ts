@@ -73,39 +73,41 @@ export function configureStellarCoronaMaterial(
           float coronaPhase = uCoronaTime * 0.0016;
           float coronaAngularA = sin(coronaAngle * 5.0 + uCoronaSeed * 0.071 + coronaPhase);
           float coronaAngularB = sin(coronaAngle * 9.0 - uCoronaSeed * 0.113 - coronaPhase * 0.73);
-          float distanceOutside = max(radiusInPhotospheres - 0.95, 0.0);
+          float distanceOutside = max(radiusInPhotospheres - 1.0, 0.0);
           float angularWarp = 1.0 + (coronaAngularA * 0.05 + coronaAngularB * 0.025)
             * smoothstep(0.0, 0.7, distanceOutside);
           float distanceR = distanceOutside * angularWarp;
 
-          // Three overlapping, monotonically decaying light distributions.
-          // No outside-only rising mask: it left an unlit seam at the silhouette.
-          // The bright inner component overlaps the photosphere's alpha feather.
+          // Three overlapping, monotonically decaying light distributions. The
+          // photosphere/corona transition is handled through matching coverage
+          // below instead of an RGB annulus at the silhouette.
           float pixelR = fwidth(radiusInPhotospheres);
-          // A Gaussian shoulder has zero slope where it meets the disk.
-          // The former exponential lost most near-light within 0.12R, leaving
-          // a crisp silhouette despite the broad, faint outer halo.
           float immediateWidth = max(0.24, pixelR * 1.5);
-          float immediateGlow = exp(-pow(distanceR / immediateWidth, 2.0)) * 0.62;
-          float softShoulder = exp(-distanceR / 0.42) * 0.28;
+          float immediateGlow = exp(-pow(distanceR / immediateWidth, 2.0)) * 0.42;
+          float softShoulder = exp(-distanceR / 0.42) * 0.22;
           float diffuseHalo = exp(-distanceR / 1.0) * 0.10;
           float carrierFade = 1.0 - smoothstep(0.88, 0.995, coronaRadius);
-          float coronaAlpha = (immediateGlow + softShoulder + diffuseHalo) * carrierFade;
+
+          // Mirror the photosphere edge-coverage concept in projected sphere
+          // space. Corona energy takes over only where photosphere coverage falls
+          // away, while remaining fully available outside the physical 1.0R disk.
+          float clampedRadius = min(radiusInPhotospheres, 1.0);
+          float diskViewMu = sqrt(max(1.0 - clampedRadius * clampedRadius, 0.0));
+          float handoffFeather = max(0.34, fwidth(diskViewMu) * 1.25);
+          float photosphereCoverage = smoothstep(0.0, handoffFeather, diskViewMu);
+          float coronaHandoff = 1.0 - photosphereCoverage;
+          float coronaAlpha =
+            (immediateGlow + softShoulder + diffuseHalo)
+            * carrierFade
+            * coronaHandoff;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);
 
-          // Keep the photosphere-adjacent glow mostly temperature-colored. Only a
-          // small neutral component remains at the handoff; the existing radial
-          // light distributions and falloff are intentionally unchanged.
+          // Keep the photosphere-adjacent glow temperature-colored so cool stars
+          // do not acquire a separate white/yellow silhouette ring.
           float nearWhite = exp(-distanceR / 0.24);
-          float whiteMix = mix(uCoronaOuterWhiteMix, 0.18, nearWhite);
+          float whiteMix = mix(uCoronaOuterWhiteMix, 0.12, nearWhite);
           vec3 coronaColor = mix(diffuseColor.rgb, vec3(1.0), whiteMix);
-
-          // The sprite is tone-mapped before additive blending, so even a small
-          // nonzero RGB value over the disk can bleach it in display space. Keep
-          // the carrier dark through the disk interior, then restore it only in
-          // the final limb band. Outside 1.0R the halo profile is unchanged.
-          float diskOverlapEnergy = smoothstep(0.90, 1.0, radiusInPhotospheres);
-          diffuseColor.rgb = coronaColor * diskOverlapEnergy;`,
+          diffuseColor.rgb = coronaColor;`,
         )
       material.userData.stellarCoronaUniforms = uniforms
     }
