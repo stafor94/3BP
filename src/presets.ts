@@ -267,12 +267,12 @@ export function multicolorStarsPreset(count: 2 | 3 | 4): BodyState[] {
     stellarEvolutionStage: 'mainSequence' as const,
     stellarEvolutionPhase01: 0.5,
   }))
-  const inner = orbitStellarGroups([stars[0]], [stars[1]], count === 2 ? 1.4 : 0.4, 0)
+  const inner = orbitStellarGroups([stars[0]], [stars[1]], count === 2 ? 1.4 : 0.27, 0)
   if (count === 2) return centerSystem(inner)
   const outer = count === 3
     ? [stars[2]]
-    : orbitStellarGroups([stars[2]], [stars[3]], 0.3, Math.PI / 3)
-  return centerSystem(orbitStellarGroups(inner, outer, 2, Math.PI / 2))
+    : orbitStellarGroups([stars[2]], [stars[3]], 0.2025, Math.PI / 3)
+  return centerSystem(orbitStellarGroups(inner, outer, 1.35, Math.PI / 2))
 }
 
 export const PRESETS_BY_BODY_COUNT: Record<BodyCount, PresetId[]> = {
