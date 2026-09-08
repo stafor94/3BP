@@ -84,14 +84,16 @@ export function configureStellarCoronaMaterial(
           // the silhouette; the interior disk receives no corona contribution.
           float pixelR = fwidth(radiusInPhotospheres);
           float immediateWidth = max(0.24, pixelR * 1.5);
-          float immediateGlow = exp(-pow(distanceR / immediateWidth, 2.0)) * 0.42;
+          float immediateGlow = exp(-pow(distanceR / immediateWidth, 2.0)) * 0.34;
           float softShoulder = exp(-distanceR / 0.42) * 0.22;
           float diffuseHalo = exp(-distanceR / 1.0) * 0.10;
           float carrierFade = 1.0 - smoothstep(0.88, 0.995, coronaRadius);
 
           // Signed radial coverage confines the overlap to the physical limb,
           // rather than turning on a full-energy interior via viewMu handoff.
-          float overlapWidth = max(0.025, pixelR * 1.5);
+          // Keep overlap inside the photosphere's ~0.06R feather even when
+          // normal gameplay pixels would otherwise widen it into the solid disk.
+          float overlapWidth = clamp(pixelR * 1.5, 0.025, 0.05);
           // Complete coverage at the limb: a half-covered exterior at 1.0R
           // would leave a dark seam before the fully visible glow.
           float coronaCoverage = smoothstep(-overlapWidth, 0.0, signedDistance);
