@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.25.3] - 2026-09-08
+
+### Fixed
+- v0.25.2 color-preservation 수정 이후 corona/photosphere handoff가 annular additive band를 만들어 항성 외곽에 밝은 링이 생기던 문제를 수정했습니다. Corona handoff를 photosphere edge coverage와 대응하는 alpha 전이로 변경하고 near-limb corona 에너지와 백색 혼합을 낮춰 온도색과 넓은 diffuse halo는 유지했습니다.
+
+### Verification
+- photographic regression은 production photosphere geometry locator를 다시 사용하고 0.90R~1.10R radial sampling을 촘촘히 해 photosphere 경계의 독립적인 bright band와 positive luminance rebound를 검출하도록 갱신했습니다.
+
 ## [0.25.2] - 2026-09-08
 
 ### Fixed
@@ -394,7 +402,7 @@
 - 카메라 translation에는 사실상 무한원처럼 따라오고 rotation에는 고정된 우주 방향을 유지하는 camera-centered sky sphere를 추가했습니다.
 
 ### Changed
-- 기존 1,000개 star field 수는 유지하면서 크기·밝기·색온도 편차와 galactic-plane/대규모 density variation을 적용했습니다.
+- 기존 1,000개 star field 수를 유지하면서 크기·밝기·색온도 편차와 galactic-plane/대규모 density variation을 적용했습니다.
 - 대부분의 별을 더 작고 어둡게 조정하고 일부 밝은 별만 남겨 천체와 collision VFX보다 낮은 시각 우선순위를 유지하도록 했습니다.
 - 기존 star field의 페이지 로드별 미세한 layout variation은 유지하되 각 레이어 내부 생성은 seed 기반으로 구성했습니다.
 
@@ -446,7 +454,7 @@
 ### Fixed
 - 비항성 충돌의 contact flash를 실제 contact geometry와 기존 충돌 heat/severity 메타데이터에 따라 더 작고 짧게 표시해, impact 직후 additive white-hot footprint가 source·macro fragment·survivor surface response를 과도하게 가리던 현상을 줄였습니다.
 - head-on은 compact burst를 유지하고 grazing/oblique는 실제 tangent 방향의 짧은 scrape-like 비대칭만 허용하도록 flash stretch를 제한해 기존 세로 pillar/laser-like artifact가 재발하지 않도록 했습니다.
-- mass-bearing `Collision spark`의 물리 궤적은 그대로 두고 renderer-only glow·footprint·tail·visible lifetime을 severity에 맞춰 낮춰 실제 macro fragment/ejecta가 secondary spark보다 먼저 읽히도록 정리했습니다.
+- mass-bearing `Collision spark`의 물리 궤적은 그대로 두고 renderer-only glow·footprint·tail·visible lifetime을 severity에 맞게 낮춰 실제 macro fragment/ejecta가 secondary spark보다 먼저 읽히도록 정리했습니다.
 
 ### Added
 - 동일 production physics state를 사용하는 Stage 4/Stage 5 collision VFX A/B regression과 대표 grazing, near-head-on, oblique, gentle merge의 T0~T+1.0s 고밀도 캡처 및 flash footprint/luminance 진단을 추가했습니다.
@@ -766,7 +774,7 @@
 
 ### Fixed
 - collision camera가 종료되고 일반 tracking camera가 제어권을 되찾는 첫 프레임에 collision camera가 실제로 렌더한 camera position/target/distance 대신 일반 tracking framing을 즉시 적용해 화면 transform과 zoom이 점프하던 문제를 수정했습니다.
-- collision camera의 마지막 transform을 tracking transition의 시작값으로 보존하고 첫 release frame의 progress를 0으로 시작한 뒤 기존 18-frame settle 구간 안에서 정상 tracking composition으로 연속적으로 수렴하도록 변경했습니다. 기존 tracking identity, 50% initial-mass rule, 충돌 물리/VFX, trail lifetime 정책은 변경하지 않습니다.
+- collision camera의 마지막 transform을 tracking transition의 시작값으로 보존하고 첫 release frame의 progress를 0으로 시작한 뒤 기존 18-frame settle 구간 안에서 정상 tracking composition으로 연속적으로 수렴하도록 변경했습니다. 기존 tracking identity, 50% mass rule, 충돌 물리/VFX, trail lifetime 정책은 변경하지 않습니다.
 
 ### Added
 - camera writer, 최종 writer, desired target/position/distance, transition start/destination/progress, `controls.update()` overwrite 여부를 기록하는 renderer camera telemetry를 추가했습니다.
