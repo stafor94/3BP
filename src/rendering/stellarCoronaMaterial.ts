@@ -98,7 +98,18 @@ export function configureStellarCoronaMaterial(
           // light distributions and falloff are intentionally unchanged.
           float nearWhite = exp(-distanceR / 0.24);
           float whiteMix = mix(uCoronaOuterWhiteMix, 0.18, nearWhite);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), whiteMix);`,
+          vec3 coronaColor = mix(diffuseColor.rgb, vec3(1.0), whiteMix);
+
+          // The additive carrier overlaps the opaque photosphere. Suppress only
+          // its RGB contribution over the disk interior so it cannot additively
+          // clamp all channels to white; reach full energy again at the limb.
+          // Outside 1.0R the halo profile is unchanged.
+          float diskOverlapEnergy = mix(
+            0.06,
+            1.0,
+            smoothstep(0.88, 1.0, radiusInPhotospheres)
+          );
+          diffuseColor.rgb = coronaColor * diskOverlapEnergy;`,
         )
       material.userData.stellarCoronaUniforms = uniforms
     }
