@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import math
 import statistics
-from collections import deque
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -20,7 +19,22 @@ import stellarProductionIntegrationVisualRegression as production
 base = production.p2.base
 OUT = Path('stellar-photographic-artifacts')
 STARS = ('cool', 'solar', 'hot')
-RADII = (0.72, 0.90, 0.98, 1.04, 1.10, 1.20, 1.40, 1.70, 2.00, 2.30)
+RADII = (
+    0.72,
+    0.86,
+    0.90,
+    0.94,
+    0.97,
+    1.00,
+    1.03,
+    1.06,
+    1.10,
+    1.20,
+    1.40,
+    1.70,
+    2.00,
+    2.30,
+)
 
 
 def require(condition, message):
@@ -41,53 +55,6 @@ def rgb_at(image, x, y):
         )
         for channel in range(3)
     )
-
-
-def locate_photosphere(image):
-    # Use a high-luminance connected component so the broad corona cannot inflate
-    # the measured disk radius. Normal gameplay stars are far larger than any
-    # isolated background star at this threshold.
-    width, height = image.size
-    pixels = image.load()
-    threshold = 175.0
-    bright = {
-        (x, y)
-        for y in range(height)
-        for x in range(width)
-        if base.luminance(pixels[x, y]) >= threshold
-    }
-    largest = []
-
-    while bright:
-        start = bright.pop()
-        queue = deque([start])
-        component = [start]
-        while queue:
-            x, y = queue.popleft()
-            for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-                if neighbor not in bright:
-                    continue
-                bright.remove(neighbor)
-                queue.append(neighbor)
-                component.append(neighbor)
-        if len(component) > len(largest):
-            largest = component
-
-    require(len(largest) >= 500, 'normal gameplay photosphere is too small or too dim')
-    center_x = sum(point[0] for point in largest) / len(largest)
-    center_y = sum(point[1] for point in largest) / len(largest)
-    radius = math.sqrt(len(largest) / math.pi)
-    xs = [point[0] for point in largest]
-    ys = [point[1] for point in largest]
-    aspect = (max(xs) - min(xs) + 1) / max(1, max(ys) - min(ys) + 1)
-    require(0.88 <= aspect <= 1.12, 'located bright component is not a stellar disk')
-    return {
-        'center_x': center_x,
-        'center_y': center_y,
-        'equivalent_radius_px': radius,
-        'bright_photosphere_diameter_px': radius * 2.0,
-        'component_pixels': len(largest),
-    }
 
 
 def analyze(image, geometry):
@@ -147,6 +114,22 @@ def validate_star(metrics, name):
     require(0.10 <= radial['1.1'] <= 0.90, f'{name}: near_glow missing or overpowering')
     require(0.010 <= radial['1.7'] <= 0.30, f'{name}: diffuse_halo missing or overpowering')
 
+    handoff_radii = (0.90, 0.94, 0.97, 1.00, 1.03, 1.06, 1.10)
+    handoff = [radial[str(radius)] for radius in handoff_radii]
+    running_min = handoff[0]
+    max_rebound = 0.0
+    for value in handoff[1:]:
+        max_rebound = max(max_rebound, value - running_min)
+        running_min = min(running_min, value)
+    require(
+        max_rebound <= 0.035,
+        f'{name}: photosphere/corona handoff contains a positive radial rebound ({max_rebound:.4f})',
+    )
+    require(
+        max(radial['0.97'], radial['1.0'], radial['1.03']) <= radial['0.9'] + 0.035,
+        f'{name}: independent bright annular band appears around the photosphere edge',
+    )
+
     outward = [radial[str(radius)] for radius in (1.1, 1.2, 1.4, 1.7, 2.0, 2.3)]
     require(
         all(next_value <= value + 0.025 for value, next_value in zip(outward, outward[1:])),
@@ -154,7 +137,7 @@ def validate_star(metrics, name):
     )
     require(radial['1.1'] > radial['1.4'] > radial['1.7'] > radial['2.3'],
             f'{name}: halo does not decay monotonically outward')
-    require(radial['0.98'] - radial['1.04'] <= 0.50,
+    require(radial['0.97'] - radial['1.03'] <= 0.50,
             f'{name}: dark_outline hard edge instead of a soft luminous rim')
 
 
@@ -205,7 +188,7 @@ def main():
             state = production.current_telemetry(driver)
             require(state.get('mode') == 'tracking', f'{star}: production tracking lost')
 
-            geometry = locate_photosphere(image)
+            geometry = production.p2.locate_photosphere(image)
             require(52.0 <= geometry['bright_photosphere_diameter_px'] <= 95.0,
                     f'{star}: normal gameplay disk size changed unexpectedly')
             scene_paths[star] = scene_path
