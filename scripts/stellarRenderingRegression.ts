@@ -191,7 +191,14 @@ function testStellarUpdateContractOwnsRenderInputs() {
 function testCoronaRestoresEmissiveReadWithoutASeparateHalo() {
   assert(stellarCoronaSource.includes('THREE.AdditiveBlending'), 'corona adds light without darkening the background')
   assert(!stellarCoronaSource.includes('coronaOutsideMask'), 'outside-only mask must not reopen the dark seam')
-  assert(stellarCoronaSource.includes('smoothstep(0.90, 1.0, radiusInPhotospheres)'), 'corona overlap must stay out of the photosphere interior')
+  assert(!stellarCoronaSource.includes('diskOverlapEnergy'), 'corona must not gate RGB through an annular overlap band')
+  assert(stellarCoronaSource.includes('float clampedRadius = min(radiusInPhotospheres, 1.0);'), 'corona handoff must use projected photosphere radius')
+  assert(stellarCoronaSource.includes('float diskViewMu = sqrt(max(1.0 - clampedRadius * clampedRadius, 0.0));'), 'corona handoff must restore projected sphere viewMu')
+  assert(stellarCoronaSource.includes('float handoffFeather = max(0.34, fwidth(diskViewMu) * 1.25);'), 'corona handoff must mirror photosphere pixel-aware feathering')
+  assert(stellarCoronaSource.includes('float photosphereCoverage = smoothstep(0.0, handoffFeather, diskViewMu);'), 'corona handoff must derive from photosphere coverage')
+  assert(stellarCoronaSource.includes('float coronaHandoff = 1.0 - photosphereCoverage;'), 'corona handoff must complement photosphere coverage')
+  assert(stellarCoronaSource.includes('* coronaHandoff;'), 'corona handoff must modulate corona alpha')
+  assert(stellarCoronaSource.includes('diffuseColor.rgb = coronaColor;'), 'temperature color must not be enabled through a limb-only RGB annulus')
   assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'one existing sprite carries all stellar glow')
   assert(bodyLightingSource.includes('glowOuter.visible = false\n    glowOuter.material.opacity = 0'), 'second stellar sprite stays disabled')
 }
