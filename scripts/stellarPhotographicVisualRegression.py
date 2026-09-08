@@ -57,6 +57,21 @@ def rgb_at(image, x, y):
     )
 
 
+def locate_production_photosphere(image):
+    # Element screenshots include viewport overlays such as the bottom Start
+    # button. Mask only those UI bands for geometry detection, then use the
+    # existing production locator unchanged on the full-size pixel coordinate
+    # system so low-threshold corona coverage cannot be mistaken for a custom
+    # high-luminance photosphere radius.
+    locator_image = image.copy()
+    draw = ImageDraw.Draw(locator_image)
+    top_ui = int(image.height * 0.12)
+    bottom_ui = int(image.height * 0.82)
+    draw.rectangle((0, 0, image.width, top_ui), fill=(0, 0, 0))
+    draw.rectangle((0, bottom_ui, image.width, image.height), fill=(0, 0, 0))
+    return production.p2.locate_photosphere(locator_image)
+
+
 def analyze(image, geometry):
     cx = float(geometry['center_x'])
     cy = float(geometry['center_y'])
@@ -188,7 +203,7 @@ def main():
             state = production.current_telemetry(driver)
             require(state.get('mode') == 'tracking', f'{star}: production tracking lost')
 
-            geometry = production.p2.locate_photosphere(image)
+            geometry = locate_production_photosphere(image)
             require(52.0 <= geometry['bright_photosphere_diameter_px'] <= 95.0,
                     f'{star}: normal gameplay disk size changed unexpectedly')
             scene_paths[star] = scene_path
