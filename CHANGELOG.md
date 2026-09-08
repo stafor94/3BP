@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.25.4] - 2026-09-08
+
+### Fixed
+- 항성 중심 하이라이트를 투영 반경 0.24R의 Gaussian과 온도색을 남기는 낮은 강도로 변경해 흰 원반과 중간 광구 색 띠의 경계를 제거했습니다. 기존 낮은 photosphere emission과 ACES 온도색 보존은 유지합니다.
+- 단일 additive corona의 coverage를 signed radial distance 기반의 좁은 limb overlap으로 변경하고 broad diffuse halo 감쇠는 유지했습니다.
+
+### Verification
+- 0.15R~0.72R 광구의 밝기·RGB·chromaticity 연속성과 0.4R~0.6R colored annulus 검사를 추가하고 기존 0.90R~2.3R corona 검사는 유지합니다.
+
 ## [0.25.3] - 2026-09-08
 
 ### Fixed

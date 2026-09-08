@@ -73,33 +73,34 @@ export function configureStellarCoronaMaterial(
           float coronaPhase = uCoronaTime * 0.0016;
           float coronaAngularA = sin(coronaAngle * 5.0 + uCoronaSeed * 0.071 + coronaPhase);
           float coronaAngularB = sin(coronaAngle * 9.0 - uCoronaSeed * 0.113 - coronaPhase * 0.73);
-          float distanceOutside = max(radiusInPhotospheres - 1.0, 0.0);
+          float signedDistance = radiusInPhotospheres - 1.0;
+          float distanceOutside = max(signedDistance, 0.0);
           float angularWarp = 1.0 + (coronaAngularA * 0.05 + coronaAngularB * 0.025)
             * smoothstep(0.0, 0.7, distanceOutside);
           float distanceR = distanceOutside * angularWarp;
 
           // Three overlapping, monotonically decaying light distributions. The
-          // photosphere/corona transition is handled through matching coverage
-          // below instead of an RGB annulus at the silhouette.
+          // external glow begins only within a narrow pixel-aware overlap at
+          // the silhouette; the interior disk receives no corona contribution.
           float pixelR = fwidth(radiusInPhotospheres);
           float immediateWidth = max(0.24, pixelR * 1.5);
-          float immediateGlow = exp(-pow(distanceR / immediateWidth, 2.0)) * 0.42;
+          float immediateGlow = exp(-pow(distanceR / immediateWidth, 2.0)) * 0.34;
           float softShoulder = exp(-distanceR / 0.42) * 0.22;
           float diffuseHalo = exp(-distanceR / 1.0) * 0.10;
           float carrierFade = 1.0 - smoothstep(0.88, 0.995, coronaRadius);
 
-          // Mirror the photosphere edge-coverage concept in projected sphere
-          // space. Corona energy takes over only where photosphere coverage falls
-          // away, while remaining fully available outside the physical 1.0R disk.
-          float clampedRadius = min(radiusInPhotospheres, 1.0);
-          float diskViewMu = sqrt(max(1.0 - clampedRadius * clampedRadius, 0.0));
-          float handoffFeather = max(0.34, fwidth(diskViewMu) * 1.25);
-          float photosphereCoverage = smoothstep(0.0, handoffFeather, diskViewMu);
-          float coronaHandoff = 1.0 - photosphereCoverage;
+          // Signed radial coverage confines the overlap to the physical limb,
+          // rather than turning on a full-energy interior via viewMu handoff.
+          // Keep overlap inside the photosphere's ~0.06R feather even when
+          // normal gameplay pixels would otherwise widen it into the solid disk.
+          float overlapWidth = clamp(pixelR * 1.5, 0.025, 0.05);
+          // Complete coverage at the limb: a half-covered exterior at 1.0R
+          // would leave a dark seam before the fully visible glow.
+          float coronaCoverage = smoothstep(-overlapWidth, 0.0, signedDistance);
           float coronaAlpha =
             (immediateGlow + softShoulder + diffuseHalo)
             * carrierFade
-            * coronaHandoff;
+            * coronaCoverage;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);
 
           // Keep the photosphere-adjacent glow temperature-colored so cool stars

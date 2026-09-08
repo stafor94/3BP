@@ -35,7 +35,7 @@ export function getStellarRenderProfile(
     // Keep the temperature-colored disk well below the ACES white shoulder.
     // A separate additive center highlight restores the compact photographic core.
     photosphereIntensity: 1.05 + luminosity01 * 0.12 + temperature01 * 0.08,
-    centerHighlightStrength: 0.82 + luminosity01 * 0.12,
+    centerHighlightStrength: 0.48 + luminosity01 * 0.10,
     // One existing sprite carries immediate glow and a much wider diffuse tail.
     // Its edge is beyond the visible tail so no circular cutoff is perceptible.
     coronaScale: 8.0 + luminosity01 * 0.4,
