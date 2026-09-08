@@ -100,15 +100,11 @@ export function configureStellarCoronaMaterial(
           float whiteMix = mix(uCoronaOuterWhiteMix, 0.18, nearWhite);
           vec3 coronaColor = mix(diffuseColor.rgb, vec3(1.0), whiteMix);
 
-          // The additive carrier overlaps the opaque photosphere. Suppress only
-          // its RGB contribution over the disk interior so it cannot additively
-          // clamp all channels to white; reach full energy again at the limb.
-          // Outside 1.0R the halo profile is unchanged.
-          float diskOverlapEnergy = mix(
-            0.06,
-            1.0,
-            smoothstep(0.88, 1.0, radiusInPhotospheres)
-          );
+          // The sprite is tone-mapped before additive blending, so even a small
+          // nonzero RGB value over the disk can bleach it in display space. Keep
+          // the carrier dark through the disk interior, then restore it only in
+          // the final limb band. Outside 1.0R the halo profile is unchanged.
+          float diskOverlapEnergy = smoothstep(0.90, 1.0, radiusInPhotospheres);
           diffuseColor.rgb = coronaColor * diskOverlapEnergy;`,
         )
       material.userData.stellarCoronaUniforms = uniforms
