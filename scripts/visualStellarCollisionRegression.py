@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import time
 from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -178,24 +177,37 @@ def make_driver() -> webdriver.Chrome:
         options.binary_location = chrome_binary
 
     driver_binary = shutil.which('chromedriver')
-    if driver_binary:
-        return webdriver.Chrome(service=Service(driver_binary), options=options)
-    return webdriver.Chrome(options=options)
+    driver = (
+        webdriver.Chrome(service=Service(driver_binary), options=options)
+        if driver_binary else webdriver.Chrome(options=options)
+    )
+    # Freeze only this test page's presentation clock. WebDriver screenshot and
+    # React commit latency must not age the short topology-retention window.
+    driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {'source': """
+        window.__stellarTestClock = { nowMs: 0, realNow: performance.now.bind(performance) };
+        Object.defineProperty(performance, 'now', {
+            value: () => window.__stellarTestClock.nowMs,
+        });
+    """})
+    return driver
+
+
+def advance_presentation(driver: webdriver.Chrome, milliseconds: float) -> None:
+    driver.execute_async_script("""
+        window.__stellarTestClock.nowMs += arguments[0];
+        const done = arguments[arguments.length - 1];
+        requestAnimationFrame(() => requestAnimationFrame(() => done()));
+    """, milliseconds)
 
 
 def set_stage(driver: webdriver.Chrome, stage: str) -> float:
-    # Do not use Selenium's default 500 ms polling here. The occlusion-retention
-    # window itself is only hundreds of milliseconds, so a coarse DOM poll can
-    # accidentally sample after the effect has correctly retired. Synchronize
-    # inside the browser on animation frames instead. The elapsed time is kept
-    # only as diagnostic telemetry: hosted-runner scheduling latency is not a
-    # visual-quality signal once the requested stage has committed and two
-    # additional animation frames have rendered.
+    # Commit the new topology and render it while presentation time is frozen.
+    # Keep real elapsed time only as runner-latency diagnostics.
     elapsed_ms = driver.execute_async_script(
         """
         const stage = arguments[0];
         const done = arguments[arguments.length - 1];
-        const startedAt = performance.now();
+        const startedAt = window.__stellarTestClock.realNow();
         window.__setStellarVisualStage(stage);
 
         const waitForCommit = () => {
@@ -204,7 +216,7 @@ def set_stage(driver: webdriver.Chrome, stage: str) -> float:
             return;
           }
           requestAnimationFrame(() => requestAnimationFrame(() => {
-            done(performance.now() - startedAt);
+            done(window.__stellarTestClock.realNow() - startedAt);
           }));
         };
         requestAnimationFrame(waitForCommit);
@@ -293,23 +305,24 @@ def main() -> None:
         WebDriverWait(driver, 15, poll_frequency=0.05).until(
             lambda browser: len(browser.find_elements(By.CSS_SELECTOR, '.simulation-view canvas')) == 1
         )
-        time.sleep(0.18)
+        advance_presentation(driver, 180)
 
         _, metrics['separate'] = capture_canvas(driver, '01-separate')
 
         transition_ms['peak'] = set_stage(driver, 'peak')
-        time.sleep(0.10)
+        advance_presentation(driver, 100)
         _, metrics['peak'] = capture_canvas(driver, '02-peak')
 
         transition_ms['remnant'] = set_stage(driver, 'remnant')
-        time.sleep(0.02)
+        advance_presentation(driver, 20)
         _, metrics['remnant-retained'] = capture_canvas(driver, '03-remnant-retained')
 
-        time.sleep(0.62)
+        advance_presentation(driver, 620)
         _, metrics['remnant-faded'] = capture_canvas(driver, '04-remnant-faded')
 
         serialized = {
             'transition_ms': transition_ms,
+            'presentation_age_ms': {'peak': 100, 'remnant-retained': 20, 'remnant-faded': 640},
             'frames': {name: asdict(value) for name, value in metrics.items()},
         }
         (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(serialized, indent=2), encoding='utf-8')
