@@ -22,6 +22,9 @@ type RuntimeStellarState = {
 const runtimeStellarStateById = new Map<string, RuntimeStellarState>()
 
 const PRESET_BODY_TYPES: Record<PresetId, UserBodyType[]> = {
+  binarySpectrum: ['star', 'star'],
+  tripleSpectrum: ['star', 'star', 'star'],
+  quadSpectrum: ['star', 'star', 'star', 'star'],
   singleDrift: ['star'],
   binaryOrbit: ['star', 'star'],
   binaryEllipse: ['star', 'star'],

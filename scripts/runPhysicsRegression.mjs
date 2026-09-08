@@ -7,6 +7,7 @@ import { build } from 'vite'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const outDir = resolve(root, '.tmp-physics-regression')
 const checks = [
+  { source: 'stellarPresetsRegression.ts', output: 'stellarPresetsRegression.mjs' },
   { source: 'physicsRegression.ts', output: 'physicsRegression.mjs' },
   { source: 'collisionConservationRegression.ts', output: 'collisionConservationRegression.mjs' },
   { source: 'collisionResultUiRegression.ts', output: 'collisionResultUiRegression.mjs' },
