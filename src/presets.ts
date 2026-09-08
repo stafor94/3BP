@@ -228,11 +228,58 @@ function createPolygonDancePreset(totalCount: 4 | 5 | 6): BodyState[] {
   return centerSystem(result)
 }
 
+// Join two barycentric groups on a circular relative orbit (the engine uses G=1).
+// Nested groups retain their internal velocities, so every star moves from reset.
+function orbitStellarGroups(a: BodyState[], b: BodyState[], separation: number, angle: number): BodyState[] {
+  const massA = a.reduce((sum, star) => sum + star.mass, 0)
+  const massB = b.reduce((sum, star) => sum + star.mass, 0)
+  const totalMass = massA + massB
+  const speed = Math.sqrt(totalMass / separation)
+  return [
+    ...a.map((star) => ({ star, fraction: -massB / totalMass })),
+    ...b.map((star) => ({ star, fraction: massA / totalMass })),
+  ].map(({ star, fraction }) => ({
+    ...star,
+    position: {
+      x: star.position.x + fraction * separation * Math.cos(angle),
+      y: star.position.y + fraction * separation * Math.sin(angle),
+      z: star.position.z,
+    },
+    velocity: {
+      x: star.velocity.x - fraction * speed * Math.sin(angle),
+      y: star.velocity.y + fraction * speed * Math.cos(angle),
+      z: star.velocity.z,
+    },
+  }))
+}
+
+export function multicolorStarsPreset(count: 2 | 3 | 4): BodyState[] {
+  // Color is derived by applyPresetBodyTypes from real stellar mass/evolution,
+  // not from the placeholder palette: K orange, B blue-white, G solar, M red.
+  const configurations: Array<[string, string, number]> = [
+    ['a', 'Amber', 0.65],
+    ['b', 'Azure', 3],
+    ['c', 'Sol', 1],
+    ['d', 'Ruby', 0.18],
+  ]
+  const stars = configurations.map(([id, name, mass]) => ({
+    ...body(id, name, mass, 0.075, [0, 0, 0], [0, 0, 0], '#ffffff'),
+    stellarEvolutionStage: 'mainSequence' as const,
+    stellarEvolutionPhase01: 0.5,
+  }))
+  const inner = orbitStellarGroups([stars[0]], [stars[1]], count === 2 ? 2.4 : 1.6, 0)
+  if (count === 2) return centerSystem(inner)
+  const outer = count === 3
+    ? [stars[2]]
+    : orbitStellarGroups([stars[2]], [stars[3]], 1.2, Math.PI / 3)
+  return centerSystem(orbitStellarGroups(inner, outer, 8, Math.PI / 2))
+}
+
 export const PRESETS_BY_BODY_COUNT: Record<BodyCount, PresetId[]> = {
   1: ['singleDrift'],
-  2: ['binaryOrbit', 'binaryEllipse', 'binaryUnequal', 'binaryWide', 'binaryInclined', 'binaryTight'],
-  3: ['figure8', 'hierarchical', 'circumbinary', 'trojan', 'planetary', 'random'],
-  4: ['quadCrown', 'quadNested', 'quadCrossed', 'quadDance'],
+  2: ['binarySpectrum', 'binaryOrbit', 'binaryEllipse', 'binaryUnequal', 'binaryWide', 'binaryInclined', 'binaryTight'],
+  3: ['tripleSpectrum', 'figure8', 'hierarchical', 'circumbinary', 'trojan', 'planetary', 'random'],
+  4: ['quadSpectrum', 'quadCrown', 'quadNested', 'quadCrossed', 'quadDance'],
   5: ['pentaCrown', 'pentaNested', 'pentaCrossed', 'pentaDance'],
   6: ['hexaCrown', 'hexaNested', 'hexaCrossed', 'hexaDance'],
 }
@@ -440,6 +487,9 @@ export function hexaCrossedPreset() { return createCrossedRingsPreset(6) }
 export function hexaDancePreset() { return createPolygonDancePreset(6) }
 
 export function getPreset(id: PresetId): BodyState[] {
+  if (id === 'binarySpectrum') return multicolorStarsPreset(2)
+  if (id === 'tripleSpectrum') return multicolorStarsPreset(3)
+  if (id === 'quadSpectrum') return multicolorStarsPreset(4)
   if (id === 'singleDrift') return singleDriftPreset()
   if (id === 'binaryOrbit') return binaryOrbitPreset()
   if (id === 'binaryEllipse') return binaryEllipsePreset()

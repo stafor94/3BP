@@ -39,6 +39,8 @@ jobs:
           done
           cat /tmp/3bp-preview.log
           exit 1
+      - name: Multicolor stellar preset visual regression
+        run: python scripts/stellarPresetsVisualRegression.py
       - name: Stellar collision browser visual regression
         run: python scripts/visualStellarCollisionRegression.py
       - name: Strict stellar collision visual gate
@@ -160,6 +162,14 @@ jobs:
         with:
           name: small-head-on-collision-artifact-visual-regression
           path: small-head-on-collision-artifact-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload multicolor stellar preset captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-presets-visual-regression
+          path: stellar-presets-artifacts
           if-no-files-found: warn
           retention-days: 7
       - name: Upload collision merge handoff captures
