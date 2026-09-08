@@ -79,8 +79,8 @@ function testLuminosityAndHaloContractsStayBounded() {
   assert(hot.render.coronaOpacity > cool.render.coronaOpacity, 'luminosity must still affect halo brightness')
   for (const mass of [0.1, 0.35, 1, 8, 30]) {
     const { render } = renderProfile(makeStar(mass))
-    assert(render.photosphereIntensity > 3 && render.photosphereIntensity < 6, 'core must have bounded HDR highlight energy')
-    assert(render.whiteHotMix >= 0.95, 'every temperature requires a near-white core')
+    assert(render.photosphereIntensity > 1 && render.photosphereIntensity < 1.35, 'photosphere emission must stay below the ACES white shoulder')
+    assert(render.centerHighlightStrength >= 0.75 && render.centerHighlightStrength <= 1.0, 'white-hot highlight must remain compact and bounded')
     assert(render.coronaScale >= 6 && render.coronaScale <= 10, 'carrier must fit a diffuse halo without unbounded fill cost')
     assert(render.coronaOpacity > 0 && render.coronaOpacity <= 1, 'halo opacity must be valid')
   }
@@ -144,6 +144,8 @@ function testPhotosphereTimeEvolutionDoesNotSlideSurfaceCoordinates() {
 
 function testPhotosphereUsesLuminousCenterToLimbResponse() {
   assert(stellarMaterialSource.includes('drawStellarEmission(viewMu) * uEmissionStrength'), 'stellar HDR emission remains before tone mapping')
+  assert(stellarMaterialSource.includes('vec3 coloredEmission = uIdentityColor * linearIntensity'), 'temperature identity must remain the base photosphere emission')
+  assert(stellarMaterialSource.includes('uCenterHighlightStrength * centerHighlightMask'), 'white highlight must be added separately near the center')
   assert(!stellarMaterialSource.includes('neutralHue01'), 'do not lower neutral-star highlights to reveal granulation')
 }
 
@@ -168,7 +170,7 @@ function testPhotosphereUsesSingleLinearHdrToneMappingPath() {
 function testStellarOnlySurfaceLogicDoesNotLeakIntoGenericShader() {
   assert(!bodyLightingSource.includes('uniform float uTime;'), 'generic body shader must not expose stellar animation time')
   assert(!bodyLightingSource.includes('uniform float uEmissionStrength;'), 'generic body shader must not expose stellar emission strength')
-  assert(!bodyLightingSource.includes('uniform float uWhiteHotMix;'), 'generic body shader must not expose stellar white-hot control')
+  assert(!bodyLightingSource.includes('uniform float uCenterHighlightStrength;'), 'generic body shader must not expose stellar center highlight control')
   assert(!bodyLightingSource.includes('drawStellarSurfaceVariation'), 'generic body shader must not embed stellar surface variation')
   assert(!bodyLightingSource.includes('sampleStellarCellular'), 'generic body shader must not embed removed cellular topology')
   assert(!bodyLightingSource.includes('drawIntergranularLane'), 'generic body shader must not embed removed lane topology')
@@ -189,6 +191,7 @@ function testStellarUpdateContractOwnsRenderInputs() {
 function testCoronaRestoresEmissiveReadWithoutASeparateHalo() {
   assert(stellarCoronaSource.includes('THREE.AdditiveBlending'), 'corona adds light without darkening the background')
   assert(!stellarCoronaSource.includes('coronaOutsideMask'), 'outside-only mask must not reopen the dark seam')
+  assert(stellarCoronaSource.includes('smoothstep(0.90, 1.0, radiusInPhotospheres)'), 'corona overlap must stay out of the photosphere interior')
   assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'one existing sprite carries all stellar glow')
   assert(bodyLightingSource.includes('glowOuter.visible = false\n    glowOuter.material.opacity = 0'), 'second stellar sprite stays disabled')
 }
@@ -218,4 +221,3 @@ const tests = [
 
 for (const test of tests) test()
 console.log(`stellar rendering regression checks passed (${tests.length})`)
-
