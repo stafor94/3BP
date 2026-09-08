@@ -1,6 +1,6 @@
 export type StellarRenderProfile = {
   photosphereIntensity: number
-  whiteHotMix: number
+  centerHighlightStrength: number
   coronaScale: number
   coronaOpacity: number
   coronaOuterWhiteMix: number
@@ -16,7 +16,7 @@ export function getCompressedStellarLuminosity01(luminositySolar: number) {
 
   // Rendered brightness deliberately spans a much smaller range than physical
   // luminosity. This keeps multi-order-of-magnitude stellar luminosities legible
-  // on SDR displays; temperature identity is carried by the surrounding light.
+  // on SDR displays; temperature identity is carried by the emitted light color.
   return clamp((Math.log10(safeLuminosity) + 2.5) / 8.5, 0, 1)
 }
 
@@ -32,9 +32,11 @@ export function getStellarRenderProfile(
   )
 
   return {
-    // Keep all three core channels on the photographic highlight shoulder.
-    photosphereIntensity: 4.0 + luminosity01 * 0.45 + temperature01 * 0.10,
-    whiteHotMix: 0.98,
+    // Stay below the ACES channel-saturation range so the disk can retain the
+    // identity color. A separate additive center highlight provides the white-hot
+    // photographic core without bleaching the whole photosphere.
+    photosphereIntensity: 2.15 + luminosity01 * 0.25 + temperature01 * 0.10,
+    centerHighlightStrength: 0.82 + luminosity01 * 0.12,
     // One existing sprite carries immediate glow and a much wider diffuse tail.
     // Its edge is beyond the visible tail so no circular cutoff is perceptible.
     coronaScale: 8.0 + luminosity01 * 0.4,
