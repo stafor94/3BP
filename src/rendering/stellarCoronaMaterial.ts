@@ -93,10 +93,11 @@ export function configureStellarCoronaMaterial(
           float coronaAlpha = (immediateGlow + softShoulder + diffuseHalo) * carrierFade;
           diffuseColor.a = opacity * clamp(coronaAlpha, 0.0, 1.0);
 
-          // Near-white immediate glow hands off continuously to temperature color.
-          // Unlike the core, low-energy outer light must not be highlight-clipped.
-          float nearWhite = 0.72 * exp(-distanceR / 0.24);
-          float whiteMix = mix(uCoronaOuterWhiteMix, 0.78, nearWhite);
+          // Keep the photosphere-adjacent glow mostly temperature-colored. Only a
+          // small neutral component remains at the handoff; the existing radial
+          // light distributions and falloff are intentionally unchanged.
+          float nearWhite = exp(-distanceR / 0.24);
+          float whiteMix = mix(uCoronaOuterWhiteMix, 0.18, nearWhite);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), whiteMix);`,
         )
       material.userData.stellarCoronaUniforms = uniforms
@@ -113,4 +114,3 @@ export function configureStellarCoronaMaterial(
     uniforms.uCoronaOuterWhiteMix.value = frame.outerWhiteMix
   }
 }
-
