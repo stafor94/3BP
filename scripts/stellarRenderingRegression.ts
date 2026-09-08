@@ -79,7 +79,7 @@ function testLuminosityAndHaloContractsStayBounded() {
   assert(hot.render.coronaOpacity > cool.render.coronaOpacity, 'luminosity must still affect halo brightness')
   for (const mass of [0.1, 0.35, 1, 8, 30]) {
     const { render } = renderProfile(makeStar(mass))
-    assert(render.photosphereIntensity > 2 && render.photosphereIntensity < 3, 'photosphere HDR energy must stay below full-channel ACES saturation')
+    assert(render.photosphereIntensity > 1 && render.photosphereIntensity < 1.35, 'photosphere emission must stay below the ACES white shoulder')
     assert(render.centerHighlightStrength >= 0.75 && render.centerHighlightStrength <= 1.0, 'white-hot highlight must remain compact and bounded')
     assert(render.coronaScale >= 6 && render.coronaScale <= 10, 'carrier must fit a diffuse halo without unbounded fill cost')
     assert(render.coronaOpacity > 0 && render.coronaOpacity <= 1, 'halo opacity must be valid')
@@ -191,7 +191,7 @@ function testStellarUpdateContractOwnsRenderInputs() {
 function testCoronaRestoresEmissiveReadWithoutASeparateHalo() {
   assert(stellarCoronaSource.includes('THREE.AdditiveBlending'), 'corona adds light without darkening the background')
   assert(!stellarCoronaSource.includes('coronaOutsideMask'), 'outside-only mask must not reopen the dark seam')
-  assert(stellarCoronaSource.includes('smoothstep(0.88, 1.0, radiusInPhotospheres)'), 'corona overlap must stop bleaching the opaque disk interior')
+  assert(stellarCoronaSource.includes('smoothstep(0.90, 1.0, radiusInPhotospheres)'), 'corona overlap must stay out of the photosphere interior')
   assert(bodyLightingSource.includes('configureStellarCoronaMaterial(glowInner.material'), 'one existing sprite carries all stellar glow')
   assert(bodyLightingSource.includes('glowOuter.visible = false\n    glowOuter.material.opacity = 0'), 'second stellar sprite stays disabled')
 }
