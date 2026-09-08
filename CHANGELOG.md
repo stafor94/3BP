@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.25.2] - 2026-09-08
+
+### Fixed
+- 항성 photosphere의 과도한 백색 혼합과 HDR 강도를 낮추고, 온도색 기반 방출광 위에 중심부에만 제한적인 white-hot highlight를 더하도록 변경해 K/M·G/F·B/O 계열의 색 차이가 일반 gameplay 크기에서도 유지되도록 수정했습니다.
+- 단일 corona의 근접 glow 백색 혼합과 photosphere 내부 additive 중첩을 줄이되 기존 immediate glow·soft shoulder·diffuse halo의 반경과 감쇠 곡선은 유지했습니다.
+
+### Verification
+- 항성 photographic regression을 cool/solar/hot의 normal gameplay 크기만 캡처해 중심 밝기, 온도색 순서, dark outline/neon ring 부재, halo 단조 감쇠를 확인하도록 축소·갱신했습니다.
+
 ## [0.25.1] - 2026-09-08
 
 ### Fixed
@@ -188,7 +197,7 @@
 - 항성 전용 photosphere의 기존 smooth multi-scale value-noise 표면을 3D cellular granulation으로 교체해 밝은 granule cell과 더 어두운 intergranular network가 구조적으로 구분되도록 했습니다.
 - nearest/second-nearest cellular distance 차이로 얇고 불규칙한 lane을 만들고, cell별 deterministic jitter/thermal bias로 규칙적인 벌집 형태와 모든 항성의 동일 패턴을 피합니다.
 - 낮은 대비의 large convection modulation과 미세한 fine breakup을 primary cellular topology에 종속시켜 cloudy gas/rock texture처럼 읽히지 않도록 했습니다.
-- granulation frequency 상수를 stellar shader 내부에 집중시켜 Pass 3의 screen-space LOD/fwidth 작업에서 generic body shader를 수정하지 않고 확장할 수 있게 했습니다.
+- granulation frequency 상수를 stellar shader 내부에 집중시켜 Pass 3의 screen-space LOD/fwidth 작업에서 generic body shader를 수정하지 않고 확장할 수 있는 기반을 마련했습니다.
 
 ### Performance
 - 기존 star sphere 1 draw call을 유지하며 새 texture, CanvasTexture, geometry, sprite 또는 per-frame CPU surface 생성은 추가하지 않습니다.
@@ -314,7 +323,7 @@
 
 ### Verification
 - background regression이 deep-field와 mid-faint layer의 faint-but-visible 범위, foreground brightness/depth hierarchy 보존, 2,500~3,000 total star budget, OLED floor, dust suppression 및 두 background layer의 dispose를 검증하도록 갱신했습니다.
-- 별도 visual CI가 Pass 3(0.23.0), Pass 4(0.24.0), 현재안을 동일 deterministic layout과 5개 시점에서 mobile 390×844 / desktop 1280×800으로 캡처하고 near-black·low/mid luminance 지표와 contact sheet를 artifact로 남기도록 추가했습니다.
+- 별도 visual CI가 Pass 3(0.23.0), Pass 4(0.24.0), 현재안을 동일 deterministic layout과 5개 시점에서 mobile 390×844 / desktop 1280×800으로 캡처하고 near-black·low/mid·mean luminance 지표와 contact sheet를 artifact로 남기도록 추가했습니다.
 
 ### Unchanged
 - physics/solver/collision, mass/radius/velocity/trajectory, collision/tracking camera, celestial body shader, collision/destruction VFX, ejecta/fragment/trail physics는 변경하지 않습니다.
@@ -874,7 +883,7 @@
 
 ### Changed
 - 질량비가 2% 미만이고 상대속도가 상호 탈출속도의 1.05배 이하인 행성-위성 접촉은 극단적 질량차의 저에너지 흡수로 보정하고, 방출 질량을 전체 계 질량이 아니라 작은 충돌체 질량의 12~35% 범위로 제한했습니다.
-- 비항성 충돌의 접촉 섬광과 스파크를 더 작고 두껍고 짧게 조정해 충돌 지점을 가로지르는 긴 흰색 빔 대신 국소적인 충격·파편 연출로 보이도록 개선했습니다.
+- 비항성 충돌의 접촉 섬광과 스파크를 더 작고 두껍고 짧게 조정해 충돌 지점을 가로지르는 긴 흰색 빔 대신 국소적인 충격·파편 연출로 개선했습니다.
 - 상단 충돌 정보 패널을 기존 위치에서 5px 아래로 이동해 상단 상태 UI와의 간격을 확보했습니다.
 
 ### Fixed
@@ -1788,4 +1797,3 @@
 - 모바일에서 접을 수 있는 제어 패널과 시간 기반 궤적 표시/유지시간 설정을 추가했습니다.
 - 1체·2체·3체 프리셋 선택, 천체 수 필터, 다양한 초기 궤도 프리셋을 추가했습니다.
 - 앱 제목 옆에 버전을 표시하고 Semantic Versioning용 스크립트와 `VERSIONING.md` 정책을 추가했습니다.
-
