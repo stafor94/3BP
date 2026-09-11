@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom'
 import { SimulationView } from '../components/SimulationView'
 import { stepBodies } from '../physics/fragmentAwareEngine'
 import type { BodyState } from '../types'
+import { resetCollisionSolidHandoffState } from '../rendering/collisionSolidHandoff'
 
 export function stellarCollisionFixture(kind: string): BodyState[] {
   const partial = kind === 'partial'
@@ -57,7 +58,7 @@ export function StellarCollisionContinuityHarness() {
       advance: (dt) => flushSync(() => advance(dt)),
       play: (nextSpeed) => flushSync(() => setSpeed(nextSpeed)),
       pause: () => flushSync(() => setSpeed(0)),
-      reset: (kind) => flushSync(() => { setSpeed(0); setFrame({ bodies: stellarCollisionFixture(kind), time: 0 }) }),
+      reset: (kind) => flushSync(() => { resetCollisionSolidHandoffState(); setSpeed(0); setFrame({ bodies: stellarCollisionFixture(kind), time: 0 }) }),
     }
     return () => { delete window.__collisionTest }
   }, [frame])

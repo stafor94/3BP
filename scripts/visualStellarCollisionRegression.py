@@ -301,7 +301,7 @@ def runtime_probes(driver, output, width):
           const done=arguments[0]; window.__recorder.onstop=()=>{
             const reader=new FileReader(); reader.onload=()=>done(reader.result.split(',')[1]);
             reader.readAsDataURL(new Blob(window.__videoChunks,{type:'video/webm'}));
-          }; window.__recorder.stop();
+          }; requestAnimationFrame(()=>requestAnimationFrame(()=>window.__recorder.stop()));
         ''')
         (output / f'{width}-{speed}-playback.webm').write_bytes(base64.b64decode(video))
         driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
