@@ -88,3 +88,8 @@ baseline. The corona now uses one expanded back-face mesh and an analytic smooth
 column-density falloff. This restores one photosphere + one corona draw per
 envelope; renewed A/B timing is required. These are SwiftShader CI frame times,
 not measurements of a mobile GPU.
+
+Run 34603035212 stopped in the existing preset screenshot counter: its fixed
+130 px bottom crop counted the panel-toggle chevron (30 pixels at y=547..554)
+as a fifth star. The image contains exactly four stars. The test now excludes
+the actual panel-toggle DOM rectangle, preserving the exact star-count assertion.

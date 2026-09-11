@@ -10,10 +10,10 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 
 from productionCameraHandoffVisualRegression import make_driver, BASE_URL
 
-def visible_stars(path):
+def visible_stars(path, bottom):
     image = Image.open(path).convert('RGB')
     # Exclude the top status, left tracking icons and collapsed bottom controls.
-    bright = {(x, y) for y in range(80, image.height - 130)
+    bright = {(x, y) for y in range(80, min(image.height, bottom))
               for x in range(60, image.width - 15)
               if min(image.getpixel((x, y))) > 120
               and max(image.getpixel((x, y))) > 200}
@@ -58,8 +58,15 @@ try:
             Select(driver.find_element(By.ID, 'preset')).select_by_value(preset)
             driver.find_element(By.CLASS_NAME, 'panel-toggle').click()
             canvas = wait.until(lambda d: d.find_element(By.CSS_SELECTOR, '.simulation-view canvas'))
+            def unobscured_bottom():
+                return driver.execute_script('''
+                  const canvas=arguments[0].getBoundingClientRect();
+                  const toggle=document.querySelector('.panel-toggle').getBoundingClientRect();
+                  return Math.floor(toggle.top-canvas.top)-2;
+                ''', canvas)
             driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
             canvas.screenshot(str(OUT / f'{preset}-{mode}-initial.png'))
+            initial_bottom = unobscured_bottom()
             start = next(b for b in driver.find_elements(By.TAG_NAME, 'button') if b.is_displayed() and b.text.strip() == 'Start')
             start.click()
             def elapsed(d):
@@ -68,9 +75,10 @@ try:
             wait.until(lambda d: elapsed(d) >= 3)
             next(b for b in driver.find_elements(By.TAG_NAME, 'button') if b.is_displayed() and b.text.strip() == 'Pause').click()
             canvas.screenshot(str(OUT / f'{preset}-{mode}-moving.png'))
+            moving_bottom = unobscured_bottom()
             driver.save_screenshot(str(OUT / f'{preset}-{mode}-ui.png'))
             for stage in ('initial', 'moving'):
-                visible = visible_stars(OUT / f'{preset}-{mode}-{stage}.png')
+                visible = visible_stars(OUT / f'{preset}-{mode}-{stage}.png', initial_bottom if stage == 'initial' else moving_bottom)
                 assert visible == count, f'{preset}/{mode}/{stage}: expected {count} visible stars, got {visible}'
             results.append({'preset': preset, 'mode': mode, 'elapsed': elapsed(driver)})
     (OUT / 'results.json').write_text(json.dumps(results, indent=2))
