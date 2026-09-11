@@ -165,26 +165,28 @@ function createEnvelope() {
   const surface = new THREE.Mesh(geometry, material)
   const group = new THREE.Group()
   group.add(surface)
-  // A stack of low-opacity, displaced copies carries a volume-like corona. All
-  // copies use the exact same positions/normals as the opaque photosphere.
+  // One expanded back-face surface carries the diffuse column density. Reusing
+  // the photosphere geometry keeps shape coherent without six extra draw calls.
   const haloMaterial = new THREE.ShaderMaterial({ vertexShader, transparent: true, depthWrite: false,
-    blending: THREE.AdditiveBlending, uniforms: { uOpacity: { value: 0.18 } },
+    // Back faces are behind the opaque photosphere wherever their projections
+    // overlap. Depth testing removes interior light instead of bleaching color.
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending, uniforms: { uOpacity: { value: 0.22 } },
     fragmentShader: `varying vec3 vCollisionColor; varying vec3 vWorldNormal; varying vec3 vWorldPosition;
       uniform float uOpacity;
       void main() { float mu = abs(dot(normalize(vWorldNormal), normalize(cameraPosition-vWorldPosition)));
-        // Vanish smoothly at each shell's limb. Limb-brightened discrete shells
-        // produce concentric rings; projected column density does not.
-        gl_FragColor=vec4(vCollisionColor, uOpacity * pow(mu, 3.0));
+        float projectedRadius = 2.4 * sqrt(max(0.0, 1.0-mu*mu));
+        float distanceOutside = max(0.0, projectedRadius-1.0);
+        float column = 0.8 * exp(-pow(distanceOutside/.4, 2.0)) + 0.2 * exp(-distanceOutside/.65);
+        gl_FragColor=vec4(vCollisionColor, uOpacity * column * smoothstep(0.0, 0.15, mu));
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
   })
-  for (const scale of [1.025, 1.06, 1.12, 1.22, 1.38, 1.6]) {
-    const halo = new THREE.Mesh(geometry, haloMaterial)
-    halo.scale.setScalar(scale)
-    halo.renderOrder = 1
-    group.add(halo)
-  }
+  const halo = new THREE.Mesh(geometry, haloMaterial)
+  halo.scale.setScalar(2.4)
+  halo.renderOrder = 1
+  group.add(halo)
   group.traverse((o) => { o.frustumCulled = false })
   return { group, geometry, material, haloMaterial, time: NaN, bodies: null as BodyState[] | null }
 }

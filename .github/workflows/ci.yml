@@ -73,10 +73,26 @@ jobs:
           VISUAL_TEST_URL: http://127.0.0.1:4174/3BP/?visual-regression=stellar-continuity
           STELLAR_CONTINUITY_OUTPUT: stellar-continuity-baseline-artifacts
         run: python scripts/visualStellarCollisionRegression.py
+      - name: Upload stellar continuity baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-continuity-baseline
+          path: stellar-continuity-baseline-artifacts
+          if-no-files-found: warn
+          retention-days: 7
       - name: Stellar collision browser visual regression
         run: python scripts/visualStellarCollisionRegression.py
       - name: Strict stellar collision visual gate
         run: python scripts/strictStellarCollisionVisualGate.py
+      - name: Upload stellar collision visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-collision-visual-regression
+          path: visual-regression-artifacts
+          if-no-files-found: warn
+          retention-days: 7
       - name: Collision watch browser visual regression
         run: python scripts/collisionWatchVisualRegression.py
       - name: Collision camera tracking handoff browser regression
@@ -116,14 +132,6 @@ jobs:
         run: python scripts/mobileDisruptionVisualRegression.py
       - name: Mobile top overlay browser visual regression
         run: python scripts/mobileTopOverlayVisualRegression.py
-      - name: Upload stellar collision visual captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-collision-visual-regression
-          path: visual-regression-artifacts
-          if-no-files-found: warn
-          retention-days: 7
       - name: Upload collision watch visual captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -258,14 +266,5 @@ jobs:
         with:
           name: mobile-top-overlay-visual-regression
           path: mobile-top-overlay-visual-artifacts
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Upload stellar continuity baseline
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-continuity-baseline
-          path: stellar-continuity-baseline-artifacts
           if-no-files-found: warn
           retention-days: 7

@@ -15,6 +15,7 @@ for scenario in payload['scenarios']:
         m = frame['metrics']
         assert m['largest_component_width'] < m['roi_width'] * .9, f'{kind}: oversized flash footprint'
         assert m['hot_neutral_fraction'] < .3, f'{kind}: screen-filling white veil'
+        assert m['clipped_white_fraction'] < .12, f'{kind}: photosphere bleached by overlapping glow'
     # Compare the two frames bracketing the actual 2->1 solver handoff.
     if kind in ['oblique', 'head-on']:
         pre = next(f for f in samples if f['time'] == .0235)['metrics']

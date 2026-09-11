@@ -42,6 +42,10 @@ for (const kind of ['oblique', 'head-on', 'partial', 'hit-run']) {
         assert(Array.from(o.geometry.attributes.normal.array).every(Number.isFinite), 'deformed normals must be finite')
         positions.set(o.geometry, p)
       }
+      if (o instanceof THREE.Mesh && o.renderOrder === 1) {
+        assert((o.material as THREE.ShaderMaterial).side === THREE.BackSide && (o.material as THREE.ShaderMaterial).depthTest,
+          'corona light must be occluded by the opaque photosphere')
+      }
     })
     layer.update(bodies, i * 0.0005)
     positions.forEach((before, geometry) => {

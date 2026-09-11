@@ -57,8 +57,13 @@ and a connected lobe replacing the round disappearing source. They also exposed
 visible corona rings, now changed to smoothly vanishing shell column density.
 The solid handoff browser check failed (28.38 px centroid shift); the new explicit
 frame hook was overwriting solid material identity after handoff sampling. It is
-now restricted to stars. Both fixes still require a fresh browser run.
-The other three quality workflows passed. Automatic CI passage alone must not
+now restricted to stars. CI run 34601624379 passed the solid handoff and remaining browser regressions,
+including pause and speed probes. However, its retrieved images exposed interior
+corona overdraw: smoothing the rings had bleached the opaque surface. Corona
+shells now render back faces with depth testing, so the opaque photosphere masks
+interior emission. A new pixel gate limits clipped white pixels within the bright
+object area rather than merely limiting screen coverage. This fix requires a
+fresh browser run. The other three quality workflows passed. Automatic CI passage alone must not
 be reported as complete visual acceptance.
 
 Gas now uses a bounded history of measured physical positions, rendered as one
@@ -70,6 +75,16 @@ fan requirement with a minimum angular spread; conservation checks are retained.
 Adjacent correlated hash seeds are stratified only in the star-star branch.
 These follow-up changes passed the full local build, including momentum checks
 and curved-path/pause/orbit/reset tests. New CI imagery is required to validate
-the gas appearance. Extreme mass ratios, overlapping simultaneous collisions
+the gas appearance. Run 34602243013 stopped in the unchanged baseline playback
+probe because the harness exposed stale React effect snapshots after reset.
+Imperative test commands now flush committed state and read a current frame ref;
+the app playback code is unchanged. Extreme mass ratios, overlapping simultaneous collisions
 and transition back to the ordinary far corona still require visual assessment.
 Do not merge while any requested acceptance item remains unverified.
+
+CI timing in run 34601624379 exposed excessive overhead from six corona shell
+draws: low-speed median 66.6/50 ms (desktop/portrait) versus 33.3/16.7 ms on
+baseline. The corona now uses one expanded back-face mesh and an analytic smooth
+column-density falloff. This restores one photosphere + one corona draw per
+envelope; renewed A/B timing is required. These are SwiftShader CI frame times,
+not measurements of a mobile GPU.

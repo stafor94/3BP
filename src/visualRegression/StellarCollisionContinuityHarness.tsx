@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { SimulationView } from '../components/SimulationView'
 import { stepBodies } from '../physics/fragmentAwareEngine'
 import type { BodyState } from '../types'
@@ -28,6 +29,8 @@ declare global {
 export function StellarCollisionContinuityHarness() {
   const [frame, setFrame] = useState(() => ({ bodies: stellarCollisionFixture('oblique'), time: 0 }))
   const [speed, setSpeed] = useState(0)
+  const committedFrame = useRef(frame)
+  committedFrame.current = frame
   const advance = (dt: number) => setFrame((old) => {
     let bodies = old.bodies
     const steps = Math.max(1, Math.ceil(dt / 0.0005))
@@ -47,11 +50,14 @@ export function StellarCollisionContinuityHarness() {
   }, [speed])
   useEffect(() => {
     window.__collisionTest = {
-      ...frame,
-      advance,
-      play: setSpeed,
-      pause: () => setSpeed(0),
-      reset: (kind) => { setSpeed(0); setFrame({ bodies: stellarCollisionFixture(kind), time: 0 }) },
+      get bodies() { return committedFrame.current.bodies },
+      get time() { return committedFrame.current.time },
+      // Browser commands acknowledge committed React state, not a stale passive
+      // effect snapshot left over from the preceding scenario or speed.
+      advance: (dt) => flushSync(() => advance(dt)),
+      play: (nextSpeed) => flushSync(() => setSpeed(nextSpeed)),
+      pause: () => flushSync(() => setSpeed(0)),
+      reset: (kind) => flushSync(() => { setSpeed(0); setFrame({ bodies: stellarCollisionFixture(kind), time: 0 }) }),
     }
     return () => { delete window.__collisionTest }
   }, [frame])

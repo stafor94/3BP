@@ -37,6 +37,7 @@ class FrameMetrics:
     largest_component_cy: float
     saturated_bright_pixels: int
     saturated_bright_fraction: float
+    clipped_white_fraction: float
 
 
 def assert_condition(condition: bool, message: str) -> None:
@@ -115,6 +116,8 @@ def analyze(path: Path) -> FrameMetrics:
     hot_mask = [[False] * roi_width for _ in range(roi_height)]
     hot_count = 0
     saturated_count = 0
+    bright_count = 0
+    clipped_count = 0
 
     pixels = roi.load()
     for y in range(roi_height):
@@ -124,6 +127,10 @@ def analyze(path: Path) -> FrameMetrics:
             minimum = min(r, g, b)
             spread = maximum - minimum
             luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            if luminance >= 100:
+                bright_count += 1
+            if minimum >= 250:
+                clipped_count += 1
 
             is_hot_neutral = luminance >= 178 and spread <= 58
             if is_hot_neutral:
@@ -151,6 +158,7 @@ def analyze(path: Path) -> FrameMetrics:
         largest_component_cy=largest[4],
         saturated_bright_pixels=saturated_count,
         saturated_bright_fraction=saturated_count / area,
+        clipped_white_fraction=clipped_count / max(bright_count, 1),
     )
 
 
