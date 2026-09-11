@@ -1848,6 +1848,19 @@ export function createSimulationRenderer(
     syncBodyPresentationBeforeRender(scene)
     updateLiveCollisionVfxFrame(scene, camera, { simulationTime: state.simulationTime, simulationSpeed: state.simulationSpeed, paused: state.paused ?? false })
     renderer.render(scene, camera)
+    // Regression harness only: correlate late remnant pixels with the actual
+    // production mesh/material, including periods after the envelope retires.
+    const collisionProbe = (window as unknown as { __collisionTest?: { renderState?: unknown } }).__collisionTest
+    if (collisionProbe) collisionProbe.renderState = current.filter(b => b.bodyType === 'star').map(body => {
+      const visual = visuals.get(body.id)!
+      const material = visual.bodyMaterial
+      return { id: body.id, visible: visual.mesh.visible, scale: visual.mesh.scale.toArray(),
+        path: material.userData.bodyRenderPath, stellarShader: material.fragmentShader.includes('drawStellarEmission'),
+        opacity: material.uniforms.uOpacity?.value, reveal: material.uniforms.uCollisionRevealScale?.value,
+        emission: material.uniforms.uEmissionStrength?.value,
+        color: (material.uniforms.uIdentityColor?.value as THREE.Color)?.getHexString(),
+        physical: body }
+    })
   }
 
   frame = requestAnimationFrame(animate)

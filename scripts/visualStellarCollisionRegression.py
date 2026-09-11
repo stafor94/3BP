@@ -306,6 +306,7 @@ def runtime_probes(driver, output, width):
         (output / f'{width}-{speed}-playback.webm').write_bytes(base64.b64decode(video))
         driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
         canvas.screenshot(str(output / f'{width}-{speed}-playback-end.png'))
+        (output / f'{width}-{speed}-render-state.json').write_text(json.dumps(driver.execute_script('return window.__collisionTest.renderState'), indent=2))
         states = driver.execute_script('return window.__playbackStates')
         assert all(state['stars'] for state in states), 'physical stars disappeared during playback'
         assert all(b['time'] >= a['time'] for a, b in zip(states, states[1:])), 'playback time reversed'
