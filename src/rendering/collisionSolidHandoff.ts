@@ -698,6 +698,9 @@ export function renderCollisionSolidHandoffFrame(
     if (!(object instanceof THREE.Mesh)) return
     const material = object.material
     if (!(material instanceof THREE.ShaderMaterial)) return
+    // A reset/preset can reuse a retired solid ID for a star. Solid silhouette
+    // ownership must never suppress the independent stellar photosphere path.
+    if (material.userData.bodyRenderPath === 'stellar-photosphere') return
     const seed = Number(material.uniforms.uSeed?.value)
     if (!Number.isFinite(seed)) return
     const key = seedKey(seed)

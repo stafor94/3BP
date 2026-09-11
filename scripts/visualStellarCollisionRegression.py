@@ -307,6 +307,8 @@ def runtime_probes(driver, output, width):
         driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
         canvas.screenshot(str(output / f'{width}-{speed}-playback-end.png'))
         (output / f'{width}-{speed}-render-state.json').write_text(json.dumps(driver.execute_script('return window.__collisionTest.renderState'), indent=2))
+        if 'baseline' not in str(output):
+            assert driver.execute_script('return window.__collisionTest.renderState.every(b=>b.visible && b.stellarShader && b.opacity > .99 && b.emission > 0)'), 'settled stellar photosphere is hidden or unlit'
         states = driver.execute_script('return window.__playbackStates')
         assert all(state['stars'] for state in states), 'physical stars disappeared during playback'
         assert all(b['time'] >= a['time'] for a, b in zip(states, states[1:])), 'playback time reversed'
