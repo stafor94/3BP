@@ -93,3 +93,9 @@ Run 34603035212 stopped in the existing preset screenshot counter: its fixed
 130 px bottom crop counted the panel-toggle chevron (30 pixels at y=547..554)
 as a fifth star. The image contains exactly four stars. The test now excludes
 the actual panel-toggle DOM rectangle, preserving the exact star-count assertion.
+
+The solver contact interval remains 0.024 s for a merge. Visible volume transfer
+now continues through the first 75% of the existing 0.16 s settling interval, so
+1x playback does not complete the entire two-lobe transfer in one render frame.
+The first physical result still presents the inherited transferring source lobe;
+this is explicitly presentation-only and uses simulation elapsed time.

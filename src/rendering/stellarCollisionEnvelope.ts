@@ -37,7 +37,12 @@ export function getMergedEnvelopeShape(state: StellarCollisionPresentation, resu
   const distance = vector(b.position).distanceTo(vector(a.position))
   const center = vector(a.position).multiplyScalar(a.mass / total).addScaledVector(vector(b.position), b.mass / total)
   const settle = state.phase === 'settle' ? smooth(state.elapsed / STELLAR_SETTLE_SECONDS) : 0
-  const p = state.phase === 'settle' ? 1 : state.progress
+  // The solver contact lasts only ~24 ms at 1x. Continue the visible volume
+  // transfer through the shared settling clock instead of losing the small
+  // lobe in the very first result frame. Physical resolution is unchanged.
+  const transferDuration = state.duration + STELLAR_SETTLE_SECONDS * .75
+  const contactElapsed = state.phase === 'settle' ? state.duration + state.elapsed : state.progress * state.duration
+  const p = Math.min(1, contactElapsed / transferDuration)
   const transfer = smooth((p - 0.14) / 0.78)
   const target = state.targets[0] ?? { ...a, mass: total, radius: Math.cbrt(a.radius ** 3 + b.radius ** 3) }
   const targetRadius = THREE.MathUtils.lerp(target.radius, result?.radius ?? target.radius, settle)

@@ -15,6 +15,7 @@ for (const kind of ['oblique', 'head-on', 'partial', 'hit-run']) {
   let contact = false, resolved = false
   let last: ReturnType<typeof getMergedEnvelopeShape> | null = null
   let greatestStep = 0
+  let firstSettledWidth = 0
   for (let i = 0; i < 430; i++) {
     bodies = stepBodies(bodies, 0.0005)
     layer.update(bodies, i * 0.0005)
@@ -24,6 +25,11 @@ for (const kind of ['oblique', 'head-on', 'partial', 'hit-run']) {
     if (state?.phase === 'settle') resolved = true
     if (state?.outcome === 'merge') {
       const shape = getMergedEnvelopeShape(state, state.phase === 'settle' ? stars[0] : undefined)
+      if (state.phase === 'settle' && !firstSettledWidth) {
+        firstSettledWidth = shape.max - shape.min
+        assert(firstSettledWidth > stars[0].radius * 2.2,
+          `${kind}: first result frame must retain the transferring source lobe at normal speed`)
+      }
       if (last) {
         const size = Math.max(shape.max - shape.min, last.max - last.min)
         const step = Math.max(Math.abs(shape.min - last.min), Math.abs(shape.max - last.max)) / size

@@ -64,9 +64,17 @@ try:
                   const toggle=document.querySelector('.panel-toggle').getBoundingClientRect();
                   return Math.floor(toggle.top-canvas.top)-2;
                 ''', canvas)
+            # A screenshot command can span the panel's collapse transition.
+            # Wait for finite UI animations, then use both sampled bounds.
+            driver.execute_async_script('''
+              const done=arguments[0];
+              Promise.all(document.getAnimations().filter(a=>a.effect && a.effect.getTiming().iterations!==Infinity)
+                .map(a=>a.finished.catch(()=>{}))).then(()=>requestAnimationFrame(()=>requestAnimationFrame(done)));
+            ''')
             driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
-            canvas.screenshot(str(OUT / f'{preset}-{mode}-initial.png'))
             initial_bottom = unobscured_bottom()
+            canvas.screenshot(str(OUT / f'{preset}-{mode}-initial.png'))
+            initial_bottom = min(initial_bottom, unobscured_bottom())
             start = next(b for b in driver.find_elements(By.TAG_NAME, 'button') if b.is_displayed() and b.text.strip() == 'Start')
             start.click()
             def elapsed(d):
@@ -74,8 +82,9 @@ try:
                 return float(match.group(1)) if match else 0
             wait.until(lambda d: elapsed(d) >= 3)
             next(b for b in driver.find_elements(By.TAG_NAME, 'button') if b.is_displayed() and b.text.strip() == 'Pause').click()
-            canvas.screenshot(str(OUT / f'{preset}-{mode}-moving.png'))
             moving_bottom = unobscured_bottom()
+            canvas.screenshot(str(OUT / f'{preset}-{mode}-moving.png'))
+            moving_bottom = min(moving_bottom, unobscured_bottom())
             driver.save_screenshot(str(OUT / f'{preset}-{mode}-ui.png'))
             for stage in ('initial', 'moving'):
                 visible = visible_stars(OUT / f'{preset}-{mode}-{stage}.png', initial_bottom if stage == 'initial' else moving_bottom)
