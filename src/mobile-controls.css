@@ -1,0 +1,343 @@
+.control-panel .body-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.75fr) minmax(0, 0.6fr) minmax(0, 0.7fr);
+  gap: 5px;
+}
+
+.control-panel .body-fields input[readonly] {
+  cursor: default;
+  color: #aeb9c9;
+  background: #0a0f18;
+  text-overflow: ellipsis;
+}
+
+.control-panel .body-fields input[type="color"] {
+  min-width: 0;
+}
+
+.preset-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 27px;
+}
+
+.preset-heading-row .section-label {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.preset-control-groups {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 0;
+}
+
+.space-mode-control,
+.body-count-control {
+  display: inline-grid;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid #1d2534;
+  border-radius: 9px;
+  background: #090e17;
+}
+
+.space-mode-control {
+  grid-template-columns: repeat(2, 42px);
+}
+
+.body-count-control {
+  grid-template-columns: repeat(6, 23px);
+}
+
+.space-mode-control button,
+.body-count-control button {
+  min-width: 0;
+  min-height: 25px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #7f8da3;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.space-mode-control button {
+  width: 42px;
+  font-size: 10px;
+}
+
+.body-count-control button {
+  width: 23px;
+}
+
+.space-mode-control button:hover,
+.body-count-control button:hover {
+  border: 0;
+  background: #121927;
+}
+
+.space-mode-control button.active,
+.body-count-control button.active {
+  color: #fff;
+  border: 0;
+  background: #3768dc;
+}
+
+@media (max-width: 760px) {
+  html {
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body,
+  #root,
+  .app-shell {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    overflow: clip;
+  }
+
+  .app-shell .control-panel {
+    position: absolute;
+    z-index: 5;
+    top: auto;
+    left: 10px;
+    right: 10px;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    width: auto;
+    min-width: 0;
+    max-width: calc(100% - 20px);
+    height: min(44dvh, 420px);
+    padding: 16px 16px 0;
+    border: 1px solid #202a3b;
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    overflow: visible;
+    transform: none !important;
+    will-change: auto;
+    transition: height .22s ease, padding .22s ease;
+  }
+
+  .app-shell .control-panel .panel-header {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .app-shell .control-panel .panel-title-block,
+  .app-shell .control-panel .panel-header-actions,
+  .app-shell .control-panel .collapsed-primary-controls {
+    min-width: 0;
+  }
+
+  .app-shell .control-panel .panel-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    scrollbar-width: thin;
+    scrollbar-color: #273044 transparent;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed {
+    height: 82px !important;
+    min-height: 82px !important;
+    padding: 17px 16px 0 !important;
+    overflow: visible !important;
+    transform: none !important;
+  }
+
+  .control-panel.collapsed .panel-content {
+    display: none !important;
+  }
+
+  .app-shell .control-panel .panel-toggle {
+    position: absolute;
+    z-index: 30;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%, -100%);
+    display: grid;
+    place-items: center;
+    width: 78px;
+    min-width: 78px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+    border: 1px solid #202a3b;
+    border-bottom: 0;
+    border-radius: 12px 12px 0 0;
+    color: #98a8bf;
+    background: rgba(7, 10, 17, 0.96);
+    backdrop-filter: blur(16px);
+    box-shadow: none;
+  }
+
+  .app-shell .control-panel .panel-toggle:hover {
+    border: 1px solid #2c3950;
+    border-bottom: 0;
+    color: #c1ccdc;
+    background: rgba(12, 17, 27, 0.98);
+  }
+
+  .app-shell .control-panel .panel-toggle svg {
+    width: 24px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .control-panel.collapsed .panel-header {
+    min-height: 54px !important;
+    height: 54px;
+    align-items: center;
+    gap: 12px;
+    padding-top: 5px;
+  }
+
+  .control-panel.collapsed .panel-title-block {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .control-panel.collapsed .panel-title-block .eyebrow {
+    margin-bottom: 3px;
+    font-size: 9px;
+    line-height: 1;
+  }
+
+  .control-panel.collapsed .panel-title-block h1 {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.05;
+    white-space: nowrap;
+  }
+
+  .control-panel.collapsed .panel-header-actions {
+    flex: 0 1 auto;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0;
+    padding-right: 0;
+  }
+
+  .control-panel.collapsed .time-readout {
+    display: none;
+  }
+
+  .control-panel.collapsed .collapsed-primary-controls {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+  }
+
+  .control-panel.collapsed .collapsed-primary-controls button {
+    height: 38px;
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .control-panel.collapsed .collapsed-primary-controls .start-button {
+    min-width: 88px;
+  }
+
+  .control-panel.collapsed .collapsed-primary-controls .secondary-button {
+    min-width: 78px;
+  }
+
+  .control-panel:not(.collapsed) .collapsed-primary-controls {
+    display: none !important;
+  }
+
+  .control-panel:not(.collapsed) .panel-header {
+    padding-top: 7px;
+  }
+
+  @media (max-width: 390px) {
+    .app-shell .control-panel.control-panel.collapsed {
+      padding-left: 12px !important;
+      padding-right: 12px !important;
+    }
+
+    .control-panel.collapsed .panel-title-block h1 {
+      font-size: 17px;
+    }
+
+    .control-panel.collapsed .panel-title-block .eyebrow {
+      display: none;
+    }
+
+    .control-panel.collapsed .collapsed-primary-controls {
+      gap: 6px;
+    }
+
+    .control-panel.collapsed .collapsed-primary-controls .start-button {
+      min-width: 70px;
+    }
+
+    .control-panel.collapsed .collapsed-primary-controls .secondary-button {
+      min-width: 64px;
+    }
+
+    .preset-heading-row {
+      gap: 6px;
+    }
+
+    .preset-control-groups {
+      gap: 4px;
+    }
+
+    .space-mode-control,
+    .body-count-control {
+      gap: 2px;
+      padding: 2px;
+    }
+
+    .space-mode-control {
+      grid-template-columns: repeat(2, 35px);
+    }
+
+    .body-count-control {
+      grid-template-columns: repeat(6, 20px);
+    }
+
+    .space-mode-control button {
+      width: 35px;
+      min-height: 24px;
+      height: 24px;
+      font-size: 9px;
+    }
+
+    .body-count-control button {
+      width: 20px;
+      min-height: 24px;
+      height: 24px;
+      font-size: 10px;
+    }
+  }
+}

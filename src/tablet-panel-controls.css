@@ -1,0 +1,203 @@
+@media (min-width: 761px) and (max-width: 1366px) {
+  .app-shell {
+    --tablet-collapsed-rail-width: 64px;
+    position: relative;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    overflow: clip;
+  }
+
+  .viewport-shell {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+  }
+
+  .control-panel {
+    position: absolute;
+    z-index: 10;
+    top: 0;
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    min-width: 360px;
+    max-width: 360px;
+    height: 100dvh;
+    overflow: visible;
+    transform: translateX(0);
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+  }
+
+  .control-panel .panel-header {
+    flex: 0 0 auto;
+  }
+
+  .control-panel .panel-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #273044 transparent;
+  }
+
+  .control-panel.collapsed {
+    transform: translateX(
+      calc(
+        100% - var(--tablet-collapsed-rail-width) - env(safe-area-inset-right, 0px)
+      )
+    );
+    border-left-color: transparent;
+    background: transparent;
+  }
+
+  .control-panel.collapsed .panel-header {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .panel-content {
+    position: absolute !important;
+    z-index: 16;
+    top: 50%;
+    left: 0;
+    display: block !important;
+    width: var(--tablet-collapsed-rail-width) !important;
+    height: 154px;
+    min-height: 154px;
+    margin: 0 !important;
+    padding: 6px !important;
+    overflow: hidden !important;
+    transform: translateY(-50%);
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    border: 1px solid rgba(62, 76, 101, 0.72);
+    border-right: 0;
+    border-radius: 12px 0 0 12px;
+    background: rgba(7, 10, 17, 0.96);
+    backdrop-filter: blur(16px);
+    box-shadow: -3px 0 10px rgba(0, 0, 0, 0.12);
+    scrollbar-width: none;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .panel-content::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .panel-content > :not(.primary-controls) {
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .panel-content > .primary-controls.primary-controls {
+    position: relative;
+    z-index: 1;
+    display: flex !important;
+    flex-direction: column;
+    align-items: stretch !important;
+    grid-template-columns: none !important;
+    gap: 5px !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .primary-controls > .start-button,
+  .app-shell .control-panel.control-panel.collapsed .primary-controls > .secondary-button,
+  .app-shell .control-panel.control-panel.collapsed .primary-controls > .collision-watch-toggle {
+    flex: 0 0 42px;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 42px;
+    height: 42px;
+    margin: 0;
+    padding: 0 3px;
+    border-radius: 9px;
+    font-size: 9px;
+    line-height: 1.05;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .collision-watch-toggle {
+    flex-direction: column;
+    gap: 2px;
+    padding: 3px 2px;
+    white-space: normal;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .collision-watch-toggle input {
+    flex: 0 0 13px;
+    width: 13px;
+    min-width: 13px;
+    height: 13px;
+  }
+
+  .app-shell .control-panel.control-panel.collapsed .collision-watch-toggle span {
+    white-space: nowrap;
+  }
+
+  .control-panel .panel-toggle {
+    position: absolute;
+    z-index: 18;
+    top: 50%;
+    left: 0;
+    right: auto;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    min-width: 28px;
+    height: 82px;
+    min-height: 82px;
+    padding: 0;
+    border: 1px solid rgba(62, 76, 101, 0.72);
+    border-right: 0;
+    border-radius: 11px 0 0 11px;
+    color: #93a3ba;
+    background: rgba(7, 10, 17, 0.98);
+    box-shadow: -3px 0 10px rgba(0, 0, 0, 0.12);
+    transform: translate(-100%, -50%);
+    transition:
+      transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+      border-color 0.15s ease,
+      background-color 0.15s ease,
+      color 0.15s ease;
+    touch-action: manipulation;
+  }
+
+  .control-panel .panel-toggle:hover {
+    border-color: rgba(90, 108, 139, 0.78);
+    color: #c1ccdc;
+    background: rgba(12, 17, 27, 0.99);
+  }
+
+  .control-panel .panel-toggle:focus-visible {
+    outline: 2px solid rgba(92, 132, 226, 0.72);
+    outline-offset: -2px;
+  }
+
+  .control-panel .panel-toggle svg {
+    width: 20px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transform: rotate(-90deg);
+  }
+
+  .control-panel.collapsed .panel-toggle {
+    transform: translate(-100%, -50%);
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1366px) and (prefers-reduced-motion: reduce) {
+  .control-panel,
+  .control-panel .panel-toggle {
+    transition-duration: 0.01ms;
+  }
+}

@@ -1,0 +1,44 @@
+.title-line {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.title-line h1 {
+  min-width: 0;
+}
+
+/* The legacy title-adjacent version node remains in ControlPanel for now, but is
+   intentionally hidden. The visible version is rendered at the document root so
+   panel transforms/backdrop filters can never change its containing block. */
+.control-panel .app-version {
+  display: none;
+}
+
+.screen-app-version {
+  position: fixed;
+  z-index: 30;
+  top: 16px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 10px;
+  transform: translateX(-50%);
+  color: #7f8da3;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .screen-app-version {
+    top: 14px;
+    height: 32px;
+    font-size: 9px;
+  }
+}

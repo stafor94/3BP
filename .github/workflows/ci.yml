@@ -1,0 +1,270 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install
+      - name: Versioning regression
+        run: npm run check:version
+      - name: Physics regression
+        run: npm run check:physics
+      - name: Full build
+        run: npm run build
+      - name: Install browser visual regression runtime
+        run: python -m pip install --disable-pip-version-check --quiet selenium==4.35.0 pillow==11.3.0
+      - name: Start production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/3bp-preview.log 2>&1 &
+          echo $! > /tmp/3bp-preview.pid
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/3BP/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/3bp-preview.log
+          exit 1
+      - name: Multicolor stellar preset visual regression
+        run: python scripts/stellarPresetsVisualRegression.py
+      - name: Upload multicolor stellar preset captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-presets-visual-regression
+          path: stellar-presets-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Checkout collision baseline
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .stellar-baseline
+      - name: Prepare identical production collision fixture on baseline
+        run: |
+          cp src/visualRegression/StellarCollisionContinuityHarness.tsx .stellar-baseline/src/visualRegression/
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.stellar-baseline/src/main.tsx')
+          s = p.read_text().replace("if (visualRegression === 'stellar-topology') {", "if (visualRegression === 'stellar-continuity') {\n  void import('./visualRegression/StellarCollisionContinuityHarness').then(({ StellarCollisionContinuityHarness }) => root.render(<StellarCollisionContinuityHarness />))\n} else if (visualRegression === 'stellar-topology') {")
+          p.write_text(s)
+          PY
+          cd .stellar-baseline
+          npm install
+          npx tsc -b
+          npx vite build
+          npm run preview -- --host 127.0.0.1 --port 4174 > /tmp/stellar-baseline-preview.log 2>&1 &
+      - name: Capture baseline stellar collisions
+        env:
+          VISUAL_TEST_URL: http://127.0.0.1:4174/3BP/?visual-regression=stellar-continuity
+          STELLAR_CONTINUITY_OUTPUT: stellar-continuity-baseline-artifacts
+        run: python scripts/visualStellarCollisionRegression.py
+      - name: Upload stellar continuity baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-continuity-baseline
+          path: stellar-continuity-baseline-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Stellar collision browser visual regression
+        run: python scripts/visualStellarCollisionRegression.py
+      - name: Strict stellar collision visual gate
+        run: python scripts/strictStellarCollisionVisualGate.py
+      - name: Upload stellar collision visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-collision-visual-regression
+          path: visual-regression-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Collision watch browser visual regression
+        run: python scripts/collisionWatchVisualRegression.py
+      - name: Collision camera tracking handoff browser regression
+        run: python scripts/collisionCameraTrackingHandoffVisualRegression.py
+      - name: Production camera handoff browser regression
+        run: python scripts/productionCameraHandoffVisualRegression.py
+      - name: Collision camera retained tracking without prior selection
+        run: python scripts/collisionCameraRetainedTrackingVisualRegression.py
+      - name: Production camera handoff desktop 1x regression
+        env:
+          PRODUCTION_CAMERA_HANDOFF_OUTPUT_DIR: production-camera-handoff-desktop-artifacts
+          PRODUCTION_CAMERA_HANDOFF_SPEED: '1'
+          PRODUCTION_CAMERA_VIEWPORT_WIDTH: '1024'
+          PRODUCTION_CAMERA_VIEWPORT_HEIGHT: '768'
+        run: python scripts/productionCameraHandoffVisualRegression.py
+      - name: Non-stellar destruction browser visual regression
+        run: python scripts/nonStellarDestructionVisualRegression.py
+      - name: Collision ejecta Stage2/Stage3 browser A/B regression
+        run: python scripts/collisionEjectaVisualRegression.py
+      - name: Collision survivor Stage3/Stage4 browser A/B regression
+        run: python scripts/collisionSurvivorResponseVisualRegression.py
+      - name: Small head-on collision artifact browser visual regression
+        run: python scripts/smallHeadOnCollisionArtifactVisualRegression.py
+      - name: Collision merge solid handoff browser visual regression
+        run: python scripts/collisionMergeHandoffVisualRegression.py
+      - name: Survivor absorption browser visual regression
+        run: python scripts/survivorAbsorptionVisualRegression.py
+      - name: Absorption continuity browser visual regression
+        run: python scripts/absorptionContinuityVisualRegression.py
+      - name: Collision penetration browser A/B regression
+        run: python scripts/collisionPenetrationVisualRegression.py
+      - name: Actual disruption browser visual regression
+        run: python scripts/actualDisruptionVisualRegression.py
+      - name: Collision frame continuity browser visual regression
+        run: python scripts/collisionContinuityVisualRegression.py
+      - name: Mobile actual disruption browser visual regression
+        run: python scripts/mobileDisruptionVisualRegression.py
+      - name: Mobile top overlay browser visual regression
+        run: python scripts/mobileTopOverlayVisualRegression.py
+      - name: Upload collision watch visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-watch-visual-regression
+          path: collision-watch-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision camera tracking handoff captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-camera-tracking-handoff-regression
+          path: collision-camera-tracking-handoff-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload production camera handoff captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-camera-handoff-regression
+          path: production-camera-handoff-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision camera retained tracking captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-camera-retained-tracking-regression
+          path: collision-camera-retained-tracking-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload production camera handoff desktop captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-camera-handoff-desktop-regression
+          path: production-camera-handoff-desktop-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload non-stellar destruction visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: non-stellar-destruction-visual-regression
+          path: non-stellar-destruction-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision ejecta Stage2/Stage3 A/B captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-ejecta-stage3-visual-regression
+          path: collision-ejecta-stage3-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision survivor Stage3/Stage4 A/B captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-survivor-stage4-visual-regression
+          path: collision-survivor-stage4-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload small head-on collision artifact captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: small-head-on-collision-artifact-visual-regression
+          path: small-head-on-collision-artifact-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision merge handoff captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-merge-handoff-visual-regression
+          path: collision-merge-handoff-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload survivor absorption visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: survivor-absorption-visual-regression
+          path: survivor-absorption-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload absorption continuity visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: absorption-continuity-visual-regression
+          path: absorption-continuity-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision penetration visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-penetration-visual-regression
+          path: collision-penetration-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload actual disruption visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-disruption-visual-regression
+          path: actual-disruption-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload collision frame continuity captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collision-frame-continuity-visual-regression
+          path: collision-continuity-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload mobile actual disruption visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-disruption-mobile-visual-regression
+          path: actual-disruption-mobile-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload mobile top overlay visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-top-overlay-visual-regression
+          path: mobile-top-overlay-visual-artifacts
+          if-no-files-found: warn
+          retention-days: 7
