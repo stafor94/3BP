@@ -420,17 +420,15 @@ export function syncBodyPresentationBeforeRender(scene: THREE.Scene) {
     const body = getBodyFromSeed(seed)
     if (!body) return
 
-    ensureBodyMaterialPath(object.material, body)
     const bodyType = getEffectiveBodyType(body)
-    if (bodyType === 'star') {
-      const frame = getStellarPhotosphereFrame(body, stellarAnimationTime % 4096)
-      updateStellarPhotosphereMaterial(object.material, frame)
-      if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, true, body, frame)
-    } else {
-      setGenericSurfaceProfile(object.material, body)
-      if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, false)
-    }
-    if (bodyType !== 'effect' && objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
+    // This frame hook owns stellar presentation only. Solid handoff has already
+    // applied its sampled color/opacity; generic profiles must not overwrite it.
+    if (bodyType !== 'star') return
+    ensureBodyMaterialPath(object.material, body)
+    const frame = getStellarPhotosphereFrame(body, stellarAnimationTime % 4096)
+    updateStellarPhotosphereMaterial(object.material, frame)
+    if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, true, body, frame)
+    if (objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
   })
 }
 

@@ -162,11 +162,13 @@ function createEnvelope() {
   // A stack of low-opacity, displaced copies carries a volume-like corona. All
   // copies use the exact same positions/normals as the opaque photosphere.
   const haloMaterial = new THREE.ShaderMaterial({ vertexShader, transparent: true, depthWrite: false,
-    blending: THREE.AdditiveBlending, uniforms: { uOpacity: { value: 0.04 } },
+    blending: THREE.AdditiveBlending, uniforms: { uOpacity: { value: 0.18 } },
     fragmentShader: `varying vec3 vCollisionColor; varying vec3 vWorldNormal; varying vec3 vWorldPosition;
       uniform float uOpacity;
       void main() { float mu = abs(dot(normalize(vWorldNormal), normalize(cameraPosition-vWorldPosition)));
-        gl_FragColor=vec4(vCollisionColor, uOpacity * pow(1.0-mu, 2.0) * smoothstep(0.0, 0.25, mu));
+        // Vanish smoothly at each shell's limb. Limb-brightened discrete shells
+        // produce concentric rings; projected column density does not.
+        gl_FragColor=vec4(vCollisionColor, uOpacity * pow(mu, 3.0));
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,

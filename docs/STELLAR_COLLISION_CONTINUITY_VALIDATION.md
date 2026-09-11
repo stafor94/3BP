@@ -51,8 +51,15 @@ candidate using the identical fixture on desktop and portrait viewports.
 Local Chromium was blocked from creating its process singleton socket. An
 escalation request was rejected by the environment approval policy. Therefore
 local WebGL execution, video A/B, rotation, actual low-speed playback and mobile
-GPU performance are not certified. CI captures must be retrieved and inspected;
-automatic CI passage alone must not be reported as complete visual acceptance.
+GPU performance are not certified. CI run 34564259247 produced baseline/candidate captures for all five scenarios
+at desktop and portrait sizes. Retrieved images show the bilateral needle removed
+and a connected lobe replacing the round disappearing source. They also exposed
+visible corona rings, now changed to smoothly vanishing shell column density.
+The solid handoff browser check failed (28.38 px centroid shift); the new explicit
+frame hook was overwriting solid material identity after handoff sampling. It is
+now restricted to stars. Both fixes still require a fresh browser run.
+The other three quality workflows passed. Automatic CI passage alone must not
+be reported as complete visual acceptance.
 
 The external gas is currently a diffuse distribution at physical particle poses,
 not hydrodynamics. Its visual tails use current physical velocity. Long curved

@@ -235,6 +235,71 @@ def capture_canvas(driver: webdriver.Chrome, name: str) -> tuple[Path, FrameMetr
     return path, metrics
 
 
+def runtime_probes(driver, output, width):
+    """Real RAF playback plus pause/speed changes, using the production renderer."""
+    import base64
+    import time
+    from selenium.webdriver.common.action_chains import ActionChains
+    from PIL import ImageChops
+    results = []
+    for speed in [.02, 1.0]:
+        driver.execute_script("window.__collisionTest.reset('oblique')")
+        driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
+        driver.execute_script('window.__collisionTest.advance(.012)')
+        driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
+        canvas = driver.find_element(By.CSS_SELECTOR, '.simulation-view canvas')
+        before = output / f'{width}-{speed}-pause-before.png'
+        after = output / f'{width}-{speed}-pause-after.png'
+        canvas.screenshot(str(before))
+        frozen_time = driver.execute_script('return window.__collisionTest.time')
+        time.sleep(.5)
+        canvas.screenshot(str(after))
+        assert driver.execute_script('return window.__collisionTest.time') == frozen_time
+        a, b = Image.open(before).convert('RGB'), Image.open(after).convert('RGB')
+        box = (a.width//3, a.height//3, a.width*2//3, a.height*2//3)
+        pause_changed_pixels = sum(max(pixel) > 2 for pixel in ImageChops.difference(a.crop(box), b.crop(box)).getdata())
+        if 'baseline' not in str(output):
+            assert pause_changed_pixels == 0, f'paused stellar surface/gas advanced: {pause_changed_pixels} pixels'
+        # Resume from mid-contact, then change speed without resetting time/state.
+        driver.execute_script('window.__collisionTest.play(arguments[0])', speed)
+        WebDriverWait(driver, 30).until(lambda d: d.execute_script('return window.__collisionTest.time') > .018)
+        time_before = driver.execute_script('window.__collisionTest.play(arguments[0]); return window.__collisionTest.time', speed * 2)
+        WebDriverWait(driver, 30).until(lambda d: d.execute_script('return window.__collisionTest.time') > .03)
+        driver.execute_script('window.__collisionTest.pause()')
+        assert driver.execute_script('return window.__collisionTest.time') >= time_before
+        # Record a complete collision as actual rendered video, including an orbit.
+        driver.execute_script("window.__collisionTest.reset('oblique')")
+        driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
+        if speed == 1.0:
+            ActionChains(driver).move_to_element(canvas).click_and_hold().move_by_offset(90, 55).release().perform()
+        driver.execute_script('''
+          const canvas=document.querySelector('.simulation-view canvas');
+          window.__videoChunks=[]; window.__frameTimes=[];
+          window.__recorder=new MediaRecorder(canvas.captureStream(20), {mimeType:'video/webm'});
+          window.__recorder.ondataavailable=e=>window.__videoChunks.push(e.data);
+          window.__recorder.start();
+          let last=performance.now();
+          const sample=now=>{window.__frameTimes.push(now-last);last=now;
+            if(window.__recorder.state==='recording') requestAnimationFrame(sample)};
+          requestAnimationFrame(sample);
+          window.__collisionTest.play(arguments[0]);
+        ''', speed)
+        WebDriverWait(driver, 60).until(lambda d: d.execute_script('return window.__collisionTest.time') >= .2)
+        driver.execute_script('window.__collisionTest.pause()')
+        video = driver.execute_async_script('''
+          const done=arguments[0]; window.__recorder.onstop=()=>{
+            const reader=new FileReader(); reader.onload=()=>done(reader.result.split(',')[1]);
+            reader.readAsDataURL(new Blob(window.__videoChunks,{type:'video/webm'}));
+          }; window.__recorder.stop();
+        ''')
+        (output / f'{width}-{speed}-playback.webm').write_bytes(base64.b64decode(video))
+        durations = sorted(driver.execute_script('return window.__frameTimes').copy())
+        results.append({'speed':speed, 'pause_changed_pixels':pause_changed_pixels,
+                        'ci_frame_ms_median':durations[len(durations)//2],
+                        'ci_frame_ms_p95':durations[min(len(durations)-1, int(len(durations)*.95))]})
+    return results
+
+
 def main() -> None:
     # Drive the production engine + SimulationView, never hand-place deeply
     # overlapping stars. Both revisions use this exact fixture and camera.
@@ -270,6 +335,8 @@ def main() -> None:
                 errors = [entry for entry in driver.get_log('browser') if 'WebGL' in entry['message'] and entry['level'] == 'SEVERE']
                 assert not errors, f'WebGL runtime errors: {errors}'
                 rows.append({'width':width,'height':height,'scenario':kind,'samples':samples})
+            probes = runtime_probes(driver, output, width)
+            (output / f'{width}-runtime.json').write_text(json.dumps(probes, indent=2))
         (output / 'metrics.json').write_text(json.dumps({'production':True, 'scenarios':rows}, indent=2))
     finally:
         driver.quit()

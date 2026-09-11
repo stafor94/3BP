@@ -20,28 +20,43 @@ export function stellarCollisionFixture(kind: string): BodyState[] {
 
 declare global {
   interface Window {
-    __collisionTest?: { advance: (dt: number) => void; reset: (kind: string) => void; bodies: BodyState[]; time: number }
+    __collisionTest?: { advance: (dt: number) => void; reset: (kind: string) => void; play: (speed: number) => void; pause: () => void; bodies: BodyState[]; time: number }
   }
 }
 
 /** Deterministic input driver only: real production engine and SimulationView. */
 export function StellarCollisionContinuityHarness() {
   const [frame, setFrame] = useState(() => ({ bodies: stellarCollisionFixture('oblique'), time: 0 }))
+  const [speed, setSpeed] = useState(0)
+  const advance = (dt: number) => setFrame((old) => {
+    let bodies = old.bodies
+    const steps = Math.max(1, Math.ceil(dt / 0.0005))
+    for (let i = 0; i < steps; i++) bodies = stepBodies(bodies, dt / steps)
+    return { bodies, time: old.time + dt }
+  })
+  useEffect(() => {
+    if (speed <= 0) return
+    let previous = performance.now(), raf = 0
+    const tick = (now: number) => {
+      advance(Math.min((now - previous) / 1000, 0.05) * speed)
+      previous = now
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [speed])
   useEffect(() => {
     window.__collisionTest = {
       ...frame,
-      advance: (dt) => setFrame((old) => {
-        let bodies = old.bodies
-        const steps = Math.max(1, Math.ceil(dt / 0.0005))
-        for (let i = 0; i < steps; i++) bodies = stepBodies(bodies, dt / steps)
-        return { bodies, time: old.time + dt }
-      }),
-      reset: (kind) => setFrame({ bodies: stellarCollisionFixture(kind), time: 0 }),
+      advance,
+      play: setSpeed,
+      pause: () => setSpeed(0),
+      reset: (kind) => { setSpeed(0); setFrame({ bodies: stellarCollisionFixture(kind), time: 0 }) },
     }
     return () => { delete window.__collisionTest }
   }, [frame])
   return <div style={{ position: 'fixed', inset: 0 }}>
-    <SimulationView bodies={frame.bodies} simulationTime={frame.time} simulationSpeed={1}
+    <SimulationView bodies={frame.bodies} simulationTime={frame.time} simulationSpeed={speed || 1} {...{ paused: speed === 0 }}
       trailVersion={0} trailEnabled={false} trailDuration={8} trailSampleBatch={{ sequence: 0, samples: [] }}
       trackedBodyId={null} collisionCameraFocus={null} />
   </div>

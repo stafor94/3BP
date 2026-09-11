@@ -33,19 +33,20 @@ for (const kind of ['oblique', 'head-on', 'partial', 'hit-run']) {
     }
     const snapshot = JSON.stringify(bodies)
     const mesh = scene.getObjectByName('stellar-collision-envelopes')!
-    const positions: number[][] = []
+    const positions = new Map<THREE.BufferGeometry, number[]>()
     mesh.traverse((o) => {
-      if (o instanceof THREE.Mesh) {
+      if (o instanceof THREE.Mesh && !positions.has(o.geometry)) {
         const p = Array.from(o.geometry.attributes.position.array) as number[]
         assert(p.every(Number.isFinite), 'envelope vertices must be finite')
         assert(Array.from(o.geometry.attributes.normal.array).every(Number.isFinite), 'deformed normals must be finite')
-        positions.push(p)
+        positions.set(o.geometry, p)
       }
     })
     layer.update(bodies, i * 0.0005)
-    const after: number[][] = []
-    mesh.traverse((o) => { if (o instanceof THREE.Mesh) after.push(Array.from(o.geometry.attributes.position.array)) })
-    assert(JSON.stringify(positions) === JSON.stringify(after), 'paused mesh must be byte-identical')
+    positions.forEach((before, geometry) => {
+      const after = geometry.attributes.position.array
+      assert(before.length === after.length && before.every((value, index) => value === after[index]), 'paused mesh must be byte-identical')
+    })
     assert(JSON.stringify(bodies) === snapshot, 'renderer must not mutate physical state')
     if (state?.phase === 'settle' && (kind === 'partial' || kind === 'hit-run')) {
       assert(stars.length === 2, `${kind}: both survivors must remain`)
