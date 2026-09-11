@@ -282,12 +282,15 @@ def runtime_probes(driver, output, width):
             ActionChains(driver).move_to_element(canvas).click_and_hold().move_by_offset(90, 55).release().perform()
         driver.execute_script('''
           const canvas=document.querySelector('.simulation-view canvas');
-          window.__videoChunks=[]; window.__frameTimes=[];
+          window.__videoChunks=[]; window.__frameTimes=[]; window.__playbackStates=[];
           window.__recorder=new MediaRecorder(canvas.captureStream(20), {mimeType:'video/webm'});
           window.__recorder.ondataavailable=e=>window.__videoChunks.push(e.data);
           window.__recorder.start();
           let last=performance.now();
           const sample=now=>{window.__frameTimes.push(now-last);last=now;
+            window.__playbackStates.push({time:window.__collisionTest.time,
+              stars:window.__collisionTest.bodies.filter(b=>b.bodyType==='star').map(b=>({
+                id:b.id,position:b.position,radius:b.radius,phase:b.stellarCollisionPresentation?.phase}))});
             if(window.__recorder.state==='recording') requestAnimationFrame(sample)};
           requestAnimationFrame(sample);
           window.__collisionTest.play(arguments[0]);
@@ -301,6 +304,12 @@ def runtime_probes(driver, output, width):
           }; window.__recorder.stop();
         ''')
         (output / f'{width}-{speed}-playback.webm').write_bytes(base64.b64decode(video))
+        driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
+        canvas.screenshot(str(output / f'{width}-{speed}-playback-end.png'))
+        states = driver.execute_script('return window.__playbackStates')
+        assert all(state['stars'] for state in states), 'physical stars disappeared during playback'
+        assert all(b['time'] >= a['time'] for a, b in zip(states, states[1:])), 'playback time reversed'
+        (output / f'{width}-{speed}-playback-states.json').write_text(json.dumps(states, indent=2))
         durations = sorted(driver.execute_script('return window.__frameTimes').copy())
         results.append({'speed':speed, 'pause_changed_pixels':pause_changed_pixels,
                         'ci_frame_ms_median':durations[len(durations)//2],

@@ -41,7 +41,7 @@ export function StellarCollisionContinuityHarness() {
     if (speed <= 0) return
     let previous = performance.now(), raf = 0
     const tick = (now: number) => {
-      advance(Math.min((now - previous) / 1000, 0.05) * speed)
+      advance(Math.max(0, Math.min((now - previous) / 1000, 0.05)) * speed)
       previous = now
       raf = requestAnimationFrame(tick)
     }

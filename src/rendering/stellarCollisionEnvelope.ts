@@ -3,8 +3,8 @@ import type { BodyState, StellarCollisionPresentation, StellarCollisionSource } 
 import { getStellarDisplayColorFromBody } from '../starColors'
 import { createStellarPhotosphereMaterialValues, getStellarPhotosphereFrame, updateStellarPhotosphereMaterial } from './stellarPhotosphereMaterial'
 
-const AXIAL = 80
-const RADIAL = 32
+const AXIAL = 36
+const RADIAL = 24
 export const STELLAR_SETTLE_SECONDS = 0.16
 const smooth = (t: number) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t) }
 const vector = (p: { x: number; y: number; z: number }) => new THREE.Vector3(p.x, p.y, p.z)
@@ -172,11 +172,14 @@ function createEnvelope() {
   group.add(surface)
   // One expanded back-face surface carries the diffuse column density. Reusing
   // the photosphere geometry keeps shape coherent without six extra draw calls.
-  const haloMaterial = new THREE.ShaderMaterial({ vertexShader, transparent: true, depthWrite: false,
+  const haloVertexShader = 'uniform float uShellOffset;\n' + vertexShader.replace(
+    'vec4(position, 1.0)', 'vec4(position + normal * uShellOffset, 1.0)',
+  )
+  const haloMaterial = new THREE.ShaderMaterial({ vertexShader: haloVertexShader, transparent: true, depthWrite: false,
     // Back faces are behind the opaque photosphere wherever their projections
     // overlap. Depth testing removes interior light instead of bleaching color.
     side: THREE.BackSide,
-    blending: THREE.AdditiveBlending, uniforms: { uOpacity: { value: 0.22 } },
+    blending: THREE.AdditiveBlending, uniforms: { uOpacity: { value: 0.22 }, uShellOffset: { value: 0 } },
     fragmentShader: `varying vec3 vCollisionColor; varying vec3 vWorldNormal; varying vec3 vWorldPosition;
       uniform float uOpacity;
       void main() { float mu = abs(dot(normalize(vWorldNormal), normalize(cameraPosition-vWorldPosition)));
@@ -188,12 +191,23 @@ function createEnvelope() {
         #include <colorspace_fragment>
       }`,
   })
-  const halo = new THREE.Mesh(geometry, haloMaterial)
-  halo.scale.setScalar(2.4)
+  // Share the exact surface buffers but use a coarser index grid for diffuse
+  // light. Expanding normals preserves lobe centers; scaling the whole pair
+  // around its COM creates detached duplicate glows on either side.
+  const haloGeometry = new THREE.BufferGeometry()
+  haloGeometry.setAttribute('position', geometry.getAttribute('position'))
+  haloGeometry.setAttribute('collisionColor', geometry.getAttribute('collisionColor'))
+  const haloIndices: number[] = []
+  for (let i = 0; i < AXIAL; i += 2) for (let j = 0; j < RADIAL; j += 2) {
+    const a = i * (RADIAL + 1) + j, b = a + 2 * (RADIAL + 1)
+    haloIndices.push(a, a + 2, b, a + 2, b + 2, b)
+  }
+  haloGeometry.setIndex(haloIndices)
+  const halo = new THREE.Mesh(haloGeometry, haloMaterial)
   halo.renderOrder = 1
   group.add(halo)
   group.traverse((o) => { o.frustumCulled = false })
-  return { group, geometry, material, haloMaterial, time: NaN, bodies: null as BodyState[] | null }
+  return { group, geometry, haloGeometry, material, haloMaterial, time: NaN, bodies: null as BodyState[] | null }
 }
 
 export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
@@ -206,7 +220,7 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
   const color = new THREE.Color()
   const remove = (id: string) => {
     const v = visuals.get(id)!
-    group.remove(v.group); v.geometry.dispose(); v.material.dispose(); v.haloMaterial.dispose(); visuals.delete(id)
+    group.remove(v.group); v.geometry.dispose(); v.haloGeometry.dispose(); v.material.dispose(); v.haloMaterial.dispose(); visuals.delete(id)
   }
   return {
     update(bodies: BodyState[], simulationTime: number) {
@@ -236,6 +250,8 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         }
         positions.needsUpdate = true; colors.needsUpdate = true
         v.geometry.computeVertexNormals()
+        v.haloGeometry.setAttribute('normal', v.geometry.getAttribute('normal'))
+        v.haloMaterial.uniforms.uShellOffset.value = shape.body.radius * 1.4
         updateStellarPhotosphereMaterial(v.material, getStellarPhotosphereFrame(shape.body, simulationTime))
         v.material.uniforms.uSurfaceSeed.value = seed(shape.body.id)
       }
