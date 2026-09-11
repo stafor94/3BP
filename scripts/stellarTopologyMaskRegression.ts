@@ -4,6 +4,7 @@ import { stepBodies } from '../src/physics/fragmentAwareEngine'
 import { stellarCollisionFixture } from '../src/visualRegression/StellarCollisionContinuityHarness'
 import { createStellarCollisionEnvelopeLayer, getMergedEnvelopeShape } from '../src/rendering/stellarCollisionEnvelope'
 import type { BodyState } from '../src/types'
+import { createStellarGasTrail, updateStellarGasTrail } from '../src/rendering/stellarGasTrail'
 
 function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message) }
 for (const kind of ['oblique', 'head-on', 'partial', 'hit-run']) {
@@ -64,3 +65,32 @@ assert(!owner.includes('createStellarTopologyOcclusionLayer('), 'production must
 assert(!owner.includes('createStellarImpactBurstLayer('), 'production must not instantiate bilateral shock spikes')
 assert(!readFileSync('src/rendering/bodyLighting.ts', 'utf8').includes('createCollisionEffectsLayer'), 'lighting must not own a duplicate VFX layer')
 console.log('stellar envelope topology regression passed')
+
+// A bent physical trajectory must remain a bent wake even after orbiting the
+// camera. Changing viewing direction may change width, never the sampled path.
+const gasTrail = createStellarGasTrail()
+const camera = new THREE.PerspectiveCamera()
+camera.position.set(0, 0, 5)
+const gas: BodyState = { ...stellarCollisionFixture('oblique')[0], bodyType: 'effect', lifetime: 2 }
+for (let i = 0; i < 60; i++) {
+  gas.age = i * .01
+  gas.position = { x: i * .01, y: (i * .01) ** 2, z: 0 }
+  updateStellarGasTrail(gasTrail, gas, camera)
+}
+assert(gasTrail.samples.length <= 40, 'gas history memory must remain bounded')
+const frozen = Array.from(gasTrail.geometry.attributes.position.array)
+updateStellarGasTrail(gasTrail, gas, camera)
+assert(frozen.every((v, i) => v === gasTrail.geometry.attributes.position.array[i]), 'paused gas must remain fixed')
+camera.position.set(5, 2, 1)
+updateStellarGasTrail(gasTrail, gas, camera)
+const vertices = gasTrail.geometry.attributes.position
+gasTrail.samples.forEach((sample, i) => {
+  const midpoint = new THREE.Vector3().fromBufferAttribute(vertices, i * 2)
+    .add(new THREE.Vector3().fromBufferAttribute(vertices, i * 2 + 1)).multiplyScalar(.5)
+  assert(midpoint.distanceTo(sample.position) < 1e-6, 'wake center must follow actual trajectory after camera rotation')
+})
+gas.age = 0
+updateStellarGasTrail(gasTrail, gas, camera)
+assert(gasTrail.samples.length === 1, 'reset must discard earlier gas paths')
+gasTrail.geometry.dispose()
+console.log('stellar gas path, pause, orbit and reset regression passed')

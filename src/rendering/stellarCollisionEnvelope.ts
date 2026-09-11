@@ -57,6 +57,7 @@ export function getMergedEnvelopeShape(state: StellarCollisionPresentation, resu
   const unionScale = THREE.MathUtils.lerp(1, targetRadius / Math.cbrt(totalVolume), transfer)
   const ra = radiusA * unionScale
   const rb = radiusB * unionScale
+  const tidal = 0.035 * (1 - smooth(p / .2))
   const neck = Math.min(a.radius, b.radius) ** 2 * 0.30 * smooth(p / 0.30) * (1 - blend)
   const lobeMin = Math.min(ca - ra, cb - rb)
   const lobeMax = Math.max(ca + ra, cb + rb)
@@ -76,8 +77,10 @@ export function getMergedEnvelopeShape(state: StellarCollisionPresentation, resu
     radius: (x, angle) => {
       const t = (x - min) / Math.max(max - min, 1e-9)
       const ux = lobeMin + t * (lobeMax - lobeMin)
-      const qa = ra * ra - (ux - ca) ** 2
-      const qb = rb * rb - (ux - cb) ** 2
+      const xa = (ux - ca) / (1 + (ux > ca ? tidal * Math.min(1, b.mass / a.mass) : 0))
+      const xb = (ux - cb) / (1 + (ux < cb ? tidal * Math.min(1, a.mass / b.mass) : 0))
+      const qa = ra * ra - xa ** 2
+      const qb = rb * rb - xb ** 2
       const h = neck > 0 ? Math.max(neck - Math.abs(qa - qb), 0) / neck : 0
       const union = Math.sqrt(Math.max(0, Math.max(qa, qb) + h * h * neck * 0.25))
       const sphere = targetRadius * Math.sqrt(Math.max(0, 1 - (2 * t - 1) ** 2))
@@ -93,6 +96,7 @@ function getSeparateShape(body: BodyState, partner: BodyState | undefined, state
   const center = vector(body.position)
   let axis = partner ? vector(partner.position).sub(center).normalize() : new THREE.Vector3(1, 0, 0)
   let strength = 0
+  let axialStretch = 0
   let radius = body.radius
   if (state) {
     const other = state.sources.find((s) => s.id !== source.id)!
@@ -102,6 +106,7 @@ function getSeparateShape(body: BodyState, partner: BodyState | undefined, state
       const p = state.progress
       radius = THREE.MathUtils.lerp(source.radius, target.radius, smooth(p))
       strength = Math.sin(Math.PI * p) * (state.outcome === 'partialDisruption' ? 0.18 : 0.10)
+      axialStretch = 0.035 * Math.min(1, other.mass / source.mass) * (1 - smooth(p / .2)) - strength * .4
     } else {
       const release = smooth(state.elapsed / 0.045)
       center.copy(vector(source.position).lerp(vector(body.position), release))
@@ -111,11 +116,12 @@ function getSeparateShape(body: BodyState, partner: BodyState | undefined, state
     const distance = center.distanceTo(vector(partner.position))
     const reach = body.radius + partner.radius
     strength = 0.035 * smooth((reach * 1.18 - distance) / (reach * 0.18)) * Math.min(1, partner.mass / Math.max(body.mass, 1e-9))
+    axialStretch = strength
   }
   const color = new THREE.Color(getStellarDisplayColorFromBody(body))
-  return { center, axis, min: -radius, max: radius, body, colorA: color, colorB: color, colorMix: () => 0,
+  return { center, axis, min: -radius, max: radius * (1 + axialStretch), body, colorA: color, colorB: color, colorMix: () => 0,
     radius: (x, angle) => {
-      const u = x / Math.max(radius, 1e-9)
+      const u = x / Math.max(radius * (x > 0 ? 1 + axialStretch : 1), 1e-9)
       // Contact-local flattening and a broad opposite-side tidal bulge; both
       // pole and equatorial displacement decay continuously on separation.
       const facing = smooth((u + 0.15) / 1.15)

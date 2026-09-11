@@ -61,8 +61,15 @@ now restricted to stars. Both fixes still require a fresh browser run.
 The other three quality workflows passed. Automatic CI passage alone must not
 be reported as complete visual acceptance.
 
-The external gas is currently a diffuse distribution at physical particle poses,
-not hydrodynamics. Its visual tails use current physical velocity. Long curved
-stream continuity, extreme mass ratios, overlapping simultaneous collisions and
-transition back to the ordinary far corona still require visual assessment.
+Gas now uses a bounded history of measured physical positions, rendered as one
+broadening strip per parcel rather than a bright particle head. History never
+advances while physical age is paused; an orbit changes strip width orientation
+without changing its centerline. No past trajectory is guessed or extrapolated.
+The original narrow transverse ejecta test was replaced by a broad transverse
+fan requirement with a minimum angular spread; conservation checks are retained.
+Adjacent correlated hash seeds are stratified only in the star-star branch.
+These follow-up changes passed the full local build, including momentum checks
+and curved-path/pause/orbit/reset tests. New CI imagery is required to validate
+the gas appearance. Extreme mass ratios, overlapping simultaneous collisions
+and transition back to the ordinary far corona still require visual assessment.
 Do not merge while any requested acceptance item remains unverified.

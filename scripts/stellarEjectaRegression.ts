@@ -115,16 +115,19 @@ function testHeadOnEjectaFavorsSplashPlaneAndContactPatch() {
 
   assert(plasma.length >= 6, 'head-on stellar collision should emit enough plasma samples for directional regression')
   const normalProjections = plasma.map((body) => Math.abs(dot(body.effectVisual!.direction, normal)))
-  const sidewaysCount = normalProjections.filter((projection) => projection < 0.48).length
+  const sidewaysCount = normalProjections.filter((projection) => projection < 0.75).length
   const averageNormalProjection = normalProjections.reduce((sum, value) => sum + value, 0) / normalProjections.length
   assert(
     sidewaysCount / plasma.length >= 0.75,
-    `head-on ejecta should mostly stay in the splash plane, got ${sidewaysCount}/${plasma.length}`,
+    `head-on ejecta should favor the broad transverse fan, got ${sidewaysCount}/${plasma.length}`,
   )
   assert(
-    averageNormalProjection < 0.38,
-    `head-on ejecta normal projection is too radial: ${averageNormalProjection}`,
+    averageNormalProjection > 0.12 && averageNormalProjection < 0.65,
+    `head-on ejecta must span a fan without becoming radial or collapsing onto +/-tangent: ${averageNormalProjection}`,
   )
+  const signedNormals = plasma.map((body) => dot(body.effectVisual!.direction, normal))
+  assert(Math.max(...signedNormals) - Math.min(...signedNormals) > .4,
+    'stellar fan must cover distinct trajectory angles rather than correlated hash directions')
 
   const roundedPositions = new Set(plasma.map((body) => (
     `${body.position.x.toFixed(5)}:${body.position.y.toFixed(5)}:${body.position.z.toFixed(5)}`

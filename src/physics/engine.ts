@@ -870,7 +870,10 @@ function getEjectaDirection(
     const sign = grazing > 0.6
       ? (index % 5 === 4 ? -stellarBias.dominantTangentSign : stellarBias.dominantTangentSign)
       : (index % 2 ? 1 : -1)
-    const angle = (seededScalar(`${seed}:fan:${index}`) - 0.5) * (1.5 - grazing * 0.3)
+    // Stratify the fan: adjacent string-hash seeds were correlated enough to
+    // collapse almost every parcel onto the same two narrow trajectories.
+    const phase = (seededScalar(`${seed}:fan`) + index * 0.61803398875) % 1
+    const angle = (phase - 0.5) * (1.45 - grazing * 0.1 + stellarBias.massAsymmetry * 0.3)
     const spread = add(scale(geometry.tangent, sign * Math.cos(angle)), scale(geometry.normal, Math.sin(angle)))
     return normalize(add(spread, scale(randomDirection, is2d ? 0.08 : 0.28)), randomDirection)
   }
@@ -968,7 +971,9 @@ function makeStellarEffectVisual(
   const variance = seededScalar(`${seed}:shape:${index}`)
   const widthVariance = seededScalar(`${seed}:width:${index}`)
   const tailVariance = seededScalar(`${seed}:tail:${index}`)
-  const phaseOffset = seededScalar(`${seed}:phase:${index}`)
+  const phaseOffset = stellarCollision
+    ? (seededScalar(`${seed}:phase`) + index * 0.61803398875) % 1
+    : seededScalar(`${seed}:phase:${index}`)
   const outcomeTailBoost = stellarOutcome === 'hitAndRun'
     ? 0.34
     : stellarOutcome === 'partialDisruption'

@@ -3,10 +3,12 @@ import { getEffectiveBodyType } from '../bodyTypes'
 import { getNearestStellarColor } from '../starColors'
 import type { BodyState, EffectVisualKind, Vec3 } from '../types'
 import { getCollisionEffectProfile } from './collisionEffectProfile'
+import { createStellarGasTrail, updateStellarGasTrail } from './stellarGasTrail'
 
 type CollisionEffectVisual = {
-  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>
+  mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>
   material: THREE.ShaderMaterial
+  trail?: ReturnType<typeof createStellarGasTrail>
 }
 
 const MAX_SYNTHETIC_STELLAR_PAIRS = 2
@@ -575,6 +577,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     const visual = visuals.get(id)
     if (!visual) return
     group.remove(visual.mesh)
+    visual.trail?.geometry.dispose()
     visual.material.dispose()
     visuals.delete(id)
   }
@@ -584,12 +587,15 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     if (existing) return existing
 
     const material = createEffectMaterial()
-    const mesh = new THREE.Mesh(geometry, material)
+    const trail = body.effectVisual?.stellarCollision && body.effectVisual.kind === 'stellarPlasma'
+      ? createStellarGasTrail() : undefined
+    if (trail) material.depthTest = true
+    const mesh = new THREE.Mesh(trail?.geometry ?? geometry, material)
     mesh.frustumCulled = false
     mesh.renderOrder = 14
     group.add(mesh)
 
-    const created = { mesh, material }
+    const created = { mesh, material, trail }
     visuals.set(body.id, created)
     return created
   }
@@ -712,6 +718,15 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     uniforms.uPulse.value = profile.pulseStrength
     uniforms.uSynthetic.value = synthetic ? 1 : 0
     uniforms.uStellar.value = stellarEffect ? 1 : 0
+    if (visual.trail) {
+      updateStellarGasTrail(visual.trail, body, camera)
+      // Trail vertices are measured physical world positions. No visual
+      // extrapolation or guessed tail direction can diverge from the parcel.
+      visual.mesh.position.set(0, 0, 0)
+      visual.mesh.quaternion.identity()
+      visual.mesh.scale.set(1, 1, 1)
+      visual.mesh.visible = visual.mesh.visible && visual.trail.samples.length > 1
+    }
   }
 
   return {

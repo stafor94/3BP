@@ -106,7 +106,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     return {
       kind, progress, cooling,
       fadeAlpha: release * Math.pow(1 - progress, gas ? 1.7 : afterglow ? 2 : 3),
-      baseOpacity: gas ? 0.40 : afterglow ? 0.10 : 0.24,
+      baseOpacity: gas ? 0.22 : afterglow ? 0.10 : 0.24,
       innerGlow: 0.08, outerGlow: 0.18,
       visualRadius: gas ? Math.min(body.radius * 1.2, sourceRadius * 0.30) * (1 + progress * 2.8)
         : sourceRadius * (afterglow ? 0.8 : 0.24),
