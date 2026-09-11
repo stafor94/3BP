@@ -235,108 +235,45 @@ def capture_canvas(driver: webdriver.Chrome, name: str) -> tuple[Path, FrameMetr
     return path, metrics
 
 
-def validate(metrics: dict[str, FrameMetrics]) -> None:
-    separate = metrics['separate']
-    peak = metrics['peak']
-    retained = metrics['remnant-retained']
-    faded = metrics['remnant-faded']
-
-    assert_condition(
-        peak.largest_component_area >= max(900, int(separate.largest_component_area * 1.5)),
-        'peak topology mask does not form a substantially larger connected screen region than the source stars: '
-        f'separate={separate.largest_component_area}px peak={peak.largest_component_area}px',
-    )
-    assert_condition(
-        peak.largest_component_width >= max(78, int(separate.largest_component_width * 1.5)),
-        'peak topology mask is not wide enough to bridge and cover both source silhouettes: '
-        f'separate={separate.largest_component_width}px peak={peak.largest_component_width}px',
-    )
-    assert_condition(
-        peak.largest_component_height >= 32,
-        f'peak topology mask is too thin to hide stellar silhouettes: {peak.largest_component_height}px',
-    )
-    assert_condition(
-        peak.saturated_bright_fraction <= separate.saturated_bright_fraction * 0.55,
-        'source-star colored silhouettes remain too exposed at peak instead of being washed into the impact mask: '
-        f'separate={separate.saturated_bright_fraction:.4f}, peak={peak.saturated_bright_fraction:.4f}',
-    )
-
-    assert_condition(
-        retained.largest_component_width >= int(peak.largest_component_width * 0.68),
-        'topology veil collapses horizontally on the first remnant frame: '
-        f'peak={peak.largest_component_width}px retained={retained.largest_component_width}px',
-    )
-    assert_condition(
-        retained.largest_component_area >= int(peak.largest_component_area * 0.45),
-        'topology veil disappears too early after the 2->1 switch: '
-        f'peak={peak.largest_component_area}px retained={retained.largest_component_area}px',
-    )
-    assert_condition(
-        retained.hot_neutral_pixels >= int(peak.hot_neutral_pixels * 0.4),
-        'the first remnant frame is not still visibly covered by the white-hot handoff mask: '
-        f'peak={peak.hot_neutral_pixels}px retained={retained.hot_neutral_pixels}px',
-    )
-
-    # The first remnant frame now intentionally includes a longer-lived remnant
-    # relaxation presentation. Its own bright photosphere persists after the
-    # short topology veil retires, so a retained->faded raw-pixel ratio conflates
-    # two different lifecycles. Compare the faded frame against the deterministic
-    # pre-impact stellar footprint instead, matching the authoritative strict gate.
-    assert_condition(
-        faded.hot_neutral_pixels <= int(separate.hot_neutral_pixels * 0.85),
-        'topology veil does not retire to the single-remnant footprint after its handoff window: '
-        f'separate={separate.hot_neutral_pixels}px faded={faded.hot_neutral_pixels}px',
-    )
-
-
 def main() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    driver = make_driver()
-    metrics: dict[str, FrameMetrics] = {}
-    transition_ms: dict[str, float] = {}
-
+    # Drive the production engine + SimulationView, never hand-place deeply
+    # overlapping stars. Both revisions use this exact fixture and camera.
+    from productionCameraHandoffVisualRegression import make_driver as make_production_driver
+    import time
+    output = Path(os.environ.get('STELLAR_CONTINUITY_OUTPUT', 'visual-regression-artifacts'))
+    output.mkdir(parents=True, exist_ok=True)
+    url = os.environ.get('VISUAL_TEST_URL', 'http://127.0.0.1:4173/3BP/?visual-regression=stellar-continuity')
+    driver = make_production_driver()
+    rows = []
     try:
-        driver.set_page_load_timeout(20)
-        driver.set_script_timeout(10)
-        driver.get(URL)
-        WebDriverWait(driver, 15, poll_frequency=0.05).until(
-            lambda browser: browser.execute_script('return typeof window.__setStellarVisualStage === "function"')
-        )
-        WebDriverWait(driver, 15, poll_frequency=0.05).until(
-            lambda browser: len(browser.find_elements(By.CSS_SELECTOR, '.simulation-view canvas')) == 1
-        )
-        advance_presentation(driver, 180)
-
-        _, metrics['separate'] = capture_canvas(driver, '01-separate')
-
-        transition_ms['peak'] = set_stage(driver, 'peak')
-        advance_presentation(driver, 100)
-        _, metrics['peak'] = capture_canvas(driver, '02-peak')
-
-        transition_ms['remnant'] = set_stage(driver, 'remnant')
-        advance_presentation(driver, 20)
-        _, metrics['remnant-retained'] = capture_canvas(driver, '03-remnant-retained')
-
-        advance_presentation(driver, 620)
-        _, metrics['remnant-faded'] = capture_canvas(driver, '04-remnant-faded')
-
-        serialized = {
-            'transition_ms': transition_ms,
-            'presentation_age_ms': {'peak': 100, 'remnant-retained': 20, 'remnant-faded': 640},
-            'frames': {name: asdict(value) for name, value in metrics.items()},
-        }
-        (OUTPUT_DIR / 'metrics.json').write_text(json.dumps(serialized, indent=2), encoding='utf-8')
-        print(json.dumps(serialized, indent=2))
-        validate(metrics)
-        print('stellar collision browser visual regression: ok')
-    except Exception:
-        try:
-            driver.save_screenshot(str(OUTPUT_DIR / 'failure-page.png'))
-        except Exception:
-            pass
-        raise
+        for width, height in [(900, 700), (390, 844)]:
+            driver.set_window_size(width, height)
+            for kind in ['oblique', 'head-on', 'partial', 'hit-run', 'solid']:
+                driver.get(url)
+                WebDriverWait(driver, 20).until(lambda d: d.execute_script('return !!window.__collisionTest'))
+                driver.execute_script('window.__collisionTest.reset(arguments[0])', kind)
+                time.sleep(0.15)
+                previous = 0.0
+                samples = []
+                for target in [0, .001, .006, .012, .020, .0235, .0245, .03, .07, .15, .20]:
+                    if target > previous:
+                        driver.execute_script('window.__collisionTest.advance(arguments[0])', target - previous)
+                    WebDriverWait(driver, 10).until(lambda d: abs(d.execute_script('return window.__collisionTest.time') - target) < 1e-8)
+                    driver.execute_async_script('const done=arguments[0]; requestAnimationFrame(()=>requestAnimationFrame(done));')
+                    path = output / f'{width}-{kind}-{target}.png'
+                    canvas = driver.find_element(By.CSS_SELECTOR, '.simulation-view canvas')
+                    canvas.screenshot(str(path))
+                    state = driver.execute_script('return window.__collisionTest.bodies.map(b=>({id:b.id,type:b.bodyType,outcome:b.stellarCollisionOutcome,position:b.position,radius:b.radius}))')
+                    metric = asdict(analyze(path))
+                    samples.append({'time':target, 'frame':path.name, 'metrics':metric, 'state':state})
+                    previous = target
+                errors = [entry for entry in driver.get_log('browser') if 'WebGL' in entry['message'] and entry['level'] == 'SEVERE']
+                assert not errors, f'WebGL runtime errors: {errors}'
+                rows.append({'width':width,'height':height,'scenario':kind,'samples':samples})
+        (output / 'metrics.json').write_text(json.dumps({'production':True, 'scenarios':rows}, indent=2))
     finally:
         driver.quit()
+    print('production stellar collision captures generated; run strict gate and inspect images')
 
 
 if __name__ == '__main__':

@@ -386,21 +386,10 @@ function testMergeImpactPrecedesTopologyReveal() {
         'topology resolve must be preceded by the shallow stellar compression plateau',
       )
 
-      const synthetic = getSyntheticStellarEffects(lastBridgeFrame)
-      const syntheticFlash = synthetic.find((body) => body.effectVisual?.kind === 'contactFlash')
-      assert(syntheticFlash, 'topology resolve must be preceded by a synthetic contact flash')
-      assert(
-        getCollisionEffectProfile(syntheticFlash).fadeAlpha >= 0.35,
-        'synthetic contact flash must remain clearly visible immediately before topology resolve',
-      )
-      assert(
-        synthetic.some((body) => body.effectVisual?.kind === 'compressionShear'),
-        'topology-mask frame must contain compression shear',
-      )
-      assert(
-        synthetic.some((body) => body.effectVisual?.kind === 'stellarPlasma'),
-        'topology-mask frame must contain stellar plasma',
-      )
+      assert(lastA.stellarCollisionPresentation?.phase === 'contact', 'last source frame must carry the shared contact state')
+      assert(remnant.stellarCollisionPresentation?.phase === 'settle', 'first remnant must inherit the shared envelope state')
+      assert(remnant.stellarCollisionPresentation.key === lastA.stellarCollisionPresentation.key,
+        'physical handoff must retain the same collision envelope identity')
       assert(
         next.some((body) =>
           body.bodyType === 'effect' &&
@@ -454,8 +443,8 @@ function testSyntheticImpactBuildsTowardContact() {
   const shallowProfile = getCollisionEffectProfile(shallowFlash)
   const deepProfile = getCollisionEffectProfile(deepFlash)
   assert(
-    deepProfile.fadeAlpha > shallowProfile.fadeAlpha + 0.2,
-    'synthetic contact flash must build with compression instead of decaying toward impact',
+    deepProfile.baseOpacity <= 0.3 && shallowProfile.baseOpacity <= 0.3,
+    'contact light must remain subordinate to the temperature-colored surface',
   )
   assert(
     deepEffects.some((body) => body.effectVisual?.kind === 'stellarPlasma'),

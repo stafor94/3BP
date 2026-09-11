@@ -697,7 +697,7 @@ function makeCollisionFlash(
       temperatureBias: speedHeat,
       stellarCollision,
       stellarOutcome,
-      sourceMaxRadius: stellarCollision ? undefined : Math.max(a.radius, b.radius),
+      sourceMaxRadius: Math.max(a.radius, b.radius),
     },
   }
 }
@@ -729,6 +729,7 @@ function makeStellarCompressionSheet(
     lifetime: STELLAR_SHOCK_LIFETIME + mergeBoost * 0.18 + partialBoost * 0.08,
     effectVisual: {
       kind: 'compressionShear',
+      sourceMaxRadius: Math.max(a.radius, b.radius),
       direction: { ...geometry.tangent },
       normal: { ...geometry.normal },
       stretch: clamp(
@@ -792,6 +793,7 @@ function makeStellarAfterglow(
     lifetime,
     effectVisual: {
       kind: 'stellarAfterglow',
+      sourceMaxRadius: Math.max(a.radius, b.radius),
       direction: { ...geometry.tangent },
       normal: { ...geometry.normal },
       stretch: clamp(
@@ -834,6 +836,7 @@ function getEjectaDirection(
   geometry: CollisionGeometry,
   stellarBias?: StellarEjectaBias,
   large = false,
+  stellarCollision = false,
 ) {
   const randomDirection = seededUnit(seed, index, is2d)
   const randomProjected = sub(randomDirection, scale(geometry.normal, dot(randomDirection, geometry.normal)))
@@ -860,6 +863,16 @@ function getEjectaDirection(
     }
 
     return randomDirection
+  }
+
+  if (stellarCollision) {
+    const grazing = geometry.grazing
+    const sign = grazing > 0.6
+      ? (index % 5 === 4 ? -stellarBias.dominantTangentSign : stellarBias.dominantTangentSign)
+      : (index % 2 ? 1 : -1)
+    const angle = (seededScalar(`${seed}:fan:${index}`) - 0.5) * (1.5 - grazing * 0.3)
+    const spread = add(scale(geometry.tangent, sign * Math.cos(angle)), scale(geometry.normal, Math.sin(angle)))
+    return normalize(add(spread, scale(randomDirection, is2d ? 0.08 : 0.28)), randomDirection)
   }
 
   const { massAsymmetry, strippedDirection, relativeDirection, dominantTangentSign } = stellarBias
@@ -969,6 +982,7 @@ function makeStellarEffectVisual(
 
   return {
     kind: 'stellarPlasma',
+    sourceMaxRadius: Math.max(a.radius, b.radius),
     direction: { ...direction },
     normal: { ...geometry.normal },
     stretch: clamp(
@@ -1089,7 +1103,7 @@ function makeEjecta(
     const volume = requestedVolume * share
     const radius = Math.cbrt(Math.max(volume, 1e-12))
     const large = stellarEjecta && index < largeCount
-    const direction = getEjectaDirection(seed, index, is2d, geometry, stellarBias, large)
+    const direction = getEjectaDirection(seed, index, is2d, geometry, stellarBias, large, stellarCollision)
     const tiny = radius < MIN_PERSISTENT_FRAGMENT_RADIUS || mass < MIN_PERSISTENT_FRAGMENT_MASS
 
     if (stellarEjecta && stellarBias) {

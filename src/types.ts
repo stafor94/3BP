@@ -77,7 +77,22 @@ export type EffectVisualState = {
   grazing?: number
 }
 
+/** Immutable presentation metadata. Never a gravitating body or solver input geometry. */
+export type StellarCollisionSource = Pick<BodyState, 'id' | 'mass' | 'radius' | 'position' | 'velocity' | 'color' | 'stellarEvolutionStage' | 'stellarTemperatureK'>
+export type StellarCollisionPresentation = {
+  key: string
+  sources: [StellarCollisionSource, StellarCollisionSource]
+  targets: StellarCollisionSource[]
+  outcome: StellarCollisionOutcome
+  phase: 'contact' | 'settle'
+  progress: number
+  elapsed: number
+  duration: number
+}
+
 export type BodyState = {
+  stellarCollisionPresentation?: StellarCollisionPresentation
+  stellarCollisionAge?: number
   id: string
   name: string
   color: string

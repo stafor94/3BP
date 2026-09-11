@@ -52,10 +52,6 @@ const completedTokens = new Map<string, string>()
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
-function nowMs() {
-  return typeof performance !== 'undefined' ? performance.now() : Date.now()
-}
-
 function isStar(body: BodyState) {
   return body.bodyType === 'star'
 }
@@ -338,6 +334,9 @@ export function syncStellarRemnantPresentationState(
   })
 
   bodies.filter(isStar).forEach((body) => {
+    if (body.stellarCollisionAge !== undefined) {
+      activeTransitions.delete(body.id); completedTokens.delete(body.id); return
+    }
     const token = body.transientHeatToken
     const outcome = body.stellarCollisionOutcome
     if (!token || !outcome) {
@@ -352,7 +351,7 @@ export function syncStellarRemnantPresentationState(
 
     activeTransitions.set(body.id, {
       ...transition,
-      startedAtMs: nowMs(),
+      startedAtMs: simulationTime * 1000,
     })
     completedTokens.delete(body.id)
   })
@@ -380,7 +379,7 @@ function applyStellarRemnantPresentation(
   if (typeof seed !== 'number') return
 
   const body = currentBodiesBySeed.get(seedKey(seed))
-  if (!body || !isStar(body)) return
+  if (!body || !isStar(body) || body.stellarCollisionAge !== undefined) return
 
   const transition = activeTransitions.get(body.id)
   if (!transition) return
@@ -389,7 +388,7 @@ function applyStellarRemnantPresentation(
     return
   }
 
-  const elapsedMs = nowMs() - transition.startedAtMs
+  const elapsedMs = lastSimulationTime * 1000 - transition.startedAtMs
   if (elapsedMs >= transition.durationMs) {
     activeTransitions.delete(body.id)
     completedTokens.set(body.id, transition.token)

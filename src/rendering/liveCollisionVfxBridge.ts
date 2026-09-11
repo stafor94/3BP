@@ -11,19 +11,17 @@ import {
   type CollisionVisualLifecycle,
   type CollisionVisualTransition,
 } from './collisionVisualOutcome'
-import { createStellarImpactBurstLayer } from './stellarImpactBurstLayer'
-import { createStellarTopologyOcclusionLayer } from './stellarTopologyOccluder'
+import { createStellarCollisionEnvelopeLayer } from './stellarCollisionEnvelope'
 
 type CollisionEffectsLayer = ReturnType<typeof createCollisionEffectsLayer>
 type CollisionHandoffLayer = ReturnType<typeof createCollisionHandoffLayer>
-type TopologyOcclusionLayer = ReturnType<typeof createStellarTopologyOcclusionLayer>
-type StellarImpactBurstLayer = ReturnType<typeof createStellarImpactBurstLayer>
+type StellarEnvelopeLayer = ReturnType<typeof createStellarCollisionEnvelopeLayer>
 
 type LiveLayers = {
   collision: CollisionEffectsLayer
   handoff: CollisionHandoffLayer
-  topology: TopologyOcclusionLayer
-  burst: StellarImpactBurstLayer
+  envelope: StellarEnvelopeLayer
+  generation: number
 }
 
 type MaterialRenderCallback = (
@@ -183,6 +181,8 @@ const remnantFormationFragmentCode = `
 
 let installed = false
 let currentBodies: BodyState[] = []
+let currentSimulationTime = 0
+let resetGeneration = 0
 let currentBodiesBySeed = new Map<number, BodyState>()
 let currentBodiesById = new Map<string, BodyState>()
 let previousBodies: BodyState[] | null = null
@@ -380,20 +380,46 @@ function ensureLiveLayers(scene: THREE.Scene) {
   const created: LiveLayers = {
     collision: createCollisionEffectsLayer(scene),
     handoff: createCollisionHandoffLayer(scene),
-    topology: createStellarTopologyOcclusionLayer(scene),
-    burst: createStellarImpactBurstLayer(scene),
+    envelope: createStellarCollisionEnvelopeLayer(scene),
+    generation: resetGeneration,
   }
   liveLayersByScene.set(scene, created)
   return created
 }
 
-function updateLiveLayers(scene: THREE.Scene, camera: THREE.Camera) {
+export function updateLiveCollisionVfxFrame(scene: THREE.Scene, camera: THREE.Camera,
+  clock = { simulationTime: currentSimulationTime, simulationSpeed: 1, paused: false }) {
+  // Time has already been integrated by the simulation; never multiply by speed
+  // a second time or use wall time to advance stellar material.
+  currentSimulationTime = clock.simulationTime
+  scene.userData.collisionClock = clock
+  if (liveLayersByScene.get(scene)?.generation !== resetGeneration) disposeLiveCollisionVfxScene(scene)
   const layers = ensureLiveLayers(scene)
   const now = performance.now()
-  layers.collision.update(currentBodies, camera)
+  layers.collision.update(currentBodies, camera, currentSimulationTime)
   layers.handoff.update(currentBodies, now)
-  layers.topology.update(currentBodies, camera, now)
-  layers.burst.update(currentBodies, camera, now)
+  layers.envelope.update(currentBodies, currentSimulationTime)
+}
+
+export function disposeLiveCollisionVfxScene(scene: THREE.Scene) {
+  const layers = liveLayersByScene.get(scene)
+  if (!layers) return
+  layers.collision.dispose()
+  layers.handoff.dispose()
+  layers.envelope.dispose()
+  liveLayersByScene.delete(scene)
+}
+
+export function resetLiveCollisionVfxState() {
+  resetGeneration += 1
+  currentBodies = []
+  currentBodiesBySeed.clear()
+  currentBodiesById.clear()
+  previousBodies = null
+  previousBodyIds.clear()
+  collisionProductVisuals.clear()
+  collisionVisualEventsByResultId.clear()
+  surfaceIdentitySeedByBodyId.clear()
 }
 
 function updateCollisionEventLifecycle(event: CollisionVisualEvent, now: number) {
@@ -566,7 +592,9 @@ function applyCollisionProductLifecycle(
   }
 }
 
-export function syncLiveCollisionVfxState(bodies: BodyState[]) {
+export function syncLiveCollisionVfxState(bodies: BodyState[], simulationTime = currentSimulationTime) {
+  if (simulationTime < currentSimulationTime || (simulationTime === 0 && currentSimulationTime > 0)) resetLiveCollisionVfxState()
+  currentSimulationTime = simulationTime
   const now = performance.now()
   const nextIds = new Set(bodies.map((body) => body.id))
   const transitions = previousBodies
@@ -691,7 +719,6 @@ export function installLiveCollisionVfxBridge() {
       object: THREE.Object3D,
       group: THREE.Group | null,
     ) {
-      updateLiveLayers(scene, camera)
       previousOnBeforeRender?.call(
         this,
         renderer,

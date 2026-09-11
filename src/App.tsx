@@ -888,6 +888,7 @@ export default function App() {
           bodies={bodies}
           simulationTime={time}
           simulationSpeed={speedRef.current}
+          paused={!isRunning}
           trailVersion={trailVersion}
           trailEnabled={trailEnabled}
           trailDuration={trailDuration}

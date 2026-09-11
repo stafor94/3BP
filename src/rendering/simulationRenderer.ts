@@ -1,3 +1,5 @@
+import { syncBodyPresentationBeforeRender } from './bodyLighting'
+import { updateLiveCollisionVfxFrame, disposeLiveCollisionVfxScene } from './liveCollisionVfxBridge'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { resolveBodyDescendant } from '../collisionWatch'
@@ -38,6 +40,7 @@ export type SimulationRenderState = {
   bodies: BodyState[]
   simulationTime: number
   simulationSpeed: number
+  paused?: boolean
   renderStateGeneration: number
   trailVersion: number
   trailEnabled: boolean
@@ -76,6 +79,7 @@ export type SimulationCameraTelemetry = {
   nowMs: number
   simulationTime: number
   simulationSpeed: number
+  paused?: boolean
   renderStateGeneration: number
   mode: CameraMode
   trackedBodyId: string | null
@@ -1841,6 +1845,8 @@ export function createSimulationRenderer(
     }
     renderCollisionSolidHandoffFrame(scene, renderFrameSequence)
     spaceBackdrop.update(camera.position)
+    syncBodyPresentationBeforeRender(scene)
+    updateLiveCollisionVfxFrame(scene, camera, { simulationTime: state.simulationTime, simulationSpeed: state.simulationSpeed, paused: state.paused ?? false })
     renderer.render(scene, camera)
   }
 
@@ -1859,6 +1865,7 @@ export function createSimulationRenderer(
     spaceBackdrop.dispose()
     sharedBodyGeometry.dispose()
     sharedGlowTexture.dispose()
+    disposeLiveCollisionVfxScene(scene)
     renderer.dispose()
     renderer.domElement.remove()
   }

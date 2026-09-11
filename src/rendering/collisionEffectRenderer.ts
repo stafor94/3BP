@@ -40,6 +40,7 @@ const effectFragmentShader = `
   uniform float uOuterGlow;
   uniform float uPulse;
   uniform float uSynthetic;
+  uniform float uStellar;
 
   varying vec2 vUv;
 
@@ -74,7 +75,13 @@ const effectFragmentShader = `
     float edge = 0.0;
     float noise = plasmaNoise(p + vec2(uProgress * 0.7, -uProgress * 0.23));
 
-    if (uKind < 0.5) {
+    if (uStellar > 0.5 && uKind < 1.5) {
+      float cloud = exp(-dot(p, p) * 4.0) * (1.0 - smoothstep(0.65, 1.0, length(p)));
+      alpha = cloud * (0.55 + noise * 0.3);
+      core = cloud * 0.12;
+      body = cloud;
+      edge = cloud;
+    } else if (uKind < 0.5) {
       // Contact flash: compressed impact sheet rather than a spherical glow.
       float warpedY = p.y + (noise - 0.5) * 0.16 * uTurbulence;
       float lens = length(vec2(p.x * 0.72, warpedY * 3.35));
@@ -107,28 +114,15 @@ const effectFragmentShader = `
       body = band;
       edge = band * (1.0 - filament);
     } else if (uKind < 2.5) {
-      // Stellar plasma: hot head, torn tail, cooling edge and turbulent filaments.
-      float headDistance = length(vec2((p.x - 0.28) * 1.08, p.y * 1.22));
-      float head = 1.0 - smoothstep(0.24, 0.92, headDistance);
-      float tailT = clamp((0.34 - p.x) / max(0.55, 1.1 + uTail * 0.28), 0.0, 1.0);
-      float tailCenter =
-        sin((p.x + uSeed * 0.009) * 8.0 + noise * 4.0) *
-        (0.035 + 0.12 * tailT) * uTurbulence;
-      float tailWidth = mix(0.34, 0.065, pow(tailT, 0.72));
-      float tornWidth = tailWidth * mix(0.72, 1.24, noise);
-      float tailBand = 1.0 - smoothstep(tornWidth * 0.42, tornWidth, abs(p.y - tailCenter));
-      float tailEnvelope =
-        smoothstep(-1.06, -0.72, p.x) *
-        (1.0 - smoothstep(0.12, 0.48, p.x));
-      float tail = tailBand * tailEnvelope;
-      float filamentA = exp(-abs(p.y - tailCenter * 0.45) * (19.0 - tailT * 5.0)) * tailEnvelope;
-      float filamentB = exp(-abs(p.y + tailCenter * 1.35 + 0.08 * sin(p.x * 13.0)) * 23.0) * tailEnvelope;
-      float irregularHead = head * mix(0.72, 1.08, noise);
-      alpha = max(irregularHead, tail * (0.58 + noise * 0.34));
-      alpha += (filamentA * 0.22 + filamentB * 0.13) * (0.35 + uTail * 0.45);
-      core = (1.0 - smoothstep(0.0, 0.43, headDistance)) + filamentA * 0.34;
-      body = max(head * 0.72, tail * 0.75);
-      edge = max(head, tail) * (1.0 - clamp(core, 0.0, 1.0));
+      // Distributed gas density: no bright head and no needle-thin tail.
+      float width = mix(0.42, 0.78, uProgress);
+      float center = sin(p.x * 4.0 + uSeed) * 0.10 * uTurbulence;
+      float cloud = exp(-pow((p.y - center) / width, 2.0) * 2.0);
+      float longitudinal = smoothstep(-1.0, -0.6, p.x) * (1.0 - smoothstep(0.2, 1.0, p.x));
+      alpha = cloud * longitudinal * (0.45 + noise * 0.5);
+      core = alpha * 0.08;
+      body = alpha;
+      edge = alpha;
     } else if (uKind < 3.5) {
       // Stellar afterglow: hollow, broken, expanding shell with turbulent gaps.
       float radial = length(vec2(p.x * 0.9, p.y * 1.06));
@@ -328,6 +322,7 @@ function createEffectMaterial() {
       uOuterGlow: { value: 0 },
       uPulse: { value: 0 },
       uSynthetic: { value: 0 },
+      uStellar: { value: 0 },
     },
     vertexShader: effectVertexShader,
     fragmentShader: effectFragmentShader,
@@ -612,7 +607,9 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     const fallbackDirection = vec3LengthSquared(body.velocity) > 1e-12
       ? body.velocity
       : body.effectVisual?.normal ?? { x: 1, y: 0, z: 0 }
-    const sourceDirection = effectDirection && vec3LengthSquared(effectDirection) > 1e-12
+    const sourceDirection = stellarEffect && profile.kind === 'stellarPlasma' && vec3LengthSquared(body.velocity) > 1e-12
+      ? body.velocity
+      : effectDirection && vec3LengthSquared(effectDirection) > 1e-12
       ? effectDirection
       : fallbackDirection
 
@@ -628,7 +625,10 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     const diameter = profile.visualRadius * 2
     let scaleX = diameter * profile.anisotropicStretch
     let scaleY = diameter * profile.widthScale
-    const maxWorldDiameter = profile.kind === 'stellarAfterglow'
+    const sourceDiameter = 2 * (body.effectVisual?.sourceMaxRadius ?? body.radius)
+    const maxWorldDiameter = stellarEffect
+      ? sourceDiameter * (profile.kind === 'stellarPlasma' ? 2.5 : profile.kind === 'stellarAfterglow' ? 2 : 0.8)
+      : profile.kind === 'stellarAfterglow'
       ? stellarEffect ? 1.28 : 0.96
       : stellarEffect
         ? synthetic
@@ -654,11 +654,11 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
 
     coreColor.copy(hotWhite).lerp(
       baseColor,
-      profile.kind === 'stellarPlasma' ? 0.11 : profile.kind === 'stellarAfterglow' ? 0.28 : 0.06,
+      stellarEffect ? 0.9 : profile.kind === 'stellarPlasma' ? 0.11 : profile.kind === 'stellarAfterglow' ? 0.28 : 0.06,
     )
     midColor.copy(baseColor).lerp(
       paleBlue,
-      profile.kind === 'contactFlash' ? 0.68 : profile.kind === 'stellarAfterglow' ? 0.18 : 0.25,
+      stellarEffect ? 0.06 : profile.kind === 'contactFlash' ? 0.68 : profile.kind === 'stellarAfterglow' ? 0.18 : 0.25,
     )
     edgeColor.copy(baseColor)
     const coolingTarget = profile.kind === 'stellarPlasma' ? coolingRed : coolingAmber
@@ -711,13 +711,16 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     uniforms.uOuterGlow.value = profile.outerGlow
     uniforms.uPulse.value = profile.pulseStrength
     uniforms.uSynthetic.value = synthetic ? 1 : 0
+    uniforms.uStellar.value = stellarEffect ? 1 : 0
   }
 
   return {
-    update(bodies: BodyState[], camera: THREE.Camera) {
+    update(bodies: BodyState[], camera: THREE.Camera, simulationTime?: number) {
       const now = performance.now()
       const physicalEffects = bodies.filter((body) => body.bodyType === 'effect')
-      const syntheticEffects = getSyntheticStellarEffects(bodies)
+      // Continuous envelopes own production contact. The legacy helper remains
+      // available to isolated historical fixtures, never layered over the shell.
+      const syntheticEffects = simulationTime === undefined ? getSyntheticStellarEffects(bodies) : []
       const syntheticIds = new Set(syntheticEffects.map((body) => body.id))
       const physicalIds = new Set(physicalEffects.map((body) => body.id))
 
@@ -770,12 +773,12 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
         const smoothFade = fadeProgress * fadeProgress * (3 - 2 * fadeProgress)
         // The physical contact flash starts immediately while the synthetic peak is
         // still retiring. Larger shear/plasma structures then complete the crossfade.
-        const opacity = kind === 'contactFlash' ? 1 : 0.22 + smoothFade * 0.78
+        const opacity = body.effectVisual?.stellarCollision ? 1 : kind === 'contactFlash' ? 1 : 0.22 + smoothFade * 0.78
         // Physical collision VFX age in real time so 0.03x/0.08x observation does
         // not stretch a 0.5-2s visual effect into many seconds of wall-clock time.
         const visualBody = {
           ...body,
-          age: Math.max(0, (now - introducedAt) / 1000),
+          age: body.effectVisual?.stellarCollision ? (body.age ?? 0) : Math.max(0, (now - introducedAt) / 1000),
         }
         updateVisual(ensure(body), visualBody, camera, opacity)
       })
