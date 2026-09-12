@@ -586,10 +586,9 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     const existing = visuals.get(body.id)
     if (existing) return existing
 
-    const material = createEffectMaterial()
     const trail = body.effectVisual?.stellarCollision && body.effectVisual.kind === 'stellarPlasma'
       ? createStellarGasTrail() : undefined
-    if (trail) material.depthTest = true
+    const material = trail?.material ?? createEffectMaterial()
     const mesh = new THREE.Mesh(trail?.geometry ?? geometry, material)
     mesh.frustumCulled = false
     mesh.renderOrder = 14
@@ -605,6 +604,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     body: BodyState,
     camera: THREE.Camera,
     opacityScale = 1,
+    simulationTime?: number,
   ) => {
     const profile = getCollisionEffectProfile(body)
     const synthetic = body.id.startsWith('preview:')
@@ -719,7 +719,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     uniforms.uSynthetic.value = synthetic ? 1 : 0
     uniforms.uStellar.value = stellarEffect ? 1 : 0
     if (visual.trail) {
-      updateStellarGasTrail(visual.trail, body, camera)
+      updateStellarGasTrail(visual.trail, body, camera, simulationTime)
       // Trail vertices are measured physical world positions. No visual
       // extrapolation or guessed tail direction can diverge from the parcel.
       visual.mesh.position.set(0, 0, 0)
@@ -795,7 +795,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
           ...body,
           age: body.effectVisual?.stellarCollision ? (body.age ?? 0) : Math.max(0, (now - introducedAt) / 1000),
         }
-        updateVisual(ensure(body), visualBody, camera, opacity)
+        updateVisual(ensure(body), visualBody, camera, opacity, simulationTime)
       })
       syntheticEffects.forEach((body) => updateVisual(ensure(body), body, camera))
       retiringEffects.forEach(({ body, opacity }) => {

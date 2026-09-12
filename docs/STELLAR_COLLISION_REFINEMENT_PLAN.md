@@ -115,6 +115,61 @@
 - 3단계 종료 시 별도 미해결로 보고한 `buildContactPhysicalFrame()`의 metadata cleanup 범위는 4단계 형상 작업에서 수정하지 않았다.
 - 이번 단계에서도 테스트, 의존성 설치, 빌드, 타입 검사, lint, 회귀 검사, 브라우저 실행, 스크린샷·영상 캡처, CI 실행·재시도를 수행하지 않았다.
 
+## 5단계 — 가스 이력의 확산·감쇠와 밀도 표현 개선
+
+상태: **5단계 구현 반영, 미검증**
+
+변경 파일:
+- `src/rendering/stellarGasTrail.ts`
+- `src/rendering/collisionEffectRenderer.ts`
+- `src/rendering/collisionEffectProfile.ts`
+- `docs/STELLAR_COLLISION_REFINEMENT_PLAN.md`
+
+### 실제 적용 경로
+
+- `createCollisionEffectsLayer()`에서 `effectVisual.stellarCollision === true && effectVisual.kind === 'stellarPlasma'`인 경우에만 `createStellarGasTrail()`의 고정 리본 geometry와 전용 ShaderMaterial을 사용한다.
+- 비항성 `stellarPlasma`, `contactFlash`, `compressionShear`, `stellarAfterglow`, `collisionSpark`는 기존 공용 effect material 경로를 유지한다. 전역 bloom/exposure, 항성 광구·corona, 4단계 envelope geometry는 변경하지 않았다.
+- 가스 중심선은 각 render update에서 관측한 실제 `body.position`만 사용한다. 관측 구간 내부 보간도 두 관측 위치를 잇는 선형 chord로만 제한했으며 물리 궤적을 임의로 휘거나 과거 발사 경로를 역산하지 않는다.
+
+### 샘플 추가·유지·제거와 버퍼 상한
+
+- 각 샘플은 실제 관측 위치, simulation timestamp, 생성 이후 누적 이동 거리, 단조 증가 sample id를 보유한다.
+- 첫 샘플은 renderer가 처음 관측한 현재 위치 한 점만 즉시 기록한다. renderer가 늦게 생성됐더라도 과거 꼬리를 추정해 붙이지 않는다.
+- 같은 `simulationTime`의 반복 render에서는 새 샘플을 추가하지 않는다. 새 샘플은 최소 `0.006 s`의 simulation-time 간격과 `sourceMaxRadius × 0.018` 이상의 실제 이동을 모두 요구하며, 일반 목표 간격 `0.014 s` 또는 충분한 이동 거리도 함께 본다. 정지한 위치에는 동일 정점을 쌓지 않는다.
+- 큰 dt/이동은 마지막 실제 관측점과 새 실제 관측점 사이만 선형 보간한다. 한 update에서 내부 보간은 최대 4점이고 최신 관측점까지 합쳐 최대 5개 segment sample만 추가한다.
+- 시간 이력은 최근 `0.52 s`로 제한하며 `0.36 s`부터 오래된 끝을 연속 감쇠시킨 뒤 제거한다. 메모리/정점 예산은 기존과 동일한 최대 40 sample(80 ribbon vertices)이다.
+- sample 수가 40을 넘으면 가장 오래된 점을 즉시 잘라내지 않고, 양 끝을 보존하면서 시간·거리상 가장 중복된 내부 sample부터 축약한다. 시간 수명 초과 제거가 기본 tail 회수 기준이고 capacity는 예산 안전장치다.
+- simulation time 되감기, body age 되감기 또는 event key 변경 시 기존 이력을 폐기한다. effect body가 제거되거나 renderer reset/dispose가 실행되면 기존 visual 제거 경로에서 geometry/material과 함께 이력이 정리된다.
+
+### 샘플별 확산·밀도 감쇠
+
+- 각 샘플의 `localAge = currentSimulationTime - sample.simulatedAt`으로 폭, 밀도, 냉각 좌표, 앞/뒤 끝 감쇠를 계산한다. 분출체 전체 age 하나로 모든 sample 폭을 동시에 키우지 않는다.
+- 횡방향 반폭은 `sourceMaxRadius` 기준 약 `0.085R`에서 시작해 local age에 따라 완만하게 퍼지고 최대 `0.46R`로 제한한다.
+- 이 geometry는 2차원 면적 확장이 아니라 **리본의 한 횡방향 폭**을 넓히므로 surface-brightness 근사는 `initialWidth / currentWidth`의 1차 역비례를 적용한다. 이는 렌더링 밀도 근사이며 실제 유체 밀도 계산이 아니다.
+- 최근 끝에는 약 `0.04 s`의 local head fade를 적용해 밝은 탄환 머리가 즉시 생기지 않게 하고, 오래된 끝은 제거 전에 먼저 희미해진다. parcel 전체 lifetime은 그대로 두되 마지막 22% 구간에서만 profile terminal fade를 연결해 물리 effect 삭제 직전 전체 리본도 충분히 소멸한다.
+- 전용 가스 shader는 고정된 중앙 core/ridge를 사용하지 않는다. 폭 전체에 완만한 저주파 밀도 차와 불규칙한 가장자리만 주며, sample이 많아졌다는 이유로 별도 발광을 합산하지 않는다.
+
+### UV·노이즈 좌표 안정화
+
+- 노이즈 종방향 좌표는 `sample.distance / sourceMaxRadius`인 누적 실제 이동거리 기준이다. 오래된 sample이 제거되거나 내부 sample이 축약돼도 남은 sample 좌표를 0~1로 다시 정규화하지 않는다.
+- `aTrailCoord`는 노이즈 좌표, `aTrailEndFade`는 앞/뒤 끝 감쇠, `aTrailAge01`은 local age/cooling, `aTrailDensity`는 폭에 따른 밀도 보정으로 분리해 vertex→fragment shader로 전달한다.
+- 노이즈는 body id에서 파생한 고정 seed와 안정 거리 좌표만 사용한다. 매 frame 난수, time-phase 고주파 반짝임, 단일 sine 중심선 변형을 넣지 않는다.
+- 색은 기존 stellar gas의 source/secondary 온도색 경로를 그대로 받아 local age가 높은 곳을 기존 cooling edge 쪽으로만 완만하게 이동시킨다. 전용 shader는 백색 `uCoreColor`를 출력 색에 사용하지 않는다.
+
+### 시간 원점·일시정지·카메라
+
+- production `createCollisionEffectsLayer.update(..., simulationTime)`의 stage-3 simulation clock을 가스 trail까지 전달한다. sample timestamp와 local age는 모두 같은 simulation-time 원점이다.
+- effect body age가 event age와 다른 시작점을 가질 수 있으므로 최초 관측 때 `launchSimulationTime = simulationTime - bodyAge`를 명시적으로 기록하고 서로 다른 원점 값을 직접 빼지 않는다. 물리 lifetime/age 자체는 변경하지 않는다.
+- 일시정지에서는 동일 `simulationTime`이 반복되므로 sample 생성·local age·폭·밀도·냉각·감쇠가 진행되지 않는다. 카메라만 회전하면 같은 sample 위치를 유지한 채 billboard side vector는 다시 계산된다.
+- tangent와 view가 거의 평행하면 camera-right의 tangent 성분을 제거한 방향, 이후 고정 축 순으로 fallback한다. 인접 sample side가 이전 side와 반대면 부호를 뒤집어 ribbon flip을 줄인다.
+- geometry/material은 parcel 생성 시 한 번 만들고 fixed buffer를 재사용한다. 각 sample마다 mesh/material을 만들지 않으며 `depthTest=true`, `depthWrite=false`를 유지한다.
+
+### 남은 제한 사항·검증 상태
+
+- 영상 `52869.mp4`에서 남는 여러 가스 띠의 **fan 방향 분포 자체**는 물리 분출 방향 문제이므로 6단계 인계 항목이다. 이번 단계는 `physics/engine.ts`, 실제 분출 속도·질량·위치·lifetime, 충돌 solver를 변경하지 않았다.
+- renderer가 effect 생성 뒤 늦게 해당 parcel을 처음 보게 된 경우 그 이전 이력은 의도적으로 복원하지 않는다. 존재하는 실제 관측 이력만 사용한다.
+- 이번 단계에서는 테스트 코드 작성·수정, 의존성 설치, 빌드, 타입 검사, lint, 회귀 검사, 브라우저 실행, 스크린샷·영상 캡처, CI 실행·재시도·결과 대기를 수행하지 않았다. 실제 영상에서 시각 개선이 달성됐다고 아직 판정하지 않는다.
+
 ## 최종 통합 검증
 
 - 정상 크기와 확대 화면에서 중앙에 독립된 흰 점이 없는지 확인
@@ -145,6 +200,15 @@
 - 최종 광구 복귀에서 위치·크기·색·corona가 튀지 않는지 확인
 - 1배속과 충돌 관찰 배속, 일시정지·재개에서 형상 연속성이 유지되는지 확인
 - 온도색과 1~3단계 변경이 유지되는지 확인
+- 곧고 밝은 가스 중심선, 탄환 머리, 점선 구슬이 남지 않는지 확인
+- 오래된 가스가 최근 가스보다 넓게 퍼지고 낮은 밀도로 흐려지는지 확인
+- 오래된 sample 제거·capacity 축약 시 남은 무늬가 리본을 따라 미끄러지거나 꼬리가 갑자기 잘리지 않는지 확인
+- 가스 중심 경로가 관측된 실제 물리 위치 이력과 일치하고 직선 물리 경로를 임의로 휘지 않는지 확인
+- 프레임률·sample 수 차이로 trail 길이와 총 밝기가 크게 달라지지 않는지 확인
+- 일시정지·재개·배속 변경·카메라 회전에서 sample age, 폭, 밀도, billboard 방향이 안정적인지 확인
+- 항성 온도색과 광구 depth 가림이 유지되는지 확인
+- 비항성 plasma/contact/shear/afterglow/spark 표현이 유지되는지 확인
+- 모바일에서 최대 40 sample/80 vertex의 고정 ribbon, draw call 수, 넓어진 투명 영역 비용이 과도하지 않은지 확인
 
 ## 마지막 검증 단계에서 갱신할 기존 검사
 
@@ -155,6 +219,6 @@
 
 최종 검증에서는 예전 별도 하이라이트 구현을 다시 강제하지 않는다. 온도색, 전체 발광감, 외곽 링 방지 검사는 유지하며, 결과에 맞추기 위해 임의로 임계값을 낮추지 않는다.
 
-## 5단계 대상
+## 6단계 대상
 
-가스 이력의 샘플별 확산·감쇠와 밀도 표현을 바꿔 길고 곧은 빗살·부채꼴 리본을 개선한다. 4단계에서는 시작하지 않는다.
+항성 분출 방향의 fan 분포를 충돌 각도·질량비·결과별로 정리한다. 기존 질량·운동량 보정 계약을 유지하면서 규칙적인 빗살 배치를 완화한다. 5단계에서는 `physics/engine.ts`의 분출 방향 생성이나 실제 물리 속도·질량을 변경하지 않으며 6단계를 시작하지 않는다.
