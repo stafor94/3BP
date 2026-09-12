@@ -70,10 +70,25 @@ function testFinalBaselineDoesNotChangeGlobalRenderingPolicy() {
 }
 
 function testPhotosphereCannotRegressToSmoothDiskOrDarkOutline() {
-  // Light outside the disk, not visible surface noise, prevents a white-ball regression.
-  for (const gate of ['core_white', 'near_glow', 'diffuse_halo', 'dark_outline', 'neon_ring', 'surface_noise', 'temperature_identity']) {
+  // Keep the production halo/edge/noise/temperature gates, but do not require
+  // the removed neutral-white center as an acceptance target. The photographic
+  // gate must instead verify center-to-mid-disk luminance/chromaticity continuity
+  // while retaining an absolute brightness floor so a dark ball cannot pass.
+  for (const gate of ['near_glow', 'diffuse_halo', 'dark_outline', 'neon_ring', 'surface_noise', 'temperature_identity']) {
     assert(photographicRegressionSource.includes(gate), `missing photographic production gate: ${gate}`)
   }
+  assert(
+    photographicRegressionSource.includes('validate_disk_continuity(metrics, name)'),
+    'photographic gate must retain center-to-mid-disk continuity validation',
+  )
+  assert(
+    photographicRegressionSource.includes("metrics['core_luma'] >= 0.55"),
+    'photographic gate must retain an absolute luminous-photosphere floor',
+  )
+  assert(
+    photographicRegressionSource.includes('center lost temperature identity relative to the mid-disk'),
+    'photographic gate must reject a neutral center that loses temperature identity',
+  )
   assert(!photosphereSource.includes('primaryGranulation'), 'strong gameplay granulation must not return')
 }
 
@@ -86,4 +101,3 @@ const tests = [
 
 for (const test of tests) test()
 console.log(`stellar final render structure regression checks passed (${tests.length})`)
-
