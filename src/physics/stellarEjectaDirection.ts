@@ -102,10 +102,23 @@ function projectToImpactPlane(value: Vec3, frame: CollisionFrame, fallback: Vec3
   )
 }
 
+function getHeadOnSpreadSample(input: StellarEjectaDirectionInput) {
+  const count = Math.max(1, input.count)
+  const binOffset = Math.floor(sample(input.seed, `head-spread-bin:${input.outcome}`) * count)
+  const bin = (input.index + binOffset) % count
+  const jitter = (sample(input.seed, `head-spread-jitter:${input.outcome}`, input.index) - 0.5) * 0.32
+  return clamp(((bin + 0.5 + jitter) / count) * 2 - 1, -1, 1)
+}
+
 function getHeadOnDirection(input: StellarEjectaDirectionInput, frame: CollisionFrame) {
   const sideOffset = sample(input.seed, `head-side:${input.outcome}`) < 0.5 ? 0 : 1
   const sideSign = (input.index + sideOffset) % 2 === 0 ? 1 : -1
-  const spreadSample = sample(input.seed, `head-spread:${input.outcome}`, input.index) * 2 - 1
+  // Keep every head-on collision deterministic, but stratify the normal-axis
+  // spread across the whole parcel set. Independent hashes can accidentally
+  // cluster a small set of parcels into one narrow trajectory band even when
+  // the configured fan width is broad. A seeded bin rotation plus small
+  // per-parcel jitter preserves irregular spacing without allowing that collapse.
+  const spreadSample = getHeadOnSpreadSample(input)
   const sizeScale = input.large ? 0.72 : 1
 
   if (input.is2d) {
