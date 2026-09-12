@@ -253,12 +253,6 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         v.haloGeometry.setAttribute('normal', v.geometry.getAttribute('normal'))
         v.haloMaterial.uniforms.uShellOffset.value = shape.body.radius * 1.4
         updateStellarPhotosphereMaterial(v.material, getStellarPhotosphereFrame(shape.body, simulationTime))
-        // The normal-based spherical center mask spans a broad strip on a necked
-        // collision envelope. Keep a compact photographic lift, but do not let
-        // that spherical assumption bleach the temperature-colored merge surface.
-        if (v.material.uniforms.uCenterHighlightStrength) {
-          v.material.uniforms.uCenterHighlightStrength.value *= 0.20
-        }
         v.material.uniforms.uSurfaceSeed.value = seed(shape.body.id)
       }
       for (const body of stars) {
