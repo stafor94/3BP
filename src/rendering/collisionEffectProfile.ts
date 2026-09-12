@@ -103,17 +103,23 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     const afterglow = kind === 'stellarAfterglow'
     const release = gas ? smooth01((age - (visual?.phaseOffset ?? 0) * 0.009) / 0.006) : 1
     const cooling = smooth01(progress)
+    // Stage 5 leaves gas spread/area-density decay to per-sample trail age.
+    // Parcel-wide age only supplies a late lifetime handoff so every retained
+    // sample is not widened or darkened in lockstep from launch onward.
+    const gasTerminalFade = 1 - smooth01((progress - 0.78) / 0.22)
     return {
       kind, progress, cooling,
-      fadeAlpha: release * Math.pow(1 - progress, gas ? 1.7 : afterglow ? 2 : 3),
-      baseOpacity: gas ? 0.22 : afterglow ? 0.10 : 0.24,
+      fadeAlpha: release * (gas
+        ? gasTerminalFade
+        : Math.pow(1 - progress, afterglow ? 2 : 3)),
+      baseOpacity: gas ? 0.24 : afterglow ? 0.10 : 0.24,
       innerGlow: 0.08, outerGlow: 0.18,
       visualRadius: gas ? Math.min(body.radius * 1.2, sourceRadius * 0.30) * (1 + progress * 2.8)
         : sourceRadius * (afterglow ? 0.8 : 0.24),
       anisotropicStretch: gas ? Math.min(2.6, Math.max(1.25, (visual?.stretch ?? 2) * 0.48)) : 1.15,
       widthScale: gas ? 0.85 + progress * 1.2 : 1,
       tailLength: gas ? (stellarOutcome === 'hitAndRun' ? 0.8 : stellarOutcome === 'partialDisruption' ? 0.65 : 0.5) : 0, pulseStrength: 0,
-      brightness: gas ? 0.85 * (1 - cooling * 0.7) : 0.85,
+      brightness: gas ? 0.82 * (1 - cooling * 0.22) : 0.85,
       turbulence: visual?.turbulence ?? 0.5,
     }
   }

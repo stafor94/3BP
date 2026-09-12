@@ -56,6 +56,14 @@ function isStar(body: BodyState) {
   return body.bodyType === 'star'
 }
 
+function hasCommonStellarCollisionTimeline(body: BodyState) {
+  return Boolean(
+    body.stellarCollisionEventId &&
+    body.stellarCollisionAge !== undefined &&
+    body.stellarCollisionContactDurationSeconds !== undefined,
+  )
+}
+
 function cloneBody(body: BodyState): BodyState {
   return {
     ...body,
@@ -334,6 +342,15 @@ export function syncStellarRemnantPresentationState(
   })
 
   bodies.filter(isStar).forEach((body) => {
+    if (hasCommonStellarCollisionTimeline(body)) {
+      // The production fragment-aware engine already owns this stellar event's
+      // simulation-time timeline. Retire any older token-driven transition and
+      // mark the current token consumed so the legacy path cannot restart later.
+      activeTransitions.delete(body.id)
+      if (body.transientHeatToken) completedTokens.set(body.id, body.transientHeatToken)
+      else completedTokens.delete(body.id)
+      return
+    }
     if (body.stellarCollisionAge !== undefined) {
       activeTransitions.delete(body.id); completedTokens.delete(body.id); return
     }
@@ -379,7 +396,12 @@ function applyStellarRemnantPresentation(
   if (typeof seed !== 'number') return
 
   const body = currentBodiesBySeed.get(seedKey(seed))
-  if (!body || !isStar(body) || body.stellarCollisionAge !== undefined) return
+  if (
+    !body ||
+    !isStar(body) ||
+    hasCommonStellarCollisionTimeline(body) ||
+    body.stellarCollisionAge !== undefined
+  ) return
 
   const transition = activeTransitions.get(body.id)
   if (!transition) return

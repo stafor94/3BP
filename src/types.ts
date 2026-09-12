@@ -47,6 +47,7 @@ export type AtmospherePresetId =
   | 'iceGiant'
 
 export type StellarCollisionOutcome = 'merge' | 'hitAndRun' | 'partialDisruption'
+export type StellarCollisionBodyRole = 'sourceA' | 'sourceB' | 'remnant' | 'survivorA' | 'survivorB'
 
 export type EffectVisualKind =
   | 'contactFlash'
@@ -80,11 +81,27 @@ export type EffectVisualState = {
 /** Immutable presentation metadata. Never a gravitating body or solver input geometry. */
 export type StellarCollisionSource = Pick<BodyState, 'id' | 'mass' | 'radius' | 'position' | 'velocity' | 'color' | 'stellarEvolutionStage' | 'stellarTemperatureK'>
 export type StellarCollisionPresentation = {
+  /** Stable collision-event identity. `key` is kept as its compatibility alias. */
+  eventId?: string
   key: string
   sources: [StellarCollisionSource, StellarCollisionSource]
   targets: StellarCollisionSource[]
   outcome: StellarCollisionOutcome
   phase: 'contact' | 'settle'
+  /** Body roles are event-scoped so two survivors can share one clock without sharing a role. */
+  bodyRoles?: Record<string, StellarCollisionBodyRole>
+  /** Cumulative simulation seconds from first staged contact. */
+  eventAgeSeconds?: number
+  contactDurationSeconds?: number
+  settleDurationSeconds?: number
+  settleAgeSeconds?: number
+  contactProgress?: number
+  transferClockProgress?: number
+  transferProgress?: number
+  settleProgress?: number
+  releaseProgress?: number
+  isComplete?: boolean
+  /** Legacy compatibility aliases derived from the common timeline in production. */
   progress: number
   elapsed: number
   duration: number
@@ -92,7 +109,12 @@ export type StellarCollisionPresentation = {
 
 export type BodyState = {
   stellarCollisionPresentation?: StellarCollisionPresentation
+  /** Collision event carried by an authoritative physical stellar result. */
+  stellarCollisionEventId?: string
+  /** Cumulative simulation seconds from first staged contact; capped at event completion. */
   stellarCollisionAge?: number
+  /** Contact duration captured when this event was staged, in simulation seconds. */
+  stellarCollisionContactDurationSeconds?: number
   id: string
   name: string
   color: string

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.28.0] - 2026-09-12
+
+### Changed
+- 항성 광구의 별도 백색 중심 하이라이트를 제거하고 온도색 기반 단일 emission을 유지해 중앙의 독립적인 흰 점 없이 중심-중간 광구 밝기·색이 연속적으로 이어지도록 변경했습니다.
+- 항성 충돌의 접촉 외피, 공통 simulation-time timeline/eventId, 연속 형상 전이와 실제 결과 천체 handoff를 통합해 접촉 → 변형 → 물질 이동 또는 분리 → 안정화가 하나의 사건으로 이어지도록 정리했습니다.
+- 항성 플라즈마 가스는 실제 물리 위치 이력과 simulation time을 따라 최대 40개 샘플에서 확산·감쇠·밀도 변화를 적용해 오래된 이력이 퍼지며 흐려지도록 변경했습니다.
+- 항성-항성 분출 방향은 충돌 local frame, grazing/head-on 정도, merge/hit-and-run/partial-disruption 결과와 질량 비대칭을 반영하는 결정적 분포로 변경했습니다. 이 변경은 렌더링 전용이 아니라 실제 ejecta 초기 속도 방향을 바꾸며 기존 질량 및 선운동량 보정 경로를 유지합니다.
+
+### Fixed
+- 새 star-star 충돌을 solver에 넘길 때만 stellar collision timeline metadata를 교체하도록 제한해, star/non-star 혼합 충돌이 생존 항성의 이전 완료 event metadata를 불필요하게 지우던 경로를 수정했습니다.
+
+### Verification
+- 중앙 하이라이트를 정답으로 강제하던 기존 shader/photographic 회귀 기준을 새 온도색·밝기 연속성 계약으로 갱신하고, 타임라인·event 재사용·분출 방향·2D 평면·질량·선운동량·혼합 충돌 보호 회귀를 7단계 검증 대상으로 추가했습니다.
+- 최종 빌드, production A/B 영상, 성능 및 CI 결과는 PR #159의 7단계 검증 기록에서 관리하며 이 CHANGELOG 항목 자체는 검증 통과를 의미하지 않습니다.
+
 ## [0.27.0] - 2026-09-11
 
 ### Changed
@@ -688,7 +703,7 @@
 - irregular remnant core, deterministic low-frequency deformation, contact-axis anisotropic compression 구조는 유지하되 초기 deformation/compression 강도를 낮춰 첫 visible remnant frame에서도 본체 질량감과 실루엣이 유지되도록 조정했습니다.
 
 ### Added
-- source 마지막 반지름 대비 초기 remnant visual radius, contact/perpendicular axis 종횡비, phase boundary와 인접 frame 실루엣 변화, REMNANT_SETTLE 잔여 성장폭, non-stellar compression sheet 종횡비를 검증하는 회귀 체크를 추가했습니다.
+- source 마지막 반경 대비 초기 remnant visual radius, contact/perpendicular axis 종횡비, phase boundary와 인접 frame 실루엣 변화, REMNANT_SETTLE 잔여 성장폭, non-stellar compression sheet 종횡비를 검증하는 회귀 체크를 추가했습니다.
 
 ### Unchanged
 - contact-local solid chunk breakup, detached chunks/fine debris, source→result ownership handoff, irregular remnant core, deterministic deformation, anisotropic collision deformation 자체, REMNANT_SETTLE→STABLE lifecycle, collision physics/판정/질량/반지름/카메라/트레일은 변경하지 않았습니다.
@@ -1081,7 +1096,7 @@
 ## [0.17.20] - 2026-08-25
 
 ### Added
-- 일반 추적이 원본 ID 생존 여부만 확인하는지, 흡수·파괴 후 합체 후손·파편·무관한 천체로 자동 승계되지 않는지 검증하는 추적 회귀 체크를 추가했습니다.
+- 일반 추적이 원본 ID 생존 여부만 확인하는지, 흡수·파괴 후 합체 후손·파편·무관한 천체로 자동 승계되지 않는지 검증하는 추적 회귀 테스트를 추가했습니다.
 
 ### Changed
 - 일반 천체 추적은 선택 당시 천체의 정확한 ID가 계속 생존하는 동안에만 유지하도록 변경했습니다.
@@ -1812,7 +1827,7 @@
 
 ### Changed
 - 금방 충돌하거나 화면을 벗어나는 단발성 프리셋을 장시간 관찰 가능한 궤도 시스템으로 교체했습니다.
-- 프리셋 이름을 장시간 관찰 목적과 시스템 구조에 맞게 변경했습니다.
+- 프리셋 이름을 장시간 관찰 목적과 시스템 구조와 관찰 특성에 맞게 변경했습니다.
 
 ## [0.1.1] - 2026-08-24
 
