@@ -7,6 +7,7 @@ type StellarCoronaUniformState = {
   uCoronaSeed: { value: number }
   uCoronaPhotosphereRadiusUv: { value: number }
   uCoronaOuterWhiteMix: { value: number }
+  uCoronaEnvelope: { value: number }
 }
 
 export type StellarCoronaFrame = {
@@ -14,6 +15,7 @@ export type StellarCoronaFrame = {
   timeSeconds: number
   photosphereRadiusUv: number
   outerWhiteMix: number
+  envelopeActive?: boolean
 }
 
 export function configureStellarCoronaMaterial(
@@ -47,6 +49,7 @@ export function configureStellarCoronaMaterial(
   material.userData.stellarCoronaSeed = frame.seed
   material.userData.stellarCoronaPhotosphereRadiusUv = frame.photosphereRadiusUv
   material.userData.stellarCoronaOuterWhiteMix = frame.outerWhiteMix
+  material.userData.stellarCoronaEnvelope = frame.envelopeActive ? 1 : 0
 
   if (!material.userData.stellarCoronaShaderInstalled) {
     material.userData.stellarCoronaShaderInstalled = true
@@ -60,11 +63,13 @@ export function configureStellarCoronaMaterial(
         uCoronaOuterWhiteMix: {
           value: material.userData.stellarCoronaOuterWhiteMix ?? 0.02,
         },
+        uCoronaEnvelope: { value: material.userData.stellarCoronaEnvelope ?? 0 },
       }
       shader.uniforms.uCoronaTime = uniforms.uCoronaTime
       shader.uniforms.uCoronaSeed = uniforms.uCoronaSeed
       shader.uniforms.uCoronaPhotosphereRadiusUv = uniforms.uCoronaPhotosphereRadiusUv
       shader.uniforms.uCoronaOuterWhiteMix = uniforms.uCoronaOuterWhiteMix
+      shader.uniforms.uCoronaEnvelope = uniforms.uCoronaEnvelope
       shader.fragmentShader = shader.fragmentShader
         .replace(
           '#include <common>',
@@ -72,7 +77,8 @@ export function configureStellarCoronaMaterial(
           uniform float uCoronaTime;
           uniform float uCoronaSeed;
           uniform float uCoronaPhotosphereRadiusUv;
-          uniform float uCoronaOuterWhiteMix;`,
+          uniform float uCoronaOuterWhiteMix;
+          uniform float uCoronaEnvelope;`,
         )
         // SpriteMaterial uses the standard map_fragment chunk. The shared legacy
         // texture still supplies UV/RGB carrier data, but corona alpha is owned by
@@ -114,6 +120,10 @@ export function configureStellarCoronaMaterial(
           // Complete coverage at the limb: a half-covered exterior at 1.0R
           // would leave a dark seam before the fully visible glow.
           float coronaCoverage = smoothstep(-overlapWidth, 0.0, signedDistance);
+          // A deformed envelope no longer has the hidden body's circular outline.
+          // Let its real depth silhouette occlude the light; a circular UV hole
+          // otherwise leaves an unlit crescent around the smaller contact lobes.
+          coronaCoverage = mix(coronaCoverage, 1.0, uCoronaEnvelope);
           float coronaAlpha = clamp(
             (immediateGlow + softShoulder + diffuseHalo)
             * carrierFade
@@ -143,5 +153,6 @@ export function configureStellarCoronaMaterial(
     uniforms.uCoronaSeed.value = frame.seed
     uniforms.uCoronaPhotosphereRadiusUv.value = frame.photosphereRadiusUv
     uniforms.uCoronaOuterWhiteMix.value = frame.outerWhiteMix
+    uniforms.uCoronaEnvelope.value = frame.envelopeActive ? 1 : 0
   }
 }

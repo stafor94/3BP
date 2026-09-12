@@ -95,6 +95,16 @@ const effectFragmentShader = `
       core = cloud * 0.12;
       body = cloud;
       edge = cloud;
+    } else if (uStellar > 0.5 && uKind < 1.5) {
+      // Physical stellar contact is a finite soft patch, not the generic narrow
+      // ridge/filament. The geometry already supplies its contact orientation.
+      vec2 patch = vec2(p.x * 0.88, (p.y + (noise - 0.5) * 0.10 * uTurbulence) * 1.45);
+      float falloff = exp(-dot(patch, patch) * 2.8);
+      float boundary = 1.0 - smoothstep(0.60, 1.0, length(p));
+      alpha = falloff * boundary * (0.52 + noise * 0.22);
+      core = falloff * 0.10;
+      body = falloff;
+      edge = falloff * boundary;
     } else if (uKind < 0.5) {
       // Contact flash: compressed impact sheet rather than a spherical glow.
       float warpedY = p.y + (noise - 0.5) * 0.16 * uTurbulence;
@@ -201,6 +211,11 @@ const effectFragmentShader = `
     color = mix(color, uCoreColor, clamp(core, 0.0, 1.0));
     color += uEdgeColor * edge * 0.08;
     color *= uBrightness * pulse;
+    // Stellar patches use normal alpha compositing below. Compress their own
+    // radiance without whitening the temperature hue or clipping every channel.
+    if (uStellar > 0.5 && uSynthetic < 0.5 && uKind < 3.5) {
+      color /= 1.0 + max(color.r, max(color.g, color.b));
+    }
 
     gl_FragColor = vec4(color, clamp(alpha, 0.0, 1.0));
     #include <colorspace_fragment>
@@ -685,6 +700,12 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     const trail = body.effectVisual?.stellarCollision && body.effectVisual.kind === 'stellarPlasma'
       ? createStellarGasTrail() : undefined
     const material = trail?.material ?? createEffectMaterial()
+    if (!trail && body.effectVisual?.stellarCollision && !body.id.startsWith('preview:')) {
+      // Repeated additive light over an already emissive photosphere clips into
+      // white points/lines. Retain a visible colored patch with bounded blending.
+      material.blending = THREE.NormalBlending
+      material.depthTest = body.effectVisual.kind === 'stellarAfterglow'
+    }
     const mesh = new THREE.Mesh(trail?.geometry ?? geometry, material)
     mesh.frustumCulled = false
     mesh.renderOrder = 14

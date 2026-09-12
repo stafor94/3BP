@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import * as THREE from 'three'
+import { configureStellarCoronaMaterial } from '../src/rendering/stellarCoronaMaterial'
 import { getStellarComputedProperties } from '../src/starColors'
 import { getStellarRenderProfile } from '../src/rendering/stellarRenderProfile'
 import type { BodyState, StellarEvolutionStage } from '../src/types'
@@ -214,7 +216,31 @@ function testNonStellarSurfacePathRemainsSeparated() {
   assert(bodyLightingSource.includes('uLightPositions'), 'generic body shader must retain star-light illumination inputs')
 }
 
+function testCoronaEnvelopeStateDoesNotLeakAcrossStarsOrReset() {
+  const first = new THREE.SpriteMaterial()
+  const second = new THREE.SpriteMaterial()
+  const frame = { seed: 1, timeSeconds: 0, photosphereRadiusUv: 0.3, outerWhiteMix: 0.02 }
+  configureStellarCoronaMaterial(first, { ...frame, envelopeActive: true })
+  configureStellarCoronaMaterial(second, frame)
+  const compile = (material: THREE.SpriteMaterial) => {
+    const shader = { uniforms: {}, fragmentShader: '#include <common>\n#include <map_fragment>' } as any
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer)
+    return shader.uniforms
+  }
+  const a = compile(first)
+  const b = compile(second)
+  assert(a.uCoronaEnvelope.value === 1 && b.uCoronaEnvelope.value === 0,
+    'collision coverage must belong to one star, including first shader compilation')
+  configureStellarCoronaMaterial(first, frame)
+  assert(a.uCoronaEnvelope.value === 0, 'settle/reset must restore the ordinary limb mask')
+  assert(first.depthTest && !first.depthWrite && first.blending === THREE.AdditiveBlending,
+    'the actual envelope must continue to occlude corona without corona writing depth')
+  first.dispose()
+  second.dispose()
+}
+
 const tests = [
+  testCoronaEnvelopeStateDoesNotLeakAcrossStarsOrReset,
   testRepresentativeStarsStayVisuallyDistinct,
   testLuminosityAndHaloContractsStayBounded,
   testMassChangesImmediatelyChangeRenderInputs,

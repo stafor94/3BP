@@ -166,10 +166,10 @@ export const stellarPhotosphereFragmentShader = `
     // uniform disk without creating granular noise. It fades continuously once
     // the projected footprint can no longer resolve it, avoiding small-star shimmer.
     float footprint = max(length(fwidth(objectNormal)), 0.000001);
-    float broadResolved = 1.0 - smoothstep(0.020, 0.070, footprint);
+    float broadResolved = 1.0 - smoothstep(0.035, 0.14, footprint);
     vec3 offset = vec3(uSurfaceSeed * 0.051, uSurfaceSeed * 0.089, uSurfaceVariant);
     float broad = valueNoise(objectNormal * 2.9 + offset);
-    float variation = (broad - 0.5) * 0.125 * broadResolved;
+    float variation = (broad - 0.5) * 0.25 * broadResolved;
     return clamp(1.0 + variation * uDetailStrength, 0.92, 1.07);
   }
 
@@ -177,7 +177,7 @@ export const stellarPhotosphereFragmentShader = `
     // A broad continuous center-to-limb gradient supplies spherical depth while
     // keeping the whole disk emissive. There is deliberately no white center term
     // and no dark rim multiplier; the temperature identity scales every radius.
-    return 0.68 + 0.32 * smoothstep(0.0, 0.94, viewMu);
+    return 0.42 + 0.58 * viewMu * viewMu;
   }
 
   float getStellarEdgeCoverage(float viewMu) {
