@@ -39,6 +39,11 @@ type StellarRenderObjects = {
 
 type StellarRenderObjectResolver = (bodyId: string) => StellarRenderObjects | undefined
 
+type HiddenRenderObject = {
+  bodyId: string
+  visible: boolean
+}
+
 type NormalTopology = {
   logicalIndexByVertex: Int32Array
   representativeByLogical: Int32Array
@@ -449,26 +454,45 @@ function getStellarRenderObjectResolver(scene: THREE.Scene) {
   return typeof resolver === 'function' ? resolver as StellarRenderObjectResolver : undefined
 }
 
+function isCurrentRenderObject(
+  resolver: StellarRenderObjectResolver | undefined,
+  bodyId: string,
+  object: THREE.Object3D,
+) {
+  const renderObjects = resolver?.(bodyId)
+  return Boolean(renderObjects && (
+    object === renderObjects.photosphere ||
+    object === renderObjects.corona ||
+    object === renderObjects.secondaryGlow
+  ))
+}
+
 export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
   const group = new THREE.Group()
   group.name = 'stellar-collision-envelopes'
   scene.add(group)
   const visuals = new Map<string, ReturnType<typeof createEnvelope>>()
-  const hidden = new Map<THREE.Object3D, boolean>()
+  const hidden = new Map<THREE.Object3D, HiddenRenderObject>()
   const localAxis = new THREE.Vector3(1, 0, 0)
   const color = new THREE.Color()
   const remove = (id: string) => {
     const v = visuals.get(id)!
     group.remove(v.group); v.geometry.dispose(); v.haloGeometry.dispose(); v.material.dispose(); v.haloMaterial.dispose(); visuals.delete(id)
   }
-  const applySuppression = (objects: Set<THREE.Object3D>) => {
-    hidden.forEach((previousVisible, object) => {
+  const applySuppression = (
+    objects: Map<THREE.Object3D, string>,
+    resolver: StellarRenderObjectResolver | undefined,
+  ) => {
+    hidden.forEach((previous, object) => {
       if (objects.has(object)) return
-      object.visible = previousVisible
+      // A merge/reset can retire a source VisualBody while its trail data is
+      // still retained. Never resurrect an object that is no longer registered
+      // as the current production render object for that body id.
+      if (isCurrentRenderObject(resolver, previous.bodyId, object)) object.visible = previous.visible
       hidden.delete(object)
     })
-    objects.forEach((object) => {
-      if (!hidden.has(object)) hidden.set(object, object.visible)
+    objects.forEach((bodyId, object) => {
+      if (!hidden.has(object)) hidden.set(object, { bodyId, visible: object.visible })
       object.visible = false
     })
   }
@@ -525,18 +549,24 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
       for (const key of visuals.keys()) if (!active.has(key)) remove(key)
 
       const resolveRenderObjects = getStellarRenderObjectResolver(scene)
-      const objectsToHide = new Set<THREE.Object3D>()
+      const objectsToHide = new Map<THREE.Object3D, string>()
       suppressed.forEach((bodyId) => {
         const renderObjects = resolveRenderObjects?.(bodyId)
         if (!renderObjects) return
-        objectsToHide.add(renderObjects.photosphere)
-        objectsToHide.add(renderObjects.corona)
-        objectsToHide.add(renderObjects.secondaryGlow)
+        objectsToHide.set(renderObjects.photosphere, bodyId)
+        objectsToHide.set(renderObjects.corona, bodyId)
+        objectsToHide.set(renderObjects.secondaryGlow, bodyId)
       })
-      applySuppression(objectsToHide)
+      applySuppression(objectsToHide, resolveRenderObjects)
     },
     dispose() {
-      hidden.forEach((visible, object) => { object.visible = visible }); hidden.clear()
+      const resolveRenderObjects = getStellarRenderObjectResolver(scene)
+      hidden.forEach((previous, object) => {
+        if (isCurrentRenderObject(resolveRenderObjects, previous.bodyId, object)) {
+          object.visible = previous.visible
+        }
+      })
+      hidden.clear()
       for (const id of visuals.keys()) remove(id)
       scene.remove(group)
     },

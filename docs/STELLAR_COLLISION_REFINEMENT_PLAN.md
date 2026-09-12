@@ -29,8 +29,8 @@
 - 코로나는 한 개의 `BackSide` shell을 유지한다. 불투명 외피는 `depthTest/depthWrite`를 유지하고, 코로나는 `depthTest=true`, `depthWrite=false`로 외피 내부의 중복 가산을 depth buffer로 차단한다. 색은 외피의 `vCollisionColor`를 그대로 따른다.
 - 이 코로나는 실제 부피 밀도를 적분하는 volumetric/raymarch가 아니라, 단면 반지름과 표면 normal offset에 기반한 단일 shell 근사다.
 - `simulationRenderer`가 이미 보유한 scene별 `visuals: Map<body.id, VisualBody>`를 재사용해 `body.id`로 광구·corona·secondary glow를 반환하는 scene resolver를 제공한다. 외피는 `uSeed`나 `scene.children` 인접 순서를 사용하지 않고 이 참조만 숨긴다.
-- resolver는 현재 simulation body ID만 노출하므로 trail 보존용 오래된 `VisualBody`는 외피 표시 대상으로 남지 않는다. renderer dispose 시 활성 ID와 resolver를 정리한다.
-- 외피 레이어가 숨기기 전의 `visible` 값을 객체별로 저장하고, 억제가 끝나거나 layer가 dispose될 때 그 값만 복원한다. 원래 숨겨져 있던 객체를 강제로 켜지 않는다.
+- resolver는 현재 production mesh가 활성 상태인 body만 반환한다. 합체·삭제 뒤 trail 보존 때문에 `VisualBody`가 잠시 남더라도 숨겨진 과거 mesh는 외피 표시 주체로 다시 선택하지 않는다. `removeVisual()`의 기존 Map 삭제와 renderer dispose 시 resolver 삭제를 그대로 사용한다.
+- 외피 레이어가 숨기기 전의 `visible` 값과 `body.id`를 객체별로 저장한다. 억제가 끝날 때 같은 `body.id`의 현재 production 객체로 여전히 등록된 경우에만 이전 값을 복원하며, 합체·삭제·리셋으로 퇴역한 객체는 복원하지 않는다. 원래 숨겨져 있던 객체도 강제로 켜지 않는다.
 - 프레임 순서는 `syncBodyPresentationBeforeRender` 뒤 `updateLiveCollisionVfxFrame`에서 외피 억제를 적용한 후 `renderer.render`가 실행되는 기존 구조를 유지한다.
 
 검증 상태:
