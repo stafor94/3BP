@@ -2,7 +2,6 @@ import * as THREE from 'three'
 import { getEffectiveBodyType } from '../bodyTypes'
 import { getAtmospherePreset, getResolvedSurfaceProfile } from '../surfacePresets'
 import type { BodyState } from '../types'
-import { createCollisionEffectsLayer } from './collisionEffectRenderer'
 import {
   STELLAR_PHOTOSPHERE_RENDER_PATH,
   configureStellarPhotosphereMaterial,
@@ -29,16 +28,9 @@ const trailColorScratch = new THREE.Color()
 let installed = false
 let bodyBySeed = new Map<string, BodyState>()
 let lightingStars: BodyState[] = []
+let stellarAnimationTime = 0
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
-
-function nowMs() {
-  return typeof performance !== 'undefined' ? performance.now() : Date.now()
-}
-
-type CollisionEffectsLayer = ReturnType<typeof createCollisionEffectsLayer>
-const collisionEffectsByScene = new WeakMap<THREE.Scene, CollisionEffectsLayer>()
-const collisionEffectScenesByRenderer = new WeakMap<THREE.WebGLRenderer, Set<THREE.Scene>>()
 
 function getBodySeed(id: string) {
   let hash = 2166136261
@@ -410,7 +402,7 @@ function updateStellarBodyPresentation(
   object: THREE.Object3D,
   body: BodyState,
 ) {
-  const renderTimeSeconds = (nowMs() * 0.001) % 4096
+  const renderTimeSeconds = stellarAnimationTime % 4096
   const frame = getStellarPhotosphereFrame(body, renderTimeSeconds)
   updateStellarPhotosphereMaterial(material, frame)
 
@@ -421,24 +413,22 @@ function updateStellarBodyPresentation(
   }
 }
 
-function syncBodyPresentationBeforeRender(scene: THREE.Scene) {
+export function syncBodyPresentationBeforeRender(scene: THREE.Scene) {
   scene.children.forEach((object, objectIndex) => {
     if (!(object instanceof THREE.Mesh) || !(object.material instanceof THREE.ShaderMaterial)) return
     const seed = object.material.uniforms.uSeed?.value
     const body = getBodyFromSeed(seed)
     if (!body) return
 
-    ensureBodyMaterialPath(object.material, body)
     const bodyType = getEffectiveBodyType(body)
-    if (bodyType === 'star') {
-      const frame = getStellarPhotosphereFrame(body, (nowMs() * 0.001) % 4096)
-      updateStellarPhotosphereMaterial(object.material, frame)
-      if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, true, body, frame)
-    } else {
-      setGenericSurfaceProfile(object.material, body)
-      if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, false)
-    }
-    if (bodyType !== 'effect' && objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
+    // This frame hook owns stellar presentation only. Solid handoff has already
+    // applied its sampled color/opacity; generic profiles must not overwrite it.
+    if (bodyType !== 'star') return
+    ensureBodyMaterialPath(object.material, body)
+    const frame = getStellarPhotosphereFrame(body, stellarAnimationTime % 4096)
+    updateStellarPhotosphereMaterial(object.material, frame)
+    if (objectIndex >= 2) setBodyGlowVisibility(scene, objectIndex, true, body, frame)
+    if (objectIndex >= 4) updateTrailColor(scene, objectIndex, body)
   })
 }
 
@@ -505,49 +495,8 @@ function updateBodyMaterialBeforeRender(
   updateGenericBodyLighting(material, scene, object, body)
 }
 
-function installCollisionEffectRenderHook() {
-  const rendererPrototype = THREE.WebGLRenderer.prototype as any
-  const originalRender = rendererPrototype.render
-  const originalDispose = rendererPrototype.dispose
-
-  rendererPrototype.render = function renderWithCollisionEffects(
-    scene: THREE.Object3D,
-    camera: THREE.Camera,
-  ) {
-    if (scene instanceof THREE.Scene) {
-      syncBodyPresentationBeforeRender(scene)
-
-      let layer = collisionEffectsByScene.get(scene)
-      if (!layer) {
-        layer = createCollisionEffectsLayer(scene)
-        collisionEffectsByScene.set(scene, layer)
-      }
-
-      let scenes = collisionEffectScenesByRenderer.get(this as THREE.WebGLRenderer)
-      if (!scenes) {
-        scenes = new Set<THREE.Scene>()
-        collisionEffectScenesByRenderer.set(this as THREE.WebGLRenderer, scenes)
-      }
-      scenes.add(scene)
-      layer.update(Array.from(bodyBySeed.values()), camera)
-    }
-
-    return originalRender.call(this, scene, camera)
-  }
-
-  rendererPrototype.dispose = function disposeWithCollisionEffects() {
-    const renderer = this as THREE.WebGLRenderer
-    const scenes = collisionEffectScenesByRenderer.get(renderer)
-    scenes?.forEach((scene) => {
-      collisionEffectsByScene.get(scene)?.dispose()
-      collisionEffectsByScene.delete(scene)
-    })
-    collisionEffectScenesByRenderer.delete(renderer)
-    return originalDispose.call(this)
-  }
-}
-
-export function syncBodyLightingState(bodies: BodyState[]) {
+export function syncBodyLightingState(bodies: BodyState[], simulationTime = stellarAnimationTime) {
+  stellarAnimationTime = simulationTime
   const previousBodies = Array.from(bodyBySeed.values())
   const presentationBodies = syncStellarPhotosphereState(bodies, previousBodies)
   const nextBodyBySeed = new Map<string, BodyState>()
@@ -590,5 +539,4 @@ export function installBodyLighting() {
     return result
   }
 
-  installCollisionEffectRenderHook()
 }

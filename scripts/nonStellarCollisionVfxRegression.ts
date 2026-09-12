@@ -423,14 +423,9 @@ function testStellarContactFlashProfileUnchanged() {
     },
   }
   const profile = getCollisionEffectProfile(stellarFlash)
-  assertClose(profile.visualRadius, 0.1936, 1e-12,
-    'stellar contact flash radius must remain on the existing physical-stellar formula')
-  assertClose(profile.anisotropicStretch, 3.05, 1e-12,
-    'stellar contact flash stretch cap must remain unchanged')
-  assertClose(profile.widthScale, 0.38, 1e-12,
-    'stellar contact flash width cap must remain unchanged')
-  assertClose(profile.brightness, 3.08, 1e-12,
-    'stellar merge contact flash brightness must remain unchanged')
+  assert(profile.visualRadius < stellarFlash.radius * 0.3, 'stellar flash must stay contact-local')
+  assert(profile.anisotropicStretch / profile.widthScale < 1.5, 'stellar flash must be broad, not a needle')
+  assert(profile.brightness <= 1, 'stellar flash must preserve source color')
 }
 
 const fragmentMetrics = testFragmentPresentationRadiusUsesPhysicalScale()

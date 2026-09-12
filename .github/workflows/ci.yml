@@ -49,10 +49,50 @@ jobs:
           path: stellar-presets-artifacts
           if-no-files-found: warn
           retention-days: 7
+      - name: Checkout collision baseline
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .stellar-baseline
+      - name: Prepare identical production collision fixture on baseline
+        run: |
+          cp src/visualRegression/StellarCollisionContinuityHarness.tsx .stellar-baseline/src/visualRegression/
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.stellar-baseline/src/main.tsx')
+          s = p.read_text().replace("if (visualRegression === 'stellar-topology') {", "if (visualRegression === 'stellar-continuity') {\n  void import('./visualRegression/StellarCollisionContinuityHarness').then(({ StellarCollisionContinuityHarness }) => root.render(<StellarCollisionContinuityHarness />))\n} else if (visualRegression === 'stellar-topology') {")
+          p.write_text(s)
+          PY
+          cd .stellar-baseline
+          npm install
+          npx tsc -b
+          npx vite build
+          npm run preview -- --host 127.0.0.1 --port 4174 > /tmp/stellar-baseline-preview.log 2>&1 &
+      - name: Capture baseline stellar collisions
+        env:
+          VISUAL_TEST_URL: http://127.0.0.1:4174/3BP/?visual-regression=stellar-continuity
+          STELLAR_CONTINUITY_OUTPUT: stellar-continuity-baseline-artifacts
+        run: python scripts/visualStellarCollisionRegression.py
+      - name: Upload stellar continuity baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-continuity-baseline
+          path: stellar-continuity-baseline-artifacts
+          if-no-files-found: warn
+          retention-days: 7
       - name: Stellar collision browser visual regression
         run: python scripts/visualStellarCollisionRegression.py
       - name: Strict stellar collision visual gate
         run: python scripts/strictStellarCollisionVisualGate.py
+      - name: Upload stellar collision visual captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stellar-collision-visual-regression
+          path: visual-regression-artifacts
+          if-no-files-found: warn
+          retention-days: 7
       - name: Collision watch browser visual regression
         run: python scripts/collisionWatchVisualRegression.py
       - name: Collision camera tracking handoff browser regression
@@ -92,14 +132,6 @@ jobs:
         run: python scripts/mobileDisruptionVisualRegression.py
       - name: Mobile top overlay browser visual regression
         run: python scripts/mobileTopOverlayVisualRegression.py
-      - name: Upload stellar collision visual captures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stellar-collision-visual-regression
-          path: visual-regression-artifacts
-          if-no-files-found: warn
-          retention-days: 7
       - name: Upload collision watch visual captures
         if: always()
         uses: actions/upload-artifact@v4

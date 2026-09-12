@@ -95,6 +95,29 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const physicalStellar = stellar && !syntheticStellar
   const stageFiveNonStellar = !stellar && isStageFiveCollisionVfxEnabled()
 
+  if (stellar) {
+    // Physical age is the shared simulation clock; phaseOffset staggers the
+    // visible gas release without delaying or moving mass-bearing ejecta.
+    const sourceRadius = Math.max(visual?.sourceMaxRadius ?? body.radius, 1e-8)
+    const gas = kind === 'stellarPlasma'
+    const afterglow = kind === 'stellarAfterglow'
+    const release = gas ? smooth01((age - (visual?.phaseOffset ?? 0) * 0.009) / 0.006) : 1
+    const cooling = smooth01(progress)
+    return {
+      kind, progress, cooling,
+      fadeAlpha: release * Math.pow(1 - progress, gas ? 1.7 : afterglow ? 2 : 3),
+      baseOpacity: gas ? 0.22 : afterglow ? 0.10 : 0.24,
+      innerGlow: 0.08, outerGlow: 0.18,
+      visualRadius: gas ? Math.min(body.radius * 1.2, sourceRadius * 0.30) * (1 + progress * 2.8)
+        : sourceRadius * (afterglow ? 0.8 : 0.24),
+      anisotropicStretch: gas ? Math.min(2.6, Math.max(1.25, (visual?.stretch ?? 2) * 0.48)) : 1.15,
+      widthScale: gas ? 0.85 + progress * 1.2 : 1,
+      tailLength: gas ? (stellarOutcome === 'hitAndRun' ? 0.8 : stellarOutcome === 'partialDisruption' ? 0.65 : 0.5) : 0, pulseStrength: 0,
+      brightness: gas ? 0.85 * (1 - cooling * 0.7) : 0.85,
+      turbulence: visual?.turbulence ?? 0.5,
+    }
+  }
+
   if (kind === 'contactFlash') {
     // Synthetic overlap flashes build toward contact. Physical stellar flashes
     // start at the impact peak. Solid-body flashes stay compact and broad so an

@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { bodyCarriesCollisionLineage } from '../src/collisionIdentity'
 import { resolveBodyDescendant } from '../src/collisionWatch'
 import { stepBodies } from '../src/physics/fragmentAwareEngine'
@@ -5,6 +6,7 @@ import { getCelestialBodyRenderBodies } from '../src/rendering/collisionEffectRo
 import {
   getCollisionAbsorbedSolidProgress,
   resetCollisionSolidHandoffState,
+  renderCollisionSolidHandoffFrame,
 } from '../src/rendering/collisionSolidHandoff'
 import { findCollisionVisualTransitions } from '../src/rendering/collisionVisualOutcome'
 import type { BodyState } from '../src/types'
@@ -197,3 +199,19 @@ for (let step = 1; step <= 24; step += 1) {
 
 assert(resolved, 'small head-on fixture did not resolve to a remnant within 24 staged steps')
 console.log('collision solid handoff regression checks passed')
+
+// Reusing the absorbed ID for a star after reset must not inherit solid hiding.
+const scene = new THREE.Scene()
+for (const id of [SOURCE_A_ID, SOURCE_B_ID]) {
+  let hash = 2166136261
+  for (const c of id) hash = Math.imul(hash ^ c.charCodeAt(0), 16777619)
+  const material = new THREE.ShaderMaterial({ uniforms: { uSeed: { value: ((hash >>> 0) / 4294967295) * 1000 } } })
+  material.userData.bodyRenderPath = 'stellar-photosphere'
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(), material))
+}
+renderCollisionSolidHandoffFrame(scene, 1, 0)
+renderCollisionSolidHandoffFrame(scene, 2, 10000)
+renderCollisionSolidHandoffFrame(scene, 3, 10001)
+assert(scene.children.every(mesh => mesh.visible), 'retired solid IDs must not hide reset stellar meshes')
+scene.children.forEach(object => { const mesh = object as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose() })
+resetCollisionSolidHandoffState()

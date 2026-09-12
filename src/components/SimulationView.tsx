@@ -16,6 +16,7 @@ import {
 import {
   installLiveCollisionVfxBridge,
   syncLiveCollisionVfxState,
+  resetLiveCollisionVfxState,
 } from '../rendering/liveCollisionVfxBridge'
 import {
   installStellarRemnantPresentation,
@@ -34,6 +35,7 @@ type Props = {
   bodies: BodyState[]
   simulationTime: number
   simulationSpeed?: number
+  paused?: boolean
   trailVersion: number
   trailEnabled: boolean
   trailDuration: number
@@ -65,6 +67,7 @@ export function SimulationView({
   bodies,
   simulationTime,
   simulationSpeed = 1,
+  paused = false,
   trailVersion,
   trailEnabled,
   trailDuration,
@@ -140,6 +143,7 @@ export function SimulationView({
     bodies: renderBodies,
     simulationTime,
     simulationSpeed,
+    paused,
     renderStateGeneration: renderStateGenerationRef.current,
     trailVersion,
     trailEnabled,
@@ -156,6 +160,7 @@ export function SimulationView({
     bodies: renderBodies,
     simulationTime,
     simulationSpeed,
+    paused,
     renderStateGeneration: renderStateGenerationRef.current,
     trailVersion,
     trailEnabled,
@@ -167,9 +172,9 @@ export function SimulationView({
     collisionWatchPairKey,
     collisionImpactObserved,
   }
-  syncBodyLightingState(getLightingSyncBodies(bodies, renderBodies))
+  syncBodyLightingState(getLightingSyncBodies(bodies, renderBodies), simulationTime)
   syncStellarRemnantPresentationState(bodies, simulationTime)
-  syncLiveCollisionVfxState(bodies)
+  syncLiveCollisionVfxState(bodies, simulationTime)
   syncCollisionVisualContinuityState(bodies)
   syncCollisionSurvivorResponseState(bodies, simulationTime)
 
@@ -193,7 +198,7 @@ export function SimulationView({
       liveBodiesRef.current,
       renderStateRef.current.simulationTime,
     )
-    syncLiveCollisionVfxState(liveBodiesRef.current)
+    syncLiveCollisionVfxState(liveBodiesRef.current, renderStateRef.current.simulationTime)
     syncCollisionVisualContinuityState(liveBodiesRef.current)
     syncCollisionSurvivorResponseState(
       liveBodiesRef.current,
@@ -240,7 +245,8 @@ export function SimulationView({
         }
       },
     } : undefined
-    return createSimulationRenderer(host, () => renderStateRef.current, options)
+    const dispose = createSimulationRenderer(host, () => renderStateRef.current, options)
+    return () => { dispose(); resetLiveCollisionVfxState() }
   }, [])
 
   return (

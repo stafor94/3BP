@@ -2,7 +2,7 @@ import { getEffectiveBodyType } from '../bodyTypes'
 import { bodyCarriesCollisionLineage } from '../collisionIdentity'
 import { FRAGMENT_LIFETIME } from '../fragmentLifecycle'
 import { getBodyPresentationRadius } from '../rendering/bodyPresentationRadius'
-import type { BodyState, Vec3 } from '../types'
+import type { BodyState, StellarCollisionPresentation, StellarCollisionSource, Vec3 } from '../types'
 import { getCollisionContactDistance } from './collisionContact'
 import { stepBodies as stepPhysicsBodies } from './engine'
 
@@ -47,6 +47,7 @@ type CollisionTransition = {
   sourceBodies: BodyState[]
   elapsed: number
   mode: CollisionPresentationMode
+  predictedTargets?: StellarCollisionSource[]
 }
 
 type CollisionContactPositions = {
@@ -181,7 +182,17 @@ function advancePhysicalBodies(input: BodyState[], dt: number) {
     dt,
   )
   const withTrackingContinuity = attachCollisionTrackingContinuity(input, withMassCorrection, dt)
-  return finalizePhysicalBodies(input, withTrackingContinuity, dt)
+  const final = finalizePhysicalBodies(input, withTrackingContinuity, dt)
+  for (const body of final) {
+    if (body.stellarCollisionAge !== undefined) body.stellarCollisionAge += dt
+    const state = body.stellarCollisionPresentation
+    if (state?.phase === 'settle') {
+      body.stellarCollisionPresentation = state.elapsed + dt < 0.16
+        ? { ...state, elapsed: state.elapsed + dt }
+        : undefined
+    }
+  }
+  return final
 }
 
 function findNewCollisionPair(input: BodyState[], stepped: BodyState[], dt: number) {
@@ -1083,12 +1094,33 @@ function getTransitionDuration(transition: CollisionTransition) {
   return getImpactDuration(pair.bodyA, pair.bodyB, transition.mode)
 }
 
+function presentationSource(body: BodyState): StellarCollisionSource {
+  return { id: body.id, mass: body.mass, radius: body.radius, color: body.color,
+    position: { ...body.position }, velocity: { ...body.velocity },
+    stellarEvolutionStage: body.stellarEvolutionStage, stellarTemperatureK: body.stellarTemperatureK }
+}
+
+function stellarPresentation(transition: CollisionTransition, progress: number): StellarCollisionPresentation | undefined {
+  const pair = getTransitionBodies(transition)
+  if (!pair || !isStellarPair(pair.bodyA, pair.bodyB)) return undefined
+  const positions = getDriftedCollisionContactPositions(pair.bodyA, pair.bodyB, transition.elapsed)
+  return {
+    key: [pair.bodyA.id, pair.bodyB.id].sort().join('~'),
+    sources: [presentationSource({ ...pair.bodyA, position: positions.bodyA }),
+      presentationSource({ ...pair.bodyB, position: positions.bodyB })],
+    targets: transition.predictedTargets ?? [],
+    outcome: transition.mode === 'hitRun' ? 'hitAndRun' : transition.mode,
+    phase: 'contact', progress, elapsed: 0, duration: getTransitionDuration(transition),
+  }
+}
+
 function buildCollisionImpactFrame(transition: CollisionTransition) {
   const pair = getTransitionBodies(transition)
   if (!pair) return transition.sourceBodies.map(cloneBody)
 
   const impactDuration = getImpactDuration(pair.bodyA, pair.bodyB, transition.mode)
   const progress = Math.min(1, Math.max(0, transition.elapsed / impactDuration))
+  const presentation = stellarPresentation(transition, progress)
   const overlap = getImpactOverlap(pair.bodyA, pair.bodyB, progress, transition.mode)
   const impactContactDistance = getCollisionImpactContactDistance(
     pair.bodyA,
@@ -1128,7 +1160,7 @@ function buildCollisionImpactFrame(transition: CollisionTransition) {
               absorberImpactPosition,
               progress,
             )
-          : animateCollider(body, impactPositions.bodyA)
+          : { ...animateCollider(body, impactPositions.bodyA), stellarCollisionPresentation: presentation }
       }
       if (body.id === pair.bodyB.id) {
         return body.id === absorbedId
@@ -1138,7 +1170,7 @@ function buildCollisionImpactFrame(transition: CollisionTransition) {
               absorberImpactPosition,
               progress,
             )
-          : animateCollider(body, impactPositions.bodyB)
+          : { ...animateCollider(body, impactPositions.bodyB), stellarCollisionPresentation: presentation }
       }
       return advanceDisplayBody(body, transition.elapsed)
     })
@@ -1174,6 +1206,17 @@ function buildContactPhysicalFrame(transition: CollisionTransition) {
 function resolveTransition(transition: CollisionTransition, overshoot: number) {
   const contactFrame = buildContactPhysicalFrame(transition)
   let resolved = advancePhysicalBodies(contactFrame, CONTACT_RESOLUTION_DT)
+  const presentation = stellarPresentation({ ...transition, elapsed: getTransitionDuration(transition) }, 1)
+  if (presentation) {
+    const targets = resolved.filter((body) => body.bodyType === 'star' &&
+      presentation.sources.some((source) => body.id === source.id || bodyCarriesCollisionLineage(body, source.id)))
+    // Keep the last contact target for exact silhouette handoff; settle toward the
+    // actual solver result if a microscopic contact step changed its radius.
+    for (const body of targets) {
+      body.stellarCollisionPresentation = { ...presentation, phase: 'settle' }
+      body.stellarCollisionAge = 0
+    }
+  }
   if (overshoot > 0) resolved = advancePhysicalBodies(resolved, overshoot)
   return resolved
 }
@@ -1223,6 +1266,12 @@ export function stepBodies(input: BodyState[], dt: number): BodyState[] {
     sourceBodies: input.map(cloneBody),
     elapsed: Math.min(dt, impactDuration),
     mode,
+    predictedTargets: isStellarPair(collisionPair.bodyA, collisionPair.bodyB)
+      ? probedPhysicalBodies.filter((body) => body.bodyType === 'star' &&
+        (body.id === collisionPair.bodyA.id || body.id === collisionPair.bodyB.id ||
+          bodyCarriesCollisionLineage(body, collisionPair.bodyA.id) || bodyCarriesCollisionLineage(body, collisionPair.bodyB.id)))
+        .map(presentationSource)
+      : undefined,
   }
 
   if (transition.elapsed + 1e-12 >= impactDuration) {

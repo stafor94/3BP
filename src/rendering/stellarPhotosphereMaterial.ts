@@ -35,6 +35,10 @@ function getTransientHeatStrength(body: BodyState) {
   const decayMs = body.transientHeatDecayMs ?? 0
   if (!token || initialStrength <= 0 || decayMs <= 0) return 0
 
+  if (body.stellarCollisionAge !== undefined) {
+    const progress = Math.min(1, body.stellarCollisionAge / 0.16)
+    return initialStrength * (1 - progress) ** 1.55
+  }
   const existing = stellarHeatClock.get(body.id)
   const clock = existing?.token === token
     ? existing

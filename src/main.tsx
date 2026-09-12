@@ -12,7 +12,11 @@ import './top-overlay-controls.css'
 const root = createRoot(document.getElementById('root')!)
 const visualRegression = new URLSearchParams(window.location.search).get('visual-regression')
 
-if (visualRegression === 'stellar-topology') {
+if (visualRegression === 'stellar-continuity') {
+  void import('./visualRegression/StellarCollisionContinuityHarness').then(({ StellarCollisionContinuityHarness }) => {
+    root.render(<StellarCollisionContinuityHarness />)
+  })
+} else if (visualRegression === 'stellar-topology') {
   void import('./visualRegression/StellarTopologyVisualHarness').then(({ StellarTopologyVisualHarness }) => {
     root.render(<StellarTopologyVisualHarness />)
   })
