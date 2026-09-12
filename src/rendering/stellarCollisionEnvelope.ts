@@ -610,7 +610,7 @@ function createEnvelope() {
     side: THREE.BackSide,
     blending: THREE.AdditiveBlending,
     uniforms: {
-      uOpacity: { value: 0.22 },
+      uOpacity: { value: 0.18 },
       uShellOffset: { value: 0 },
       uProfileRadius: { value: 1 },
     },
@@ -624,10 +624,10 @@ function createEnvelope() {
   haloGeometry.setIndex(createHaloIndices())
   const halo = new THREE.Mesh(haloGeometry, haloMaterial)
   halo.renderOrder = 1
-  // Stage 2 gives surrounding-light ownership back to the renderer's existing
-  // per-star corona. The expanded BackSide shell is retained structurally for
-  // compatibility but is not submitted, avoiding a second spherical glow surface.
-  halo.visible = false
+  // During an active collision the glow follows the deformed envelope itself.
+  // A small BackSide offset creates a soft limb without exposing a spherical
+  // carrier behind the lobes or recreating the old expanded gray shell.
+  halo.visible = true
   group.add(halo)
   group.traverse((o) => { o.frustumCulled = false })
   return {
@@ -759,7 +759,7 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         updateEnvelopeNormals(v.geometry, v.surfaceIndices, v.normalTopology, shape.min, shape.max)
         const profileRadius = Math.max(maxSectionRadius, 1e-6)
         v.haloMaterial.uniforms.uProfileRadius.value = profileRadius
-        v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.62
+        v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.18
         updateStellarPhotosphereMaterial(v.material, getStellarPhotosphereFrame(shape.body, simulationTime))
         v.material.uniforms.uSurfaceSeed.value = seed(shape.body.id)
       }
@@ -789,10 +789,11 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
       suppressed.forEach((bodyId) => {
         const renderObjects = resolveRenderObjects?.(bodyId)
         if (!renderObjects) return
+        // The envelope owns both the solid stellar surface and its collision-time
+        // limb glow. Hiding the spherical corona carrier prevents a black/blue
+        // circular membrane from being exposed behind the deformed contact lobes.
         objectsToHide.set(renderObjects.photosphere, bodyId)
-        // The collision envelope replaces the solid photosphere, not the broad
-        // renderer-owned corona. Keeping the same corona object alive across
-        // contact/settle removes the glow-off/glow-on material handoff.
+        objectsToHide.set(renderObjects.corona, bodyId)
         objectsToHide.set(renderObjects.secondaryGlow, bodyId)
       })
       applySuppression(objectsToHide, resolveRenderObjects)
