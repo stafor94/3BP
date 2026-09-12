@@ -32,9 +32,10 @@ export function getStellarRenderProfile(
 
   return {
     // Keep the local photosphere range close to linear before ACES so the broad
-    // radial gradient and low-frequency texture survive tone mapping. Do not use
-    // global exposure as compensation; the corona still carries the wider glow.
-    photosphereIntensity: 1.0 + luminosity01 * 0.07 + temperature01 * 0.03,
+    // radial gradient and low-frequency texture survive tone mapping. Preserve a
+    // small emissive floor for the coolest stars without restoring the old white
+    // shoulder or using global exposure as compensation.
+    photosphereIntensity: 1.03 + luminosity01 * 0.07 + temperature01 * 0.03,
     // One existing sprite carries immediate glow and a much wider diffuse tail.
     // Its edge is beyond the visible tail so no circular cutoff is perceptible.
     coronaScale: 8.0 + luminosity01 * 0.4,
