@@ -7,6 +7,7 @@
 - Working PR: Draft PR #160 — https://github.com/stafor94/3BP/pull/160
 - Stage 1 scope: rendering-path investigation plus stellar photosphere surface/color/depth restoration only.
 - Status: **1단계는 개발만 완료, 실행·시각 검증 미실시**.
+- Automatic workflow note: creating/updating Draft PR #160 automatically started the repository's PR workflows (`CI`, `Stellar Photosphere Quality`, `Collision VFX Stage 5`, `Space Background Quality`). No test/build/workflow command was manually invoked for Stage 1, and these automatic runs are not being used as the Stage-1 visual/runtime acceptance decision.
 - Per the repository release rules, the user-visible rendering change still needs the final-stage version/CHANGELOG update plus required automated/runtime/A-B validation before merge. No version bump is made in Stage 1.
 
 ## User-observed symptoms and ownership map
@@ -68,7 +69,7 @@ The source videos are not available in this session. The entries below are based
 - The reported gray spherical shell has not been mapped to a specific draw call without runtime/frame inspection. The corona carrier, stellar collision envelope, and transition overlap remain candidates.
 - The reported small white ring and long triangular gray/brown band have not been mapped to a specific effect kind/material. Contact/afterglow masks, shear/plasma quads, gas-trail geometry, or a state handoff may be involved.
 - The reason a collision effect appears spatially detached after the star moves is not yet proven. Stage 3 must compare effect world positions, source/remnant ownership, sample history, lifetime, and simulation-time handoff before changing coordinates.
-- Stage 1 code has not been run, built, type-checked, linted, or visually compared, per the staged-development instruction. The visual outcome is therefore not declared solved.
+- No local/manual test, type-check, lint, build, browser run, screenshot/video capture, or visual comparison was launched for Stage 1. Draft PR creation did auto-start the repository workflows noted above; their presence does not change the Stage-1 status or constitute the deferred visual acceptance check.
 
 ## Stage 1 implementation
 
