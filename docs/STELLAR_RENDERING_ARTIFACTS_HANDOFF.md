@@ -12,7 +12,7 @@
   - `d09d1d53d110c8885fc875c5692e6c9d9565cbca` — collision-envelope ownership/halo continuity
 - Status: **2단계 개발 완료, 실행·시각 검증 미실시**.
 - No stage-local version bump or CHANGELOG entry is made. Repository policy still requires version/CHANGELOG plus required automated/runtime/A-B validation in the final integration stage before merge.
-- Draft PR pushes may automatically start the repository PR workflows. No test/build/workflow command was manually invoked or awaited for Stage 2, and automatic runs are not used as the Stage-2 visual acceptance decision.
+- Draft PR pushes may automatically start the repository PR workflows. No test/build/workflow command was manually invoked, awaited, or rerun for Stage 2, and automatic runs are not used as the Stage-2 visual acceptance decision.
 
 The source videos are not available in this session. Symptom timing below is based on the user's observations and is not a claim that the videos were re-watched here.
 
