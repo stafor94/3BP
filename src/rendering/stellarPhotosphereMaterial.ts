@@ -162,18 +162,14 @@ export const stellarPhotosphereFragmentShader = `
   }
 
   float drawStellarSurfaceVariation(vec3 objectNormal) {
-    // Restore restrained object-space surface structure instead of relying on a
-    // nearly uniform disk. Each octave fades out as its projected footprint can
-    // no longer resolve it, so small stars do not acquire noisy pixels or shimmer.
+    // One restrained object-space low-frequency sample is enough to break the
+    // uniform disk without creating granular noise. It fades continuously once
+    // the projected footprint can no longer resolve it, avoiding small-star shimmer.
     float footprint = max(length(fwidth(objectNormal)), 0.000001);
     float broadResolved = 1.0 - smoothstep(0.020, 0.070, footprint);
-    float mediumResolved = 1.0 - smoothstep(0.010, 0.032, footprint);
     vec3 offset = vec3(uSurfaceSeed * 0.051, uSurfaceSeed * 0.089, uSurfaceVariant);
-    float broad = valueNoise(objectNormal * 2.7 + offset);
-    float medium = valueNoise(objectNormal * 5.4 - offset * 1.37);
-    float variation =
-      (broad - 0.5) * 0.105 * broadResolved +
-      (medium - 0.5) * 0.045 * mediumResolved;
+    float broad = valueNoise(objectNormal * 2.9 + offset);
+    float variation = (broad - 0.5) * 0.125 * broadResolved;
     return clamp(1.0 + variation * uDetailStrength, 0.92, 1.07);
   }
 
