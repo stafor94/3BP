@@ -13,6 +13,7 @@ const checks = [
   { source: 'collisionResultUiRegression.ts', output: 'collisionResultUiRegression.mjs' },
   { source: 'stellarCollisionRegression.ts', output: 'stellarCollisionRegression.mjs' },
   { source: 'stellarEjectaRegression.ts', output: 'stellarEjectaRegression.mjs' },
+  { source: 'stellarCollisionRefinementRegression.ts', output: 'stellarCollisionRefinementRegression.mjs' },
   { source: 'collisionVfxRegression.ts', output: 'collisionVfxRegression.mjs' },
   { source: 'nonStellarCollisionVfxRegression.ts', output: 'nonStellarCollisionVfxRegression.mjs' },
   { source: 'collisionPresentationArtifactRegression.ts', output: 'collisionPresentationArtifactRegression.mjs' },
