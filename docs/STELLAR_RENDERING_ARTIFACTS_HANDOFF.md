@@ -5,171 +5,189 @@
 - Baseline `main`: `c99a3fe0d4a031f7c36809c6d80d71f9aa23269a` (merged PR #159, v0.28.0)
 - Working branch: `fix/stellar-rendering-artifacts`
 - Working PR: Draft PR #160 — https://github.com/stafor94/3BP/pull/160
-- Stage-2 starting head: `8b92ce7e7cbed996786f51be531e463ebf7730ef`
-- Stage 1 implementation commit: `f57c510f2687a6b585b06825529e0dbcc29b00b0`
-- Stage 2 code commits:
+- Stage-3 starting head: `5cf3aa9580c837a1a54280b7f2d6b7012d276b49`
+- Stage 1 implementation: `f57c510f2687a6b585b06825529e0dbcc29b00b0`
+- Stage 2 code:
   - `41ef763573ac106262d78ec998acff7c69a42ca9` — stellar corona compositing/depth/fade
   - `d09d1d53d110c8885fc875c5692e6c9d9565cbca` — collision-envelope ownership/halo continuity
-- Stage 2 handoff documentation commits: `94861df0603f5dddbaf80984d27126d02c73689d`, `1df5d72b573ef3145135b529880913ad7c5ce569`, `f42c44f505266681158f88f5843de541bd599fdc`
-- Status: **2단계 개발 완료, 실행·시각 검증 미실시**.
-- No stage-local version bump or CHANGELOG entry is made. Repository policy still requires version/CHANGELOG plus required automated/runtime/A-B validation in the final integration stage before merge.
-- Draft PR pushes may automatically start the repository PR workflows. No test/build/workflow command was manually invoked, awaited, or rerun for Stage 2, and automatic runs are not used as the Stage-2 visual acceptance decision.
+- Stage 3 code:
+  - `384c12b4fa2103cfff3f081b1c5d6f4bb1e51deb` — kind-specific stellar collision profiles / presentation-radius sizing
+  - `7846ee5a7ced92af4f74198203754beb1b312422` — discontinuous world-space gas-trail segmentation
+  - `4ea1a08bcf9d55973e3680882eae8ccd925b1dc7` — surface-effect anchoring / diffuse afterglow shader
+- Status: **3단계 개발 완료, 실행·시각 검증 미실시**.
+- No stage-local version bump or CHANGELOG entry is made. Repository policy still requires the final-stage automated/runtime/A-B validation plus version/CHANGELOG before merge.
+- PR pushes can automatically start repository workflows. No test/build/workflow command was manually invoked, awaited, or rerun for Stage 3.
 
-The source videos are not available in this session. Symptom timing below is based on the user's observations and is not a claim that the videos were re-watched here.
+The source videos are not available in this session. Timing references below use the user's observations and are not a claim that the videos were re-watched here.
 
 ## Symptom ownership map
 
-### 1. Flat white/light-blue stellar disk
+### 1. Flat/washed stellar photosphere — Stage 1
 
-Primary files:
+Primary path:
 
 - `src/rendering/stellarPhotosphereMaterial.ts`
 - `src/rendering/stellarRenderProfile.ts`
 - `src/rendering/bodyLighting.ts`
-- `src/rendering/simulationRenderer.ts`
 
-Stage 1 restored object-space low-frequency surface structure, strengthened the continuous center-to-limb emission response, and lowered photosphere-local HDR intensity so ACES is less likely to flatten the remaining color/brightness separation. The single temperature-colored emission path is preserved; no white center/core was restored.
+Stage 1 restored temperature-colored object-space surface structure and center-to-limb depth without restoring the old white-center term.
 
-### 2. Gray transparent shell alternating with bright soft glow
+### 2. Gray shell / corona material switching — Stage 2
 
-Primary files/functions:
+Primary path:
 
-- `src/rendering/bodyLighting.ts` / `setBodyGlowVisibility`
 - `src/rendering/stellarCoronaMaterial.ts` / `configureStellarCoronaMaterial`
-- `src/rendering/simulationRenderer.ts` / `createBodyGlowTexture`, `createGlowMaterial`, `resolveStellarRenderObjects`
-- `src/rendering/stellarCollisionEnvelope.ts` / `createEnvelope`, `createStellarCollisionEnvelopeLayer`
-- `src/rendering/liveCollisionVfxBridge.ts` / `updateLiveCollisionVfxFrame`
+- `src/rendering/stellarCollisionEnvelope.ts` / `createStellarCollisionEnvelopeLayer`
+- `src/rendering/bodyLighting.ts` / `setBodyGlowVisibility`
 
-### 3. Small white ring, long gray/brown triangular band, detached collision residue
+Stage 2 removed proximity-only envelope activation, stopped the envelope's expanded BackSide halo draw, kept renderer-owned corona alive through envelope presentation, and made stellar corona depth/fade state explicit.
 
-Stage-3 primary files/functions:
+### 3. Small white oval ring around ~1 s in 53255.mp4 — Stage 3
 
-- `src/rendering/collisionEffectRenderer.ts`
-  - `createCollisionEffectsLayer`
-  - `updateVisual`
-  - contact/shear/plasma/afterglow shader branches
-  - synthetic retirement / physical effect introduction paths
-- `src/rendering/collisionEffectProfile.ts` / `getCollisionEffectProfile`
-- `src/rendering/liveCollisionVfxBridge.ts` / `updateLiveCollisionVfxFrame`
-- `src/rendering/stellarGasTrail.ts` / retained stellar-plasma samples and geometry updates
-- `src/rendering/stellarImpactBurstLayer.ts` if the ring is not owned by the main collision-effect layer
+Code-connected effect kind and flow:
 
-Stage 2 does not change those collision-effect shapes, positions, or lifetimes.
+1. physics event creation: `src/physics/engine.ts` / `makeStellarAfterglow`
+   - creates a physical `effect` body at the collision contact point
+   - `effectVisual.kind = 'stellarAfterglow'`
+   - age/lifetime advance on simulation time
+2. profile: `src/rendering/collisionEffectProfile.ts` / `getCollisionEffectProfile`
+3. renderer: `src/rendering/collisionEffectRenderer.ts` / `updateVisual`
+4. shader: `effectFragmentShader`, `uKind < 3.5` branch
 
-## Stage 2: confirmed causes
+Confirmed code cause: the afterglow shader explicitly rendered a hollow expanding shell using `abs(radial - shellRadius)` plus a `hollow` mask. This is an annulus by construction and can read as a small white/bright oval once projected onto the camera-facing quad. It was not the synthetic cloud branch: production `updateLiveCollisionVfxFrame` passes `simulationTime`, so `getSyntheticStellarEffects` is not layered into normal production collision rendering.
 
-### A. Hard proximity threshold replaced the normal star/corona without a collision event
+A second code issue made stellar kind ownership less predictable: `getCollisionEffectProfile` returned from a generic `if (stellar)` block before physical `contactFlash`, `compressionShear`, and `stellarAfterglow` reached their dedicated profile branches. Their generated `stretch`, `widthScale`, fade and kind-specific sizing were therefore bypassed.
 
-`createStellarCollisionEnvelopeLayer` previously searched for a nearby star even when neither star had `stellarCollisionPresentation`:
+Stage 3 changes:
 
-- activation condition: distance `< (radiusA + radiusB) * 1.18`
-- entering the threshold called `show(...)` for a separate collision envelope
-- `show(...)` marked the body as suppressed
-- suppression hid the renderer-owned photosphere, corona, and secondary glow
-- leaving the same threshold removed the envelope and restored the normal renderer objects
+- generic stellar early return now applies only to `stellarPlasma`, the effect that actually owns the world-space gas trail
+- physical stellar contact/shear/afterglow now reach their kind-specific profiles
+- stellar contact/shear footprint sizing uses source **presentation radius** rather than an effect body's arbitrary physical radius
+- stellar afterglow sizing also uses source presentation radius
+- the afterglow annulus is replaced with a filled, diffuse cooling cloud whose RGB/alpha contribution falls smoothly toward the carrier edge
+- afterglow brightness/opacity/glow are reduced from shell-like peak values but the effect is not disabled or driven near zero
+- stellar colors still come from the existing temperature-related base/secondary color path; no pure-white stellar body/core path is added
 
-This is a code-confirmed discontinuity. A close orbital pass can cross the threshold repeatedly and alternate between two materially different render paths even though no explicit collision presentation state exists. It also conflated world-space proximity with actual collision ownership.
+The exact ~1 s video frame is not runtime-verified in this stage, so this is a code-confirmed annulus source, not a claim that the recorded frame has been visually rechecked.
 
-Stage 2 removes the proximity-only activation path. Non-merge envelopes now activate only when the body has explicit `stellarCollisionPresentation`. Screen-space overlap and close approach alone no longer replace the normal stellar renderer.
+### 4. Long gray/brown triangular band around ~2.5–3.75 s — Stage 3
 
-### B. Collision envelope owned a second expanded BackSide halo shell while suppressing the normal corona
+Code-connected effect kind and flow:
 
-`createEnvelope` created two visible layers:
+1. `src/physics/engine.ts` / `makeEjecta`
+   - creates physical `stellarPlasma` effect bodies at source-surface launch positions
+   - preserves their world position and velocity as independent ejecta
+2. `src/rendering/collisionEffectRenderer.ts`
+   - physical `stellarPlasma` uses `createStellarGasTrail` instead of the generic plane
+3. `src/rendering/stellarGasTrail.ts`
+   - retains simulation-time world-position samples
+   - generates one ribbon strip from adjacent retained samples
 
-1. temperature-colored envelope photosphere surface
-2. a separate transparent additive `BackSide` halo mesh displaced outward by `uShellOffset = profileRadius * 0.62`
+Confirmed geometry failure mode: `sampleObservedPosition` previously connected every accepted old/new position pair. Even if an effect observation jumped by a very large world distance, it only limited interpolation to at most five segments and still bridged the full displacement. The two side vertices at each sample then formed a very long ribbon segment; changing widths along that segment can visually become a triangular/trapezoidal band extending far from the source.
 
-The halo is a closed expanded geometry shell with nonzero alpha concentrated toward the limb. At the same time, envelope suppression hid the normal per-star corona. This is a code-confirmed material handoff from a broad sprite corona to a geometrically bounded shell, matching the reported class of “soft glow ↔ spherical membrane” alternation.
+Stage 3 changes:
 
-Stage 2 changes ownership as follows:
+- retained plasma remains world-space ejecta; it is **not** attached back to the star
+- trail width/sampling scale now derives from the source presentation radius
+- before interpolation, new position continuity is checked against both:
+  - the retained history time window
+  - expected travel from the parcel's current speed and elapsed simulation time, with source-radius tolerance
+- if observations cannot belong to one continuous retained trajectory, the renderer starts a new trail segment and resets draw range instead of connecting the stale endpoint to the new point
+- ordinary continuous movement still interpolates by simulation time/distance and retains the existing soft lateral/head/tail fades
+- this is segmentation of invalid history, not a post-hoc maximum ribbon-length clamp
 
-- the collision envelope still replaces the solid photosphere when explicit collision presentation requires it
-- the renderer-owned per-star corona is no longer suppressed
-- the expanded legacy envelope halo mesh remains allocated for structural compatibility but `visible=false`, so it is not submitted as a second spherical glow surface
-- the unused secondary stellar glow remains suppressed as before
+The existing width-side basis already has near-zero cross-product fallbacks and flips each new side to remain consistent with the previous side within the generated strip. No per-frame random direction was added.
 
-The surrounding light therefore stays on the same corona object/material across ordinary motion and collision-envelope presentation instead of switching to a separate shell material.
+The code mechanism above is a direct source of runaway ribbon geometry. Without Stage-5 frame inspection, it is still possible that a particular reported frame also contains a bounded `compressionShear` sheet; Stage 3 therefore does not claim the video's exact band has been visually identified beyond code ownership.
 
-### C. Stellar corona ignored opaque depth while overlapping other stellar disks
+### 5. Contact effect left behind after stellar motion — Stage 3
 
-`simulationRenderer.ts:createGlowMaterial` initializes shared glow sprites with `depthTest=false`. `configureStellarCoronaMaterial` previously left that state unchanged. Because the stellar corona uses additive blending and depthWrite is disabled, a farther corona could contribute through a nearer opaque stellar photosphere during screen-space overlap.
+Physical creation path in `src/physics/engine.ts` was inspected but not changed:
 
-Stage 2 makes the stellar-specific corona contract explicit in `configureStellarCoronaMaterial`:
+- `contactFlash`, `compressionShear`, and `stellarAfterglow` are created as non-gravitating/visual `effect` bodies at the contact point with center-of-mass velocity
+- `stellarPlasma` is actual emitted presentation matter with its own launch position/velocity
+- effect age/lifetime is advanced with simulation `dt`
 
-- `blending = THREE.AdditiveBlending`
-- straight alpha (`premultipliedAlpha = false`)
-- `depthTest = true`
-- `depthWrite = false`
+Before Stage 3, `collisionEffectRenderer.ts:updateVisual` always placed every non-trail effect mesh at the independently integrated effect-body world position. That is appropriate for emitted plasma/afterglow residue, but not for the short contact flash and compression patch that visually belong to a stellar surface/contact region. As a survivor/remnant moved on a different path, those contact cues could separate from the body.
 
-Corona sprites remain additive with each other, but opaque stellar depth can occlude a farther corona. This is local to the stellar corona; generic body/fragment glow configuration was not globally changed.
+Stage 3 adds presentation-only surface ownership for physical stellar `contactFlash` and `compressionShear`:
 
-### D. Corona carrier outer fade was unnecessarily concentrated near the sprite edge
+- on first render, choose the closest valid current star surface and store its actual body ID, a stable world-space surface direction, and normalized radial placement
+- while that body exists, update the effect mesh from the current body position and current presentation radius
+- if that body is replaced, resolve a descendant/remnant with `bodyCarriesCollisionLineage` and continue following the valid result body
+- if neither owner nor lineage descendant exists, stop pretending the patch is attached and fade it over `SURFACE_ANCHOR_LOST_FADE_SECONDS` using the effect's **simulation age**, not frame count
+- renderer anchoring changes only the presentation mesh position/opacity; solver body position, velocity, mass, collision outcome and orbital state are untouched
 
-The corona shader already computes its own signed-distance alpha rather than relying on the legacy texture alpha. Its final carrier fade previously used `smoothstep(0.88, 0.995, coronaRadius)`, concentrating the final transition in a narrow outer band.
+`stellarPlasma` is deliberately excluded from this anchor path. Its world-space parcel/trail continues independently after launch. `stellarAfterglow` also remains world-space residual heat, but is now a diffuse fading cloud rather than a hard hollow ring.
 
-Stage 2 widens this to `smoothstep(0.74, 1.0, coronaRadius)` and discards fragments once final alpha is effectively zero. The intended diffuse corona remains; this only makes the carrier boundary approach zero over a broader interval and removes residual zero-alpha fragment contribution at the edge.
+The simulation already contains a separate curved survivor-impact patch in `liveCollisionVfxBridge.ts` that is evaluated on the actual body shader/geometry. The Stage-3 contact billboard remains a small supporting cue; final occlusion/curvature quality must be checked at runtime rather than inferred from code.
 
-## Stage 2: investigated but not identified as causes
+## Lifetime, pause/reset, and object reuse
 
-- Per-star corona materials are separate `SpriteMaterial` instances. The radial texture is shared, but opacity/color/material shader uniform state is not one shared material overwritten by different stars.
-- Corona angular variation is based on simulation-derived stellar animation time and deterministic body seed. No frame-random noise is introduced by this path.
-- The normal corona already used additive blending and `depthWrite=false`; changing every transparent material to additive blending is neither needed nor done.
-- Global renderer exposure, ACES configuration, bloom-equivalent scene tuning, and Stage-1 photosphere intensity/color calculations were not changed in Stage 2.
+- Physical stellar effect `age` comes from solver simulation `dt`; Stage 3 does not replace it with frame count or wall-clock time.
+- `stellarGasTrail` samples use passed simulation time and reset on event-key change, simulation-time rewind, or age rewind.
+- New discontinuity segmentation clears stale samples and sets geometry draw range to zero before starting the next strip.
+- `collisionEffectRenderer` does not maintain a reusable pool for these visual objects. Visuals are keyed by effect ID and disposed when the ID leaves the current set; gas geometry/material is disposed with the visual.
+- No stale active-vertex range is intentionally retained after a trail segment reset or visual removal.
+- Synthetic retirement still uses its existing wall-clock helper, but production with explicit simulation time does not create synthetic collision effects. Stage 4 should keep this distinction explicit.
 
-## Remaining hypotheses / not yet visually confirmed
+## Stage 1 / Stage 2 preservation
 
-- No runtime/frame inspection was performed, so it is not yet proven which of the two confirmed code problems dominated each exact 53254.mp4 timestamp. The hard proximity handoff and expanded envelope halo are both real discontinuities/artifact sources that were removed from the relevant paths.
-- Actual collision/remnant handoff can replace two source-body corona objects with a result-body corona as bodies are removed/created. The renderer creates current-body visuals before the envelope update, so there is no intentional “corona off” branch now, but final visual continuity across the exact merge handoff still requires Stage-5 runtime A/B inspection.
-- The 53255.mp4 white ring / triangular band / detached trail remain Stage-3 work. Stage 2 does not claim those are fixed.
-
-## Stage 1 preservation
-
-Stage 2 does not modify:
+Stage 3 does not modify:
 
 - `src/rendering/stellarPhotosphereMaterial.ts`
 - `src/rendering/stellarRenderProfile.ts`
+- `src/rendering/stellarCoronaMaterial.ts`
+- `src/rendering/stellarCollisionEnvelope.ts`
 - `src/starColors.ts`
-- global renderer exposure / ACES settings
-- collision physics or orbital integration
+- global ACES/exposure settings
+- collision classification, contact detection, merge result, mass, momentum, ejecta velocity, or orbital integration
 
-The Stage-1 temperature identity, low-frequency surface texture, center-to-limb depth, removal of the white center highlight, and photosphere-local HDR range remain unchanged.
+Therefore the Stage-1 temperature identity/surface/depth changes and Stage-2 corona/envelope continuity changes remain intact.
 
-## Stage 3 starting points
+## Stage 4 starting points / integration work
 
-Start from the actual collision-effect lifetime and ownership chain rather than changing the stellar corona again:
+Stage 4 should integrate ownership and transition timing without re-opening the three local shape fixes unless runtime evidence requires it.
 
-1. `src/rendering/collisionEffectRenderer.ts:createCollisionEffectsLayer`
-   - map each physical/synthetic effect ID to creation, `ensure`, `updateVisual`, retirement, and removal
-   - identify which shader kind produces the reported small white ring and long triangular band
-2. `src/rendering/collisionEffectProfile.ts:getCollisionEffectProfile`
-   - compare world radius, anisotropic stretch, width, tail, fade alpha, brightness, and progress for the identified kinds
-3. `src/rendering/liveCollisionVfxBridge.ts:updateLiveCollisionVfxFrame`
-   - follow simulation-time ownership and body/effect handoff order
-4. `src/rendering/stellarGasTrail.ts`
-   - for detached plasma residue, compare retained sample positions/ages against the actual source/remnant motion before changing coordinates
-5. `src/rendering/stellarImpactBurstLayer.ts`
-   - inspect only if the ring is not produced by the primary collision-effect material
+1. `src/rendering/liveCollisionVfxBridge.ts`
+   - `syncLiveCollisionVfxState`
+   - `updateLiveCollisionVfxFrame`
+   - `applySurvivorImpact`
+   - `applyCollisionProductLifecycle`
+   - check collision layer -> handoff -> envelope update ordering
+2. `src/rendering/collisionHandoffLayer.ts`
+   - verify source/result solid handoff does not temporarily duplicate or hide Stage-3 anchored contact cues
+3. `src/rendering/stellarCollisionEnvelope.ts`
+   - verify Stage-2 photosphere suppression and Stage-3 contact anchors agree during contact -> settle/remnant transition
+4. `src/rendering/bodyLighting.ts`
+   - verify final photosphere/corona ownership remains consistent while source IDs disappear and result IDs appear
+5. reset/pause integration
+   - `liveCollisionVfxBridge` survivor/remnant material lifecycle still contains wall-clock (`performance.now`) presentation timing, while Stage-3 physical stellar effects use simulation age/time. Stage 4 should decide and document the unified pause/slow-motion policy instead of adding another local clock workaround.
 
-Do not rework corona/exposure to hide Stage-3 collision artifacts.
+Remaining integration question: a source star can be replaced by a remnant in the same render update. Stage-3 contact anchors resolve lineage when possible, but Stage 4 must verify ordering so the source object is not hidden/disposed before its result presentation is ready.
 
-## Final-stage validation scenarios
+## Final Stage-5 validation scenarios — record only, do not run in Stage 3
 
-Run in Stage 5 unless a later user instruction explicitly changes the staged workflow.
-
-- **Standalone stellar motion:** corona stays temperature-colored and softly decays to the background with no circular carrier boundary.
-- **Close two-star orbit without collision presentation:** repeatedly pass through the old 1.18× proximity range and confirm there is no material/corona path switch.
-- **Screen-space overlap without physical contact:** farther corona is occluded by the nearer opaque photosphere rather than shining through it; surrounding additive glow remains continuous outside the disks.
-- **Actual contact / envelope:** confirm the envelope replaces only the solid photosphere while the surrounding corona remains continuous and no expanded gray spherical halo shell appears.
-- **Different sizes/colors:** blue/white/yellow/orange stars retain distinct Stage-1 photosphere identity while their coronas remain temperature-related.
-- **Small vs enlarged projected size:** no abrupt corona boundary or LOD-triggered glow toggle.
-- **Pause/resume/reset:** deterministic simulation-time corona does not jump merely because wall time advanced while paused.
-- **Merge/remnant handoff:** source corona -> result corona transition has no one-frame dropout, membrane flash, or duplicate shell.
-- **53254-equivalent sequence:** check the reported ~0.25 s and ~1.50 s shell/glow alternation under equivalent state.
-- **53255-equivalent sequence:** separately validate the Stage-3 ring/band/residue fixes.
-- **Final repository gates:** required regression tests, type/lint/build/CI, runtime A/B visual validation, version bump, and matching CHANGELOG before merge/deploy.
+- frontal star-star collision
+- grazing star-star collision
+- strongly unequal stellar radii/masses
+- low relative speed and high relative speed
+- merge followed by moving remnant
+- hit-and-run / partial disruption with two surviving stars
+- physical `contactFlash` remains local to a valid surface/contact region while its owner moves
+- `compressionShear` remains bounded to source presentation scale and does not become a screen-spanning plane
+- `stellarAfterglow` reads as diffuse residual heat with no small hollow white/oval ring
+- continuous `stellarPlasma` ejecta leaves an independent world-space trail with smooth head/tail/lateral fade
+- a discontinuous/stale plasma observation starts a new strip instead of drawing one long triangle between endpoints
+- sequential collisions and visual removal/recreation do not retain stale trail draw ranges or anchor state
+- slow motion, pause, resume, and reset preserve simulation-time effect movement/fade consistently
+- source removal / remnant lineage handoff does not leave a surface effect floating at its old world coordinate
+- re-run 53255-equivalent timings (~1 s ring and ~2.5–3.75 s band/residue) using equivalent state
+- re-run Stage-1 photosphere and Stage-2 corona/shell acceptance checks to detect integration regressions
+- final repository gates: required tests/type/lint/build/CI, runtime A/B capture/inspection, version bump and matching CHANGELOG, then merge/deploy
 
 ## Validation status
 
-**2단계 개발 완료, 실행·시각 검증 미실시.**
+**3단계 개발 완료, 실행·시각 검증 미실시**.
 
-No local/manual test, type-check, lint, build, browser execution, screenshot/video capture, visual regression run, or dedicated validation subtask was executed for Stage 2. Automatic repository workflows triggered by PR pushes are not awaited, rerun, or treated as visual acceptance evidence in this stage.
+No local/manual test, type-check, lint, build, browser execution, screenshot/video capture, visual regression run, or dedicated validation subtask was executed for Stage 3. Automatic repository workflows triggered by branch/PR updates are not awaited, rerun, or treated as visual acceptance evidence in this stage. The code changes identify and remove concrete artifact mechanisms, but whether the user-visible video symptoms are fully resolved remains a Stage-5 runtime/A-B decision.
