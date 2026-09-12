@@ -1307,17 +1307,25 @@ function buildContactPhysicalFrame(transition: CollisionTransition) {
     impactDuration,
     CONTACT_RESOLUTION_OVERLAP,
   )
+  // Only a fresh star-star event replaces the previous stellar timeline. Mixed
+  // or non-stellar collisions must not erase completed/latest stellar metadata
+  // carried by a surviving star merely because they share this contact bridge.
+  const resetStellarTimelineForSolver = isStellarPair(pair.bodyA, pair.bodyB)
 
   return transition.sourceBodies
     .map((body) => {
       const advanced = advanceDisplayBody(body, impactDuration)
       if (body.id === pair.bodyA.id) {
         advanced.position = { ...contactPositions.bodyA }
-        return clearStellarCollisionTimelineState(advanced)
+        return resetStellarTimelineForSolver
+          ? clearStellarCollisionTimelineState(advanced)
+          : advanced
       }
       if (body.id === pair.bodyB.id) {
         advanced.position = { ...contactPositions.bodyB }
-        return clearStellarCollisionTimelineState(advanced)
+        return resetStellarTimelineForSolver
+          ? clearStellarCollisionTimelineState(advanced)
+          : advanced
       }
       return advanced
     })
