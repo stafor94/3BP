@@ -77,7 +77,7 @@ const effectFragmentShader = `
     float edge = 0.0;
     float noise = plasmaNoise(p + vec2(uProgress * 0.7, -uProgress * 0.23));
 
-    if (uStellar > 0.5 && uKind < 1.5) {
+    if (uStellar > 0.5 && uKind < 1.5 && uSynthetic > 0.5) {
       float cloud = exp(-dot(p, p) * 4.0) * (1.0 - smoothstep(0.65, 1.0, length(p)));
       alpha = cloud * (0.55 + noise * 0.3);
       core = cloud * 0.12;
