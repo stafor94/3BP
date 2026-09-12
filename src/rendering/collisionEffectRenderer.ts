@@ -1,14 +1,25 @@
 import * as THREE from 'three'
 import { getEffectiveBodyType } from '../bodyTypes'
+import { bodyCarriesCollisionLineage } from '../collisionIdentity'
 import { getNearestStellarColor } from '../starColors'
 import type { BodyState, EffectVisualKind, Vec3 } from '../types'
+import { getBodyPresentationRadius } from './bodyPresentationRadius'
 import { getCollisionEffectProfile } from './collisionEffectProfile'
 import { createStellarGasTrail, updateStellarGasTrail } from './stellarGasTrail'
+
+type SurfaceEffectAnchor = {
+  sourceBodyId: string
+  lastBodyId: string
+  direction: THREE.Vector3
+  radiusScale: number
+  lostAtAge: number | null
+}
 
 type CollisionEffectVisual = {
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>
   material: THREE.ShaderMaterial
   trail?: ReturnType<typeof createStellarGasTrail>
+  anchor?: SurfaceEffectAnchor
 }
 
 const MAX_SYNTHETIC_STELLAR_PAIRS = 2
@@ -17,6 +28,7 @@ const PREVIEW_SHEAR_LIFETIME = 0.82
 const PREVIEW_PLASMA_LIFETIME = 1.55
 const SYNTHETIC_RETIRE_MS = 420
 const PHYSICAL_EFFECT_FADE_IN_MS = 140
+const SURFACE_ANCHOR_LOST_FADE_SECONDS = 0.14
 
 const effectVertexShader = `
   varying vec2 vUv;
@@ -126,18 +138,18 @@ const effectFragmentShader = `
       body = alpha;
       edge = alpha;
     } else if (uKind < 3.5) {
-      // Stellar afterglow: hollow, broken, expanding shell with turbulent gaps.
-      float radial = length(vec2(p.x * 0.9, p.y * 1.06));
-      float shellRadius = mix(0.34, 0.84, smoothstep(0.0, 0.78, uProgress));
-      float shellWidth = mix(0.18, 0.055, smoothstep(0.08, 1.0, uProgress));
-      float shell = exp(-abs(radial - shellRadius) / max(shellWidth, 0.025));
-      float angularBreakup = 0.48 + noise * 0.62;
-      float hollow = smoothstep(0.18, shellRadius * 0.9, radial);
-      float knots = smoothstep(0.58, 0.88, noise) * shell;
-      alpha = shell * angularBreakup * hollow;
-      core = knots * 0.34;
-      body = shell * (0.45 + noise * 0.35);
-      edge = shell * (0.7 + noise * 0.3);
+      // Residual stellar heat is a diffuse cooling cloud. Do not draw a hollow
+      // annulus: that turns a contact event into a stamped white oval as it ages.
+      float radial = length(vec2(p.x * 0.92, p.y * 1.05));
+      float spread = mix(0.50, 0.88, smoothstep(0.0, 0.82, uProgress));
+      float broadCloud = 1.0 - smoothstep(0.08, spread, radial);
+      float softCore = exp(-radial * radial * 3.2);
+      float breakup = 0.58 + noise * 0.42;
+      float outerSoftness = 1.0 - smoothstep(spread * 0.56, spread, radial);
+      alpha = (broadCloud * 0.56 + softCore * 0.20) * breakup;
+      core = softCore * 0.10;
+      body = broadCloud * (0.52 + noise * 0.25);
+      edge = outerSoftness * 0.38;
     } else {
       // Small sparks stay aligned to their real travel direction, but the tail
       // footprint follows presentation-only profile geometry so head-on ejecta
@@ -176,8 +188,8 @@ const effectFragmentShader = `
       alpha = max(alpha, plasmaAura * 0.12 * uOuterGlow);
       core += plasmaAura * 0.06 * uInnerGlow;
     } else if (uKind < 3.5) {
-      float shellAura = 1.0 - smoothstep(0.42, 1.0, length(vec2(p.x * 0.9, p.y)));
-      alpha = max(alpha, shellAura * 0.1 * uOuterGlow);
+      float afterglowAura = 1.0 - smoothstep(0.18, 1.0, length(vec2(p.x * 0.92, p.y * 1.04)));
+      alpha = max(alpha, afterglowAura * 0.08 * uOuterGlow);
     }
 
     float feather = 1.0 - smoothstep(0.78, 1.0, max(abs(p.x), abs(p.y)));
@@ -582,7 +594,91 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     visuals.delete(id)
   }
 
-  const ensure = (body: BodyState) => {
+  const createSurfaceAnchor = (body: BodyState, bodies: BodyState[]) => {
+    const kind = body.effectVisual?.kind
+    if (
+      body.id.startsWith('preview:') ||
+      body.effectVisual?.stellarCollision !== true ||
+      (kind !== 'contactFlash' && kind !== 'compressionShear')
+    ) return undefined
+
+    const effectPosition = new THREE.Vector3(body.position.x, body.position.y, body.position.z)
+    const sourceRadius = getBodyPresentationRadius(
+      Math.max(body.effectVisual?.sourceMaxRadius ?? body.radius, 0),
+    )
+    let bestBody: BodyState | undefined
+    let bestSurfaceDistance = Number.POSITIVE_INFINITY
+    let bestCenterDistance = 0
+
+    bodies.forEach((candidate) => {
+      if (getEffectiveBodyType(candidate) !== 'star') return
+      const candidateRadius = getBodyPresentationRadius(candidate.radius)
+      const centerDistance = effectPosition.distanceTo(
+        new THREE.Vector3(candidate.position.x, candidate.position.y, candidate.position.z),
+      )
+      const surfaceDistance = Math.abs(centerDistance - candidateRadius)
+      if (surfaceDistance >= bestSurfaceDistance) return
+      bestBody = candidate
+      bestSurfaceDistance = surfaceDistance
+      bestCenterDistance = centerDistance
+    })
+
+    if (!bestBody || bestSurfaceDistance > sourceRadius * 1.6) return undefined
+    const ownerRadius = getBodyPresentationRadius(bestBody.radius)
+    const anchorDirection = effectPosition.sub(
+      new THREE.Vector3(bestBody.position.x, bestBody.position.y, bestBody.position.z),
+    )
+    if (anchorDirection.lengthSq() < 1e-12) {
+      const fallback = body.effectVisual?.normal ?? { x: 1, y: 0, z: 0 }
+      anchorDirection.set(fallback.x, fallback.y, fallback.z)
+    }
+    anchorDirection.normalize()
+
+    return {
+      sourceBodyId: bestBody.id,
+      lastBodyId: bestBody.id,
+      direction: anchorDirection,
+      radiusScale: clamp(bestCenterDistance / Math.max(ownerRadius, 1e-8), 0.72, 1.04),
+      lostAtAge: null,
+    } satisfies SurfaceEffectAnchor
+  }
+
+  const resolveSurfaceAnchorBody = (anchor: SurfaceEffectAnchor, bodies: BodyState[]) => {
+    const stars = bodies.filter((body) => getEffectiveBodyType(body) === 'star')
+    return stars.find((body) => body.id === anchor.lastBodyId) ??
+      stars.find((body) => bodyCarriesCollisionLineage(body, anchor.sourceBodyId))
+  }
+
+  const applySurfaceAnchor = (
+    visual: CollisionEffectVisual,
+    body: BodyState,
+    bodies: BodyState[],
+  ) => {
+    const anchor = visual.anchor
+    if (!anchor) return 1
+
+    const owner = resolveSurfaceAnchorBody(anchor, bodies)
+    if (owner) {
+      const ownerRadius = getBodyPresentationRadius(owner.radius)
+      visual.mesh.position.set(owner.position.x, owner.position.y, owner.position.z)
+      visual.mesh.position.addScaledVector(anchor.direction, ownerRadius * anchor.radiusScale)
+      anchor.lastBodyId = owner.id
+      anchor.lostAtAge = null
+      return 1
+    }
+
+    const age = Math.max(body.age ?? 0, 0)
+    anchor.lostAtAge ??= age
+    const lostProgress = clamp(
+      (age - anchor.lostAtAge) / SURFACE_ANCHOR_LOST_FADE_SECONDS,
+      0,
+      1,
+    )
+    const smoothLost = lostProgress * lostProgress * (3 - 2 * lostProgress)
+    return 1 - smoothLost
+  }
+
+  const ensure = (body: BodyState, bodies: BodyState[]) => {
     const existing = visuals.get(body.id)
     if (existing) return existing
 
@@ -594,7 +690,12 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     mesh.renderOrder = 14
     group.add(mesh)
 
-    const created = { mesh, material, trail }
+    const created: CollisionEffectVisual = {
+      mesh,
+      material,
+      trail,
+      anchor: createSurfaceAnchor(body, bodies),
+    }
     visuals.set(body.id, created)
     return created
   }
@@ -602,6 +703,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
   const updateVisual = (
     visual: CollisionEffectVisual,
     body: BodyState,
+    bodies: BodyState[],
     camera: THREE.Camera,
     opacityScale = 1,
     simulationTime?: number,
@@ -627,13 +729,16 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
     visual.mesh.position.set(body.position.x, body.position.y, body.position.z)
     visual.mesh.quaternion.copy(camera.quaternion)
     visual.mesh.rotateZ(screenAngle)
+    const anchorOpacity = applySurfaceAnchor(visual, body, bodies)
 
     const diameter = profile.visualRadius * 2
     let scaleX = diameter * profile.anisotropicStretch
     let scaleY = diameter * profile.widthScale
-    const sourceDiameter = 2 * (body.effectVisual?.sourceMaxRadius ?? body.radius)
+    const sourceDiameter = 2 * getBodyPresentationRadius(
+      Math.max(body.effectVisual?.sourceMaxRadius ?? body.radius, 0),
+    )
     const maxWorldDiameter = stellarEffect
-      ? sourceDiameter * (profile.kind === 'stellarPlasma' ? 2.5 : profile.kind === 'stellarAfterglow' ? 2 : 0.8)
+      ? sourceDiameter * (profile.kind === 'stellarPlasma' ? 2.5 : profile.kind === 'stellarAfterglow' ? 1.35 : 0.8)
       : profile.kind === 'stellarAfterglow'
       ? stellarEffect ? 1.28 : 0.96
       : stellarEffect
@@ -650,7 +755,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
       scaleY *= scaleClamp
     }
     visual.mesh.scale.set(scaleX, scaleY, 1)
-    visual.mesh.visible = profile.fadeAlpha > 0.002
+    visual.mesh.visible = profile.fadeAlpha > 0.002 && anchorOpacity > 0.002
 
     const stellarHex = getNearestStellarColor(body.color).hex
     const secondaryHex = getNearestStellarColor(body.effectVisual?.secondaryColor ?? body.color).hex
@@ -684,7 +789,7 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
         ? 0.60
         : 0.70
     uniforms.uOpacity.value = clamp(
-      profile.baseOpacity * profile.fadeAlpha * clamp(opacityScale, 0, 1),
+      profile.baseOpacity * profile.fadeAlpha * clamp(opacityScale, 0, 1) * anchorOpacity,
       0,
       synthetic
         ? syntheticOpacityCap
@@ -789,17 +894,17 @@ export function createCollisionEffectsLayer(scene: THREE.Scene) {
         // The physical contact flash starts immediately while the synthetic peak is
         // still retiring. Larger shear/plasma structures then complete the crossfade.
         const opacity = body.effectVisual?.stellarCollision ? 1 : kind === 'contactFlash' ? 1 : 0.22 + smoothFade * 0.78
-        // Physical collision VFX age in real time so 0.03x/0.08x observation does
-        // not stretch a 0.5-2s visual effect into many seconds of wall-clock time.
+        // Physical stellar effects use solver age/simulation time; non-stellar legacy
+        // effects retain their historical wall-clock presentation age.
         const visualBody = {
           ...body,
           age: body.effectVisual?.stellarCollision ? (body.age ?? 0) : Math.max(0, (now - introducedAt) / 1000),
         }
-        updateVisual(ensure(body), visualBody, camera, opacity, simulationTime)
+        updateVisual(ensure(body, bodies), visualBody, bodies, camera, opacity, simulationTime)
       })
-      syntheticEffects.forEach((body) => updateVisual(ensure(body), body, camera))
+      syntheticEffects.forEach((body) => updateVisual(ensure(body, bodies), body, bodies, camera))
       retiringEffects.forEach(({ body, opacity }) => {
-        updateVisual(ensure(body), body, camera, opacity)
+        updateVisual(ensure(body, bodies), body, bodies, camera, opacity)
       })
     },
     dispose() {
