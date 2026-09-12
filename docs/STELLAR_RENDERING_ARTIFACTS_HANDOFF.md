@@ -4,7 +4,7 @@
 
 - Baseline `main`: `c99a3fe0d4a031f7c36809c6d80d71f9aa23269a` (merged PR #159, v0.28.0)
 - Working branch: `fix/stellar-rendering-artifacts`
-- Working PR: created as Draft for this staged follow-up; keep all stages on this branch/PR.
+- Working PR: Draft PR #160 — https://github.com/stafor94/3BP/pull/160
 - Stage 1 scope: rendering-path investigation plus stellar photosphere surface/color/depth restoration only.
 - Status: **1단계는 개발만 완료, 실행·시각 검증 미실시**.
 - Per the repository release rules, the user-visible rendering change still needs the final-stage version/CHANGELOG update plus required automated/runtime/A-B validation before merge. No version bump is made in Stage 1.
