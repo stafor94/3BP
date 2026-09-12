@@ -177,7 +177,7 @@ export const stellarPhotosphereFragmentShader = `
     // A broad continuous center-to-limb gradient supplies spherical depth while
     // keeping the whole disk emissive. There is deliberately no white center term
     // and no dark rim multiplier; the temperature identity scales every radius.
-    return 0.42 + 0.58 * viewMu * viewMu;
+    return 0.56 + 0.44 * viewMu * viewMu;
   }
 
   float getStellarEdgeCoverage(float viewMu) {
