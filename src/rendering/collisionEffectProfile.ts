@@ -200,8 +200,11 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       kind,
       progress: contactProgress,
       fadeAlpha: rise * decay,
+      // Synthetic overlap light is a preview/support cue; retain the pre-Stage-3
+      // energy contract even though physical stellar flashes now use kind-specific
+      // shape profiles. This keeps the preview subordinate to photosphere color.
       baseOpacity: syntheticStellar
-        ? 0.72
+        ? 0.24
         : physicalStellar
           ? stellarOutcome === 'hitAndRun'
             ? 0.60
