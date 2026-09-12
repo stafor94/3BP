@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Minimal production photographic-light regression for normal gameplay size.
+"""Production photographic-light regression for normal gameplay size.
 
-The renderer should keep a bright photographic core while preserving temperature
-identity across the disk and near glow. This gate intentionally avoids the former
-3x3 size sweep and continuous-zoom baseline work for this focused color fix.
+The photosphere must stay luminous and preserve temperature identity without a
+separate white center hotspot. The existing edge/corona gates remain active so
+removing the hotspot cannot be traded for a dark ball, neon ring, or missing halo.
 """
 from __future__ import annotations
 
@@ -124,31 +124,38 @@ def analyze(image, geometry):
     }
 
 
+def chromaticity(rgb):
+    total = sum(rgb)
+    require(total > 1e-9, 'stellar color sample unexpectedly black')
+    return [channel / total for channel in rgb]
+
+
 def validate_disk_continuity(metrics, name):
     # Ring medians suppress surface texture without blurring away a disk boundary.
     # RGB distance catches desaturation boundaries even for nearly neutral solar
     # stars; normalized chromaticity avoids unstable HSV hue near white.
     rgb = [metrics['radial_rgb'][str(radius)] for radius in DISK_RADII]
     luma = [metrics['radial_luma'][str(radius)] for radius in DISK_RADII]
-    chroma = [[channel / sum(color) for channel in color] for color in rgb]
+    chroma = [chromaticity(color) for color in rgb]
     for index, (inner, outer) in enumerate(zip(luma, luma[1:])):
         interval = f'{DISK_RADII[index]}R->{DISK_RADII[index + 1]}R'
         require(-0.008 <= inner - outer <= 0.035,
                 f'{name}: abrupt mid-disk luminance change at {interval}')
-        # Allow the compact core's warm highlight to decay; keep the middle
-        # disk stricter, where a white-disk boundary is never expected.
         rgb_limit = 18 if index == 0 else 14
         require(max(abs(a - b) for a, b in zip(rgb[index], rgb[index + 1])) <= rgb_limit,
                 f'{name}: abrupt mid-disk RGB jump at {interval}')
         require(max(abs(a - b) for a, b in zip(chroma[index], chroma[index + 1])) <= 0.014,
                 f'{name}: abrupt mid-disk hue/chromaticity jump at {interval}')
 
-    # A compact highlight has spent most of its contrast by 0.35R. A broad white
-    # disk instead concentrates its falloff in the 0.35R->0.55R colored annulus.
+    # With the independent white hotspot removed, the center-to-mid-disk curve
+    # should remain broad and smooth. A large shoulder drop would indicate that
+    # a white disk/annulus boundary or compact center spike has returned.
     inner_drop = luma[0] - luma[2]
     shoulder_drop = luma[2] - luma[4]
-    require(shoulder_drop <= max(0.008, inner_drop * 0.45),
-            f'{name}: broad white disk / colored annulus at 0.4R-0.6R')
+    require(inner_drop <= 0.065,
+            f'{name}: independent bright center hotspot returned inside 0.35R')
+    require(shoulder_drop <= 0.045,
+            f'{name}: broad white disk / colored annulus at 0.35R-0.55R')
     for index in (3, 4):
         for channel in range(3):
             low = min(chroma[index - 1][channel], chroma[index + 1][channel])
@@ -160,9 +167,20 @@ def validate_disk_continuity(metrics, name):
 def validate_star(metrics, name):
     radial = metrics['radial_luma']
     validate_disk_continuity(metrics, name)
-    # core_white now means luminous center only; neutrality is intentionally not
-    # enforced because temperature identity may remain visible through the core.
-    require(metrics['core_luma'] >= 0.84, f'{name}: core_white/core_bright is not luminous enough')
+
+    # The old >=0.84 core gate encoded the removed white-hot center as the
+    # acceptance target. Keep an absolute luminance floor plus relative disk
+    # continuity instead: this rejects a dark sphere without requiring clipping.
+    require(metrics['core_luma'] >= 0.55, f'{name}: photosphere became too dark after hotspot removal')
+    require(radial['0.72'] >= 0.45, f'{name}: temperature-colored mid-disk is not luminous enough')
+    require(metrics['core_luma'] <= radial['0.35'] + 0.065,
+            f'{name}: compact center is independently brighter than the surrounding photosphere')
+
+    core_chroma = chromaticity(metrics['core_rgb'])
+    mid_chroma = chromaticity(metrics['radial_rgb']['0.72'])
+    require(max(abs(a - b) for a, b in zip(core_chroma, mid_chroma)) <= 0.025,
+            f'{name}: center lost temperature identity relative to the mid-disk')
+
     require(metrics['surface_noise'] <= 1.8, f'{name}: surface_noise dominates photographic emission')
     require(0.10 <= radial['1.1'] <= 0.90, f'{name}: near_glow missing or overpowering')
     require(0.010 <= radial['1.7'] <= 0.30, f'{name}: diffuse_halo missing or overpowering')
@@ -195,16 +213,18 @@ def validate_star(metrics, name):
 
 
 def validate_temperature_identity(metrics):
-    # Use the mid-disk where the photosphere must carry most of the identity color.
-    # cool -> warm/red-biased, solar -> near-neutral warm white, hot -> blue-biased.
-    colors = {star: metrics[star]['radial_rgb']['0.72'] for star in STARS}
-    cool_warm = colors['cool'][0] - colors['cool'][2]
-    solar_warm = colors['solar'][0] - colors['solar'][2]
-    hot_cool = colors['hot'][2] - colors['hot'][0]
-    require(
-        cool_warm >= 18 and -4 <= solar_warm < cool_warm and hot_cool >= 10,
-        f'temperature_identity lost at normal gameplay size: {colors}',
-    )
+    # Both center and mid-disk should retain the same temperature family now that
+    # a separate neutral-white core is no longer part of the target.
+    mid_colors = {star: metrics[star]['radial_rgb']['0.72'] for star in STARS}
+    core_colors = {star: metrics[star]['core_rgb'] for star in STARS}
+    for label, colors in [('mid', mid_colors), ('core', core_colors)]:
+        cool_warm = colors['cool'][0] - colors['cool'][2]
+        solar_warm = colors['solar'][0] - colors['solar'][2]
+        hot_cool = colors['hot'][2] - colors['hot'][0]
+        require(
+            cool_warm >= 18 and -4 <= solar_warm < cool_warm and hot_cool >= 10,
+            f'temperature_identity lost at normal gameplay size ({label}): {colors}',
+        )
 
 
 def make_contact_sheet(paths, output):
@@ -256,6 +276,7 @@ def main():
     (OUT / 'metrics.json').write_text(json.dumps({
         'viewport': [390, 844],
         'scope': 'cool/solar/hot at normal gameplay size only',
+        'acceptance': 'luminous temperature-colored disk without an independent white center hotspot',
         'metrics': metrics,
         'telemetry': telemetry,
     }, indent=2))
@@ -263,7 +284,7 @@ def main():
         validate_star(metrics[star], star)
     validate_temperature_identity(metrics)
 
-    print('Photographic production gate passed: cool/solar/hot normal gameplay color identity')
+    print('Photographic production gate passed: luminous cool/solar/hot disks without an independent white center hotspot')
 
 
 if __name__ == '__main__':
