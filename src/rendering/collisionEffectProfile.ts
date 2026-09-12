@@ -95,31 +95,31 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   const physicalStellar = stellar && !syntheticStellar
   const stageFiveNonStellar = !stellar && isStageFiveCollisionVfxEnabled()
 
-  if (stellar) {
-    // Physical age is the shared simulation clock; phaseOffset staggers the
-    // visible gas release without delaying or moving mass-bearing ejecta.
+  if (stellar && kind === 'stellarPlasma') {
+    // Physical gas parcels are the one stellar effect family that owns a world-space
+    // trail. Keep its parcel-wide profile here; contact/shear/afterglow must continue
+    // into their kind-specific branches below so generated shape metadata is honored.
     const sourceRadius = Math.max(visual?.sourceMaxRadius ?? body.radius, 1e-8)
-    const gas = kind === 'stellarPlasma'
-    const afterglow = kind === 'stellarAfterglow'
-    const release = gas ? smooth01((age - (visual?.phaseOffset ?? 0) * 0.009) / 0.006) : 1
+    const sourcePresentationRadius = getBodyPresentationRadius(sourceRadius)
+    const bodyPresentationRadius = getBodyPresentationRadius(Math.max(body.radius, 0))
+    const release = smooth01((age - (visual?.phaseOffset ?? 0) * 0.009) / 0.006)
     const cooling = smooth01(progress)
-    // Stage 5 leaves gas spread/area-density decay to per-sample trail age.
-    // Parcel-wide age only supplies a late lifetime handoff so every retained
-    // sample is not widened or darkened in lockstep from launch onward.
     const gasTerminalFade = 1 - smooth01((progress - 0.78) / 0.22)
     return {
-      kind, progress, cooling,
-      fadeAlpha: release * (gas
-        ? gasTerminalFade
-        : Math.pow(1 - progress, afterglow ? 2 : 3)),
-      baseOpacity: gas ? 0.24 : afterglow ? 0.10 : 0.24,
-      innerGlow: 0.08, outerGlow: 0.18,
-      visualRadius: gas ? Math.min(body.radius * 1.2, sourceRadius * 0.30) * (1 + progress * 2.8)
-        : sourceRadius * (afterglow ? 0.8 : 0.24),
-      anisotropicStretch: gas ? Math.min(2.6, Math.max(1.25, (visual?.stretch ?? 2) * 0.48)) : 1.15,
-      widthScale: gas ? 0.85 + progress * 1.2 : 1,
-      tailLength: gas ? (stellarOutcome === 'hitAndRun' ? 0.8 : stellarOutcome === 'partialDisruption' ? 0.65 : 0.5) : 0, pulseStrength: 0,
-      brightness: gas ? 0.82 * (1 - cooling * 0.22) : 0.85,
+      kind,
+      progress,
+      cooling,
+      fadeAlpha: release * gasTerminalFade,
+      baseOpacity: 0.24,
+      innerGlow: 0.08,
+      outerGlow: 0.18,
+      visualRadius: Math.min(bodyPresentationRadius * 1.2, sourcePresentationRadius * 0.30) *
+        (1 + progress * 2.8),
+      anisotropicStretch: Math.min(2.6, Math.max(1.25, (visual?.stretch ?? 2) * 0.48)),
+      widthScale: 0.85 + progress * 1.2,
+      tailLength: stellarOutcome === 'hitAndRun' ? 0.8 : stellarOutcome === 'partialDisruption' ? 0.65 : 0.5,
+      pulseStrength: 0,
+      brightness: 0.82 * (1 - cooling * 0.22),
       turbulence: visual?.turbulence ?? 0.5,
     }
   }
@@ -131,7 +131,7 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
     const rawStretch = visual?.stretch ?? (physicalStellar ? 2.75 : 2.55)
     const rawWidth = visual?.widthScale ?? (physicalStellar ? 0.48 : 0.42)
     const legacySolidFlashRadius = clamp(body.radius * 0.32, 0.038, 0.082)
-    const sourcePresentationRadius = !stellar && visual?.sourceMaxRadius !== undefined
+    const sourcePresentationRadius = visual?.sourceMaxRadius !== undefined
       ? getBodyPresentationRadius(Math.max(visual.sourceMaxRadius, 0))
       : undefined
     const solidFlashRadius = sourcePresentationRadius === undefined
@@ -178,13 +178,6 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       : contactProgress <= peakHoldProgress
         ? 1
         : Math.pow(1 - postPeakProgress, physicalStellar ? 3.55 : stageFiveNonStellar ? 3.65 : 3.2)
-    const outcomeBrightnessBoost = physicalStellar
-      ? stellarOutcome === 'merge'
-        ? 1.1
-        : stellarOutcome === 'partialDisruption'
-          ? 1.05
-          : 1
-      : 1
     const stageFiveFootprintScale = stageFiveNonStellar
       ? THREE.MathUtils.lerp(0.60, 0.80, severity) *
         THREE.MathUtils.lerp(1, 1.05, contactGeometry.grazing)
@@ -200,47 +193,38 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       kind,
       progress: contactProgress,
       fadeAlpha: rise * decay,
-      baseOpacity: syntheticStellar
-        ? 0.72
-        : physicalStellar
-          ? stellarOutcome === 'hitAndRun'
-            ? 0.82
-            : 0.9
-          : stageFiveNonStellar
-            ? THREE.MathUtils.lerp(0.48, 0.64, severity)
-            : 0.78,
-      innerGlow: syntheticStellar
-        ? 0.48
-        : physicalStellar
-          ? 0.72
-          : stageFiveNonStellar
-            ? THREE.MathUtils.lerp(0.36, 0.50, severity)
-            : 0.68,
-      outerGlow: syntheticStellar
+      // Stellar contact light is a local support cue. Keep the proven broad,
+      // temperature-preserving energy contract while allowing the physical effect
+      // object to use the Stage-3 surface anchor and contact-specific lifetime.
+      baseOpacity: stellar
+        ? 0.24
+        : stageFiveNonStellar
+          ? THREE.MathUtils.lerp(0.48, 0.64, severity)
+          : 0.78,
+      innerGlow: stellar
+        ? 0.08
+        : stageFiveNonStellar
+          ? THREE.MathUtils.lerp(0.36, 0.50, severity)
+          : 0.68,
+      outerGlow: stellar
         ? 0.18
-        : physicalStellar
-          ? 0.22
-          : stageFiveNonStellar
-            ? THREE.MathUtils.lerp(0.04, 0.08, severity)
-            : 0.14,
+        : stageFiveNonStellar
+          ? THREE.MathUtils.lerp(0.04, 0.08, severity)
+          : 0.14,
       visualRadius: syntheticStellar
         ? clamp(body.radius * (0.76 + contactProgress * 0.14), 0.05, 0.13)
         : physicalStellar
-          ? clamp(
-              body.radius * (stellarOutcome === 'merge' ? 0.88 : stellarOutcome === 'hitAndRun' ? 0.72 : 0.8),
-              0.085,
-              0.25,
-            )
+          ? clamp((sourcePresentationRadius ?? getBodyPresentationRadius(body.radius)) * 0.24, 0.055, 0.18)
           : solidFlashRadius * stageFiveFootprintScale,
       anisotropicStretch: stellar
-        ? clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : 3.05)
+        ? 1.15
         : stageFiveNonStellar
           ? smallHeadOnSolidFlash ? 1 : stageFiveStretch
           : smallHeadOnSolidFlash
             ? 1
             : clamp(rawStretch, 1.18, 1.45),
       widthScale: stellar
-        ? clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66)
+        ? 1
         : stageFiveNonStellar
           ? smallHeadOnSolidFlash ? 1 : stageFiveWidth
           : smallHeadOnSolidFlash
@@ -255,21 +239,19 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           ? SMALL_HEAD_ON_CONTACT_FLASH_TAIL_SENTINEL
           : -1,
       pulseStrength: stellar
-        ? clamp(visual?.pulseStrength ?? (physicalStellar ? 0.055 : 0.16), 0, physicalStellar ? 0.075 : 0.2)
+        ? 0
         : stageFiveNonStellar
           ? clamp(visual?.pulseStrength ?? 0.03, 0, 0.035)
           : clamp(visual?.pulseStrength ?? 0.07, 0, 0.08),
-      brightness: syntheticStellar
-        ? (visual?.brightness ?? 1.35) * (0.76 + syntheticBuild * 0.24)
-        : physicalStellar
-          ? (visual?.brightness ?? 2.08) * outcomeBrightnessBoost
-          : stageFiveNonStellar
-            ? clamp(
-                (visual?.brightness ?? 1.28) * THREE.MathUtils.lerp(0.74, 0.88, severity),
-                0,
-                1.28,
-              )
-            : clamp(visual?.brightness ?? 1.28, 0, 1.5),
+      brightness: stellar
+        ? 0.85
+        : stageFiveNonStellar
+          ? clamp(
+              (visual?.brightness ?? 1.28) * THREE.MathUtils.lerp(0.74, 0.88, severity),
+              0,
+              1.28,
+            )
+          : clamp(visual?.brightness ?? 1.28, 0, 1.5),
       turbulence: visual?.turbulence ?? (physicalStellar ? 0.72 : 0.2),
       cooling: syntheticStellar ? contactProgress * 0.1 : smooth01(contactProgress),
     }
@@ -292,6 +274,9 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       : 1
     const rawStretch = visual?.stretch ?? 2.8
     const rawWidth = visual?.widthScale ?? 0.5
+    const sourcePresentationRadius = visual?.sourceMaxRadius !== undefined
+      ? getBodyPresentationRadius(Math.max(visual.sourceMaxRadius, 0))
+      : getBodyPresentationRadius(body.radius)
 
     return {
       kind,
@@ -301,17 +286,17 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
         ? 0.56
         : physicalStellar
           ? stellarOutcome === 'merge'
-            ? 0.74
+            ? 0.62
             : stellarOutcome === 'partialDisruption'
-              ? 0.68
-              : 0.58
+              ? 0.58
+              : 0.50
           : 0.68,
-      innerGlow: syntheticStellar ? 0.42 : physicalStellar ? 0.64 : stellar ? 0.6 : 0.68,
-      outerGlow: syntheticStellar ? 0.12 : physicalStellar ? 0.16 : stellar ? 0.15 : 0.18,
+      innerGlow: syntheticStellar ? 0.42 : physicalStellar ? 0.46 : stellar ? 0.6 : 0.68,
+      outerGlow: syntheticStellar ? 0.12 : physicalStellar ? 0.10 : stellar ? 0.15 : 0.18,
       visualRadius: physicalStellar
-        ? clamp(body.radius * 0.56, 0.075, 0.23)
+        ? clamp(sourcePresentationRadius * 0.28, 0.065, 0.21)
         : stellar
-          ? clamp(body.radius * 0.5, 0.068, 0.2)
+          ? clamp(sourcePresentationRadius * 0.25, 0.06, 0.19)
           : clamp(body.radius * 0.34, 0.045, 0.11),
       anisotropicStretch: clamp(
         rawStretch * (0.92 + progress * (physicalStellar ? 0.12 : 0.1)),
@@ -414,30 +399,33 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
   }
 
   if (kind === 'stellarAfterglow') {
-    // The afterglow pass carries the expanding shock shell. Keep it close to
-    // circular with a crisp edge so it reads as a shell, not another bloom halo.
-    const expansion = smooth01(progress / 0.68)
-    const decay = Math.pow(1 - progress, physicalStellar ? 1.5 : 1.7)
+    // A residual stellar afterglow is a diffuse cooling cloud, not a second shock
+    // shell. Keep its footprint tied to the source presentation radius so it cannot
+    // become a camera-sized ring when the effect body's physical radius is large.
+    const expansion = smooth01(progress / 0.78)
+    const decay = Math.pow(1 - progress, physicalStellar ? 1.7 : 1.85)
     const rawStretch = visual?.stretch ?? 1.08
     const rawWidth = visual?.widthScale ?? 0.98
+    const sourcePresentationRadius = getBodyPresentationRadius(
+      Math.max(visual?.sourceMaxRadius ?? body.radius, 0),
+    )
     return {
       kind,
       progress,
       fadeAlpha: decay,
-      baseOpacity: stellarOutcome === 'merge' ? 0.58 : stellarOutcome === 'partialDisruption' ? 0.5 : 0.4,
-      innerGlow: physicalStellar ? 0.08 : 0.07,
-      outerGlow: physicalStellar ? 0.25 : 0.22,
+      baseOpacity: stellarOutcome === 'merge' ? 0.26 : stellarOutcome === 'partialDisruption' ? 0.22 : 0.18,
+      innerGlow: physicalStellar ? 0.10 : 0.08,
+      outerGlow: physicalStellar ? 0.12 : 0.10,
       visualRadius: clamp(
-        body.radius * (0.72 + expansion * 0.92) *
-          (stellarOutcome === 'merge' ? 1.08 : stellarOutcome === 'hitAndRun' ? 0.88 : 0.98),
-        0.08,
-        0.42,
+        sourcePresentationRadius * (0.30 + expansion * 0.22),
+        0.06,
+        0.28,
       ),
-      anisotropicStretch: clamp(rawStretch * (0.96 + expansion * 0.06), 0.96, 1.18),
-      widthScale: clamp(rawWidth * (0.97 + expansion * 0.05), 0.9, 1.08),
+      anisotropicStretch: clamp(rawStretch * (0.98 + expansion * 0.04), 0.96, 1.18),
+      widthScale: clamp(rawWidth * (0.98 + expansion * 0.04), 0.90, 1.06),
       tailLength: 0,
-      pulseStrength: clamp(visual?.pulseStrength ?? 0.012, 0, 0.025),
-      brightness: (visual?.brightness ?? 1.08) * (1 - progress * (physicalStellar ? 0.22 : 0.28)),
+      pulseStrength: clamp(visual?.pulseStrength ?? 0.008, 0, 0.018),
+      brightness: (visual?.brightness ?? 1.0) * (0.88 - progress * (physicalStellar ? 0.16 : 0.2)),
       turbulence: visual?.turbulence ?? 0.82,
       cooling: Math.pow(progress, 0.78),
     }
