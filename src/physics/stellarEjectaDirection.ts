@@ -213,7 +213,7 @@ function getGrazingDirection(input: StellarEjectaDirectionInput, frame: Collisio
     input.outcome === 'hitAndRun'
       ? 0.2
       : input.outcome === 'partialDisruption'
-        ? 0.31 + damageBias * 0.05
+        ? 0.31 + damageBias * 0.08
         : 0.38
   ) * sizeScale
   const normalScatter = (sample(input.seed, `grazing-normal:${input.outcome}`, input.index) * 2 - 1) * spread
