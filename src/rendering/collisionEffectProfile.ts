@@ -178,13 +178,6 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       : contactProgress <= peakHoldProgress
         ? 1
         : Math.pow(1 - postPeakProgress, physicalStellar ? 3.55 : stageFiveNonStellar ? 3.65 : 3.2)
-    const outcomeBrightnessBoost = physicalStellar
-      ? stellarOutcome === 'merge'
-        ? 1.08
-        : stellarOutcome === 'partialDisruption'
-          ? 1.04
-          : 0.98
-      : 1
     const stageFiveFootprintScale = stageFiveNonStellar
       ? THREE.MathUtils.lerp(0.60, 0.80, severity) *
         THREE.MathUtils.lerp(1, 1.05, contactGeometry.grazing)
@@ -200,48 +193,38 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       kind,
       progress: contactProgress,
       fadeAlpha: rise * decay,
-      // Synthetic overlap light is a preview/support cue; retain the pre-Stage-3
-      // energy contract even though physical stellar flashes now use kind-specific
-      // shape profiles. This keeps the preview subordinate to photosphere color.
-      baseOpacity: syntheticStellar
+      // Stellar contact light is a local support cue. Keep the proven broad,
+      // temperature-preserving energy contract while allowing the physical effect
+      // object to use the Stage-3 surface anchor and contact-specific lifetime.
+      baseOpacity: stellar
         ? 0.24
-        : physicalStellar
-          ? stellarOutcome === 'hitAndRun'
-            ? 0.60
-            : stellarOutcome === 'partialDisruption'
-              ? 0.66
-              : 0.70
-          : stageFiveNonStellar
-            ? THREE.MathUtils.lerp(0.48, 0.64, severity)
-            : 0.78,
-      innerGlow: syntheticStellar
-        ? 0.48
-        : physicalStellar
-          ? 0.46
-          : stageFiveNonStellar
-            ? THREE.MathUtils.lerp(0.36, 0.50, severity)
-            : 0.68,
-      outerGlow: syntheticStellar
+        : stageFiveNonStellar
+          ? THREE.MathUtils.lerp(0.48, 0.64, severity)
+          : 0.78,
+      innerGlow: stellar
+        ? 0.08
+        : stageFiveNonStellar
+          ? THREE.MathUtils.lerp(0.36, 0.50, severity)
+          : 0.68,
+      outerGlow: stellar
         ? 0.18
-        : physicalStellar
-          ? 0.10
-          : stageFiveNonStellar
-            ? THREE.MathUtils.lerp(0.04, 0.08, severity)
-            : 0.14,
+        : stageFiveNonStellar
+          ? THREE.MathUtils.lerp(0.04, 0.08, severity)
+          : 0.14,
       visualRadius: syntheticStellar
         ? clamp(body.radius * (0.76 + contactProgress * 0.14), 0.05, 0.13)
         : physicalStellar
           ? clamp((sourcePresentationRadius ?? getBodyPresentationRadius(body.radius)) * 0.24, 0.055, 0.18)
           : solidFlashRadius * stageFiveFootprintScale,
       anisotropicStretch: stellar
-        ? clamp(rawStretch, 1.55, syntheticStellar ? 2.7 : 3.05)
+        ? 1.15
         : stageFiveNonStellar
           ? smallHeadOnSolidFlash ? 1 : stageFiveStretch
           : smallHeadOnSolidFlash
             ? 1
             : clamp(rawStretch, 1.18, 1.45),
       widthScale: stellar
-        ? clamp(rawWidth, physicalStellar ? 0.38 : 0.32, 0.66)
+        ? 1
         : stageFiveNonStellar
           ? smallHeadOnSolidFlash ? 1 : stageFiveWidth
           : smallHeadOnSolidFlash
@@ -256,21 +239,19 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
           ? SMALL_HEAD_ON_CONTACT_FLASH_TAIL_SENTINEL
           : -1,
       pulseStrength: stellar
-        ? clamp(visual?.pulseStrength ?? (physicalStellar ? 0.04 : 0.16), 0, physicalStellar ? 0.055 : 0.2)
+        ? 0
         : stageFiveNonStellar
           ? clamp(visual?.pulseStrength ?? 0.03, 0, 0.035)
           : clamp(visual?.pulseStrength ?? 0.07, 0, 0.08),
-      brightness: syntheticStellar
-        ? (visual?.brightness ?? 1.35) * (0.76 + syntheticBuild * 0.24)
-        : physicalStellar
-          ? (visual?.brightness ?? 2.08) * 0.82 * outcomeBrightnessBoost
-          : stageFiveNonStellar
-            ? clamp(
-                (visual?.brightness ?? 1.28) * THREE.MathUtils.lerp(0.74, 0.88, severity),
-                0,
-                1.28,
-              )
-            : clamp(visual?.brightness ?? 1.28, 0, 1.5),
+      brightness: stellar
+        ? 0.85
+        : stageFiveNonStellar
+          ? clamp(
+              (visual?.brightness ?? 1.28) * THREE.MathUtils.lerp(0.74, 0.88, severity),
+              0,
+              1.28,
+            )
+          : clamp(visual?.brightness ?? 1.28, 0, 1.5),
       turbulence: visual?.turbulence ?? (physicalStellar ? 0.72 : 0.2),
       cooling: syntheticStellar ? contactProgress * 0.1 : smooth01(contactProgress),
     }
