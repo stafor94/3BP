@@ -95,6 +95,26 @@
 
 이번 단계에서도 테스트, 의존성 설치, 빌드, 타입 검사, lint, 회귀 검사, 브라우저 실행, 스크린샷·영상 캡처, CI 실행·재시도를 수행하지 않았다. 공통 timeline 연결이 실제 화면에서 의도대로 보이는지는 아직 확인하지 않았다.
 
+## 4단계 — 충돌 외피의 연속적인 형상 변화
+
+상태: **4단계 구현 반영, 미검증**
+
+변경 파일:
+- `src/rendering/stellarCollisionEnvelope.ts`
+- `docs/STELLAR_COLLISION_REFINEMENT_PLAN.md`
+
+- merge는 공통 `contactProgress`·`transferProgress`·`settleProgress`로 접촉면 압축, neck 성장, donor lobe의 축방향 신장+부피 감소, receiver lobe의 부피 수용, 비대칭 remnant 감쇠를 하나의 단면 profile 안에서 연결한다. 별도 geometry 교체나 시간 위상 요동은 추가하지 않는다.
+- 접촉축은 source 위치 차를 우선하고, 길이가 거의 0이면 source 상대속도, 마지막으로 `eventId` 기반 결정적 축을 사용한다. 접근 변형은 기존 1.18× reach 바깥 경계에서 0으로 시작하며 contact 전 neck은 만들지 않는다.
+- 표시 부피 목표는 시작 시 두 source 구체의 `4/3πr³` 합, settle 종료 시 실제 result 구체의 `4/3πr³`다. 기존 36×24 비균일 x/angle 샘플에서 `0.5×Σ(r²Δangle)` 단면적과 실제 `dx` trapezoid 적분으로 표시 부피를 근사하고, 축 길이는 유지한 채 단면 반지름에 `sqrt(target/current)` 보정을 적용한다. 비유한/0 부피는 scale 1 fallback을 사용하며 샘플 배열은 envelope마다 재사용한다.
+- hit-and-run/partial disruption은 각각의 실제 survivor envelope를 유지한다. contact 마지막 변형이 settle 시작에 0으로 사라지지 않도록 terminal deformation을 이어받아 `settleProgress`로 감쇠하고, partial disruption은 source→target 반지름 변화가 큰 survivor에 더 큰 변형을 준다. 분리 뒤 survivor 사이 neck은 만들지 않는다.
+- settle 외피 중심은 과거 충돌 월드 좌표에 고정하지 않고 매 프레임 실제 result/survivor 위치를 기준으로 계산한다. handoff 순간의 local offset만 `settleProgress`/`releaseProgress`로 감쇠한다.
+- source lobe의 온도색은 초기 contact에 유지하고 transfer/settle에 따라 혼합 범위를 넓힌다. result 색은 `getResolvedStellarPhotosphereColor()`를 사용해 일반 광구와 같은 transient-heat 상태를 소비한다. 중앙 백색 하이라이트는 복원하지 않는다.
+- 보정된 동일 단면 반지름을 광구 정점과 2단계 `haloSectionRadius`에 같이 쓰므로 변형 외피와 corona profile이 함께 움직인다. 기존 render-object suppression/visibility 복구 경로는 유지한다.
+- 이 구현은 고정 단면 격자의 presentation approximation이며 유체 시뮬레이션이 아니다. 극단적 질량비/시점에서 neck·tip·부피 보정이 자연스러운지는 최종 런타임 검증 대상으로 남긴다.
+- 기존 contact/settle/release/transfer 시간, 물리 충돌 판정·solver 시점, 실제 질량·반지름·위치·속도, gas trail/ejecta, 카메라/UI는 변경하지 않았다.
+- 3단계 종료 시 별도 미해결로 보고한 `buildContactPhysicalFrame()`의 metadata cleanup 범위는 4단계 형상 작업에서 수정하지 않았다.
+- 이번 단계에서도 테스트, 의존성 설치, 빌드, 타입 검사, lint, 회귀 검사, 브라우저 실행, 스크린샷·영상 캡처, CI 실행·재시도를 수행하지 않았다.
+
 ## 최종 통합 검증
 
 - 정상 크기와 확대 화면에서 중앙에 독립된 흰 점이 없는지 확인
@@ -116,6 +136,15 @@
 - 리셋 뒤 이전 event/envelope/heat transition이 다시 재생되지 않는지 확인
 - predicted outcome과 실제 solver outcome이 다를 때 실제 survivor/target만 표시되는지 확인
 - 질량·반지름·위치·속도·운동량·충돌 결과가 이번 시간 정리로 바뀌지 않는지 확인
+- 접촉 전 불필요한 neck이 생기지 않는지 확인
+- 두 둥근 원반이 겹친 채 작은 쪽만 사라지는 인상이 줄었는지 확인
+- 물질 이동 중 갑작스러운 팽창·수축이 없는지 확인
+- lobe 소멸 시 점·가시·별도 작은 구체가 남지 않는지 확인
+- 결과 천체 이동과 외피가 분리되지 않는지 확인
+- hit-and-run/partial-disruption survivor가 settle 시작에 순간적으로 원형으로 복귀하지 않는지 확인
+- 최종 광구 복귀에서 위치·크기·색·corona가 튀지 않는지 확인
+- 1배속과 충돌 관찰 배속, 일시정지·재개에서 형상 연속성이 유지되는지 확인
+- 온도색과 1~3단계 변경이 유지되는지 확인
 
 ## 마지막 검증 단계에서 갱신할 기존 검사
 
@@ -126,6 +155,6 @@
 
 최종 검증에서는 예전 별도 하이라이트 구현을 다시 강제하지 않는다. 온도색, 전체 발광감, 외곽 링 방지 검사는 유지하며, 결과에 맞추기 위해 임의로 임계값을 낮추지 않는다.
 
-## 4단계 대상
+## 5단계 대상
 
-공통 진행률을 사용해 접촉부 압축 → neck 성장 → 부피 이동 또는 분리 → 비대칭 잔해 → 안정화의 형상을 개선한다. 3단계에서는 이 작업을 시작하지 않는다.
+가스 이력의 샘플별 확산·감쇠와 밀도 표현을 바꿔 길고 곧은 빗살·부채꼴 리본을 개선한다. 4단계에서는 시작하지 않는다.
