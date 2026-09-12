@@ -98,8 +98,8 @@ const effectFragmentShader = `
     } else if (uStellar > 0.5 && uKind < 1.5) {
       // Physical stellar contact is a finite soft patch, not the generic narrow
       // ridge/filament. The geometry already supplies its contact orientation.
-      vec2 patch = vec2(p.x * 0.88, (p.y + (noise - 0.5) * 0.10 * uTurbulence) * 1.45);
-      float falloff = exp(-dot(patch, patch) * 2.8);
+      vec2 patchCoord = vec2(p.x * 0.88, (p.y + (noise - 0.5) * 0.10 * uTurbulence) * 1.45);
+      float falloff = exp(-dot(patchCoord, patchCoord) * 2.8);
       float boundary = 1.0 - smoothstep(0.60, 1.0, length(p));
       alpha = falloff * boundary * (0.52 + noise * 0.22);
       core = falloff * 0.10;
