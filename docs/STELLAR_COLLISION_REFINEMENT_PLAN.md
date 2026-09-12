@@ -170,6 +170,49 @@
 - renderer가 effect 생성 뒤 늦게 해당 parcel을 처음 보게 된 경우 그 이전 이력은 의도적으로 복원하지 않는다. 존재하는 실제 관측 이력만 사용한다.
 - 이번 단계에서는 테스트 코드 작성·수정, 의존성 설치, 빌드, 타입 검사, lint, 회귀 검사, 브라우저 실행, 스크린샷·영상 캡처, CI 실행·재시도·결과 대기를 수행하지 않았다. 실제 영상에서 시각 개선이 달성됐다고 아직 판정하지 않는다.
 
+## 6단계 — 충돌 조건별 항성 분출 방향 분포 개선
+
+상태: **6단계 구현 반영, 미검증**
+
+변경 파일:
+- `src/physics/engine.ts`
+- `src/physics/stellarEjectaDirection.ts` (신규)
+- `docs/STELLAR_COLLISION_REFINEMENT_PLAN.md`
+
+### 실제 변경한 물리 경로
+
+- star-star 충돌의 `makeEjecta()`가 source를 기존 규칙으로 먼저 선택한 뒤 `getStellarCollisionEjectaDirection()`에서 실제 초기 kick 방향을 계산한다. 기존 `getEjectaDirection()`의 `stellarCollision` 조기 반환은 제거했으며 이 함수는 비항성 및 star/non-star 혼합 충돌의 기존 분포를 그대로 담당한다.
+- 새 방향은 기존 `baseKick × kickScale` 크기와 source/center inherited velocity에 결합되어 실제 `BodyState.velocity`가 된다. 즉 이번 단계는 presentation-only가 아니라 **실제 분출체 초기 속도 방향을 변경하는 물리 상태 변경**이다.
+- `travelDirection = normalize(velocity - centerVelocity)`를 `effectVisual.direction`에 계속 전달하고, star-star에 한해서 동일 방향의 충돌면 접선 성분을 기존 표면 patch 위치 계산에 작은 가중치로 반영한다. 기존 surface point와 clearance/lift 계산은 유지한다.
+- 5단계 gas trail은 이 새 `BodyState.position`의 실제 적분 이력을 그대로 기록하며 renderer에서 별도 궤적이나 fan을 다시 생성하지 않는다.
+
+### 정면·스침·결과별 분포
+
+- 정면에 가까운 충돌은 충돌 법선에 수직인 splash를 기본으로 한다. 2D에서는 결정적 side offset 뒤 ±tangent를 번갈아 사용하고 parcel별 spread jitter를 더해 한쪽 편향과 동일 두 선 집중을 줄인다. 3D에서는 tangent/binormal 평면에서 golden-fraction 층화 위상 + parcel별 jitter + 제한된 normal tilt를 사용해 완벽한 원형 고리나 동일 각도 간격을 피한다.
+- grazing은 `grazing=0.28→0.82` 사이 smooth blend로 head-on splash에서 stripping stream으로 연속 전환한다. 기존 `grazing > 0.6` 한계에서 전체 fan이 갑자기 바뀌던 star-star 조기 분기를 사용하지 않는다.
+- `merge`는 접촉부 splash 성격을 유지하도록 grazing stream도 비교적 넓고 양방향성이 남도록 한다. `hitAndRun`은 `dominantTangentSign`과 `strippedDirection`을 강하게 유지하고 seed로 선택한 최소 1개의 counter-stream slot과 작은 추가 확률만 둔다. `partialDisruption`은 `massAsymmetry`와 해당 parcel source가 작은/피해 큰 항성인지 여부를 stripped 방향 가중치와 폭에 반영한다.
+- outcome은 기존 `classifyCollision()` 결과의 `stellarOutcome`(`merge` / `hitAndRun` / `partialDisruption`)만 소비한다. 새 방향 함수에서 결과 분류를 다시 수행하지 않는다.
+
+### 2D/3D 좌표계와 결정적 seed
+
+- 방향 계산은 `normal/tangent`를 다시 직교화한 충돌 로컬 frame에서만 수행하며 카메라/화면 좌표를 참조하지 않는다. 2D는 normal/tangent의 z를 0으로 제한한다. 3D는 normal과 reference axis가 평행해질 때 z→y→x 순으로 안전한 축을 선택해 tangent/binormal을 구성한다.
+- 분출 질량·source·속도 크기·lifetime 등 기존 난수값은 기존 `getStableEjectaSeed()` 채널을 그대로 사용한다. 방향만 정렬된 body id 쌍에서 파생한 별도 identity seed와 `head-side`, `head-spread`, `phase-jitter`, `counter-slot`, `grazing-normal/lateral` 등 분리된 hash 채널을 사용한다.
+- 따라서 방향 샘플을 추가해도 기존 weight/source/speed/lifetime 난수 소비 순서나 값은 바뀌지 않는다. `Math.random()`, wall clock, render frame/order는 사용하지 않는다.
+- 동일 pair는 재충돌에서도 동일한 층화 sample identity를 재사용하므로 sample 패턴 자체는 반복될 수 있다. 실제 local frame과 outcome/geometry 가중치는 충돌 상태에 따라 달라진다. 이 반복이 눈에 띄는지는 7단계 runtime 검증 항목으로 남긴다.
+
+### 질량·속도·운동량 계약
+
+- `requestedMass`, `requestedVolume`, ejecta `count`, per-parcel weight/mass/radius, `baseKick`, `kickScale`, lifetime, 충돌 결과 분류와 기존 에너지/속도 제한식은 변경하지 않았다. 방향만 kick 적용 전에 바뀐다.
+- merge는 `resolveMergedCollision()`이 새 ejecta의 실제 `representedEjectaMomentum`을 합산하고 remnant velocity를 남은 총 선운동량으로 계산하는 기존 경로를 유지한다.
+- hit-and-run/partial-disruption은 `resolveStellarSeparatedCollision()`이 새 `fragmentMomentum`을 target momentum에서 빼고 두 survivor에 공통 `correction`을 적용하는 기존 경로를 유지한다. 보정 뒤 ejecta/survivor 속도를 다시 정규화하거나 보정을 두 번 적용하지 않는다.
+- 따라서 ejecta 방향 변경으로 remnant/survivor 반동과 이후 궤적은 달라질 수 있다. 이 경로가 선운동량을 보정하지만 에너지·각운동량까지 보존한다고 주장하지 않는다. 실제 오차와 기존 에너지 제한 유지 여부는 7단계 검증 대상이다.
+
+### 검증 상태와 제한
+
+- 이번 단계에서는 테스트 코드 작성·수정, 의존성 설치, 빌드, 타입 검사, lint, 회귀 검사, 브라우저 실행, 스크린샷·영상 캡처, CI 실행·재시도·결과 대기를 수행하지 않았다.
+- direction helper와 `makeEjecta()`/spawn/momentum 호출부의 코드 연결 및 diff만 검토했다. 모든 방향·속도의 finite 여부, 2D plane 유지, 운동량 오차, 실제 fan 완화 정도는 아직 실행 검증하지 않았다.
+- 행성·위성·일반 파편과 star/non-star 혼합 충돌은 기존 `getEjectaDirection()` 분기를 유지하고 star-star 전용 helper를 호출하지 않는다.
+
 ## 최종 통합 검증
 
 - 정상 크기와 확대 화면에서 중앙에 독립된 흰 점이 없는지 확인
@@ -209,6 +252,20 @@
 - 항성 온도색과 광구 depth 가림이 유지되는지 확인
 - 비항성 plasma/contact/shear/afterglow/spark 표현이 유지되는지 확인
 - 모바일에서 최대 40 sample/80 vertex의 고정 ribbon, draw call 수, 넓어진 투명 영역 비용이 과도하지 않은지 확인
+- 같은 초기 상태와 seed에서 star-star ejecta 방향이 재현되는지 확인
+- 모든 ejecta 방향·초기 속도가 finite이고 정규화 fallback에서 NaN/0 vector가 생기지 않는지 확인
+- 2D star-star ejecta의 위치·속도가 시뮬레이션 평면을 벗어나지 않는지 확인
+- 정면 충돌에서 대부분의 ejecta가 한쪽으로 편향되거나 좁은 두 줄에 집중되지 않는지 확인
+- 스치는 충돌에서 dominant stripping/접선 이탈 방향과 소수 counter-stream이 읽히는지 확인
+- grazing 연속 변화에서 특정 임계값을 지날 때 전체 분포가 갑자기 뒤집히지 않는지 확인
+- 규칙적인 빗살·정확히 등간격 fan·반복적인 매-N번째 역방향 패턴이 완화되는지 확인
+- merge/hit-and-run/partial-disruption이 서로 다른 방향 특성을 실제로 보이는지 확인
+- 운동량 보정 이후 remnant/survivor 반동이 유한하고 의도한 ejecta 분포가 유지되는지 확인
+- 분출 총질량·parcel 개수·radius·lifetime·기존 kick/에너지 제한식이 이전 계약과 같은지 확인
+- remnant/survivor와 ejecta를 포함한 선운동량 오차가 기존 허용 범위인지 확인
+- star-star launch point가 원본/생존체 내부에 잘못 배치되지 않고 기존 surface clearance를 유지하는지 확인
+- 행성·위성·일반 파편 및 star/non-star 혼합 충돌 경로가 기존 동작을 유지하는지 확인
+- 5단계 gas trail 중심선이 새 물리 ejecta 궤적과 일치하는지 확인
 
 ## 마지막 검증 단계에서 갱신할 기존 검사
 
@@ -219,6 +276,14 @@
 
 최종 검증에서는 예전 별도 하이라이트 구현을 다시 강제하지 않는다. 온도색, 전체 발광감, 외곽 링 방지 검사는 유지하며, 결과에 맞추기 위해 임의로 임계값을 낮추지 않는다.
 
-## 6단계 대상
+## 7단계 인계 준비
 
-항성 분출 방향의 fan 분포를 충돌 각도·질량비·결과별로 정리한다. 기존 질량·운동량 보정 계약을 유지하면서 규칙적인 빗살 배치를 완화한다. 5단계에서는 `physics/engine.ts`의 분출 방향 생성이나 실제 물리 속도·질량을 변경하지 않으며 6단계를 시작하지 않는다.
+현재까지 완료로 바꾸지 않은 통합 전 확인 항목:
+- 1~2단계의 중앙 흰 점·corona single-shell·seam/극점 결과는 아직 실제 영상/카메라 회전 조건에서 확인하지 않았다.
+- 3단계에서 남긴 `buildContactPhysicalFrame()`의 stellar timeline metadata cleanup 범위는 아직 확인이 필요하다.
+- 4단계 고정 단면/표시 부피 근사의 극단적 질량비·시점에서 neck/tip/settle 형상은 런타임 미검증이다.
+- 5단계는 renderer가 늦게 생성된 parcel의 과거 이력을 복원하지 않으며, 최대 40 sample/투명 영역 비용과 실제 영상의 밀도 표현도 미검증이다.
+- 6단계는 실제 물리 방향을 바꾸므로 ejecta 궤적과 remnant/survivor 반동이 이전과 달라질 수 있다. finite/2D/재현성/선운동량/기존 에너지 제한 및 fan 완화 정도를 아직 검증하지 않았다.
+- 1~6단계 전체에 대해 이번 개발 단계에서는 빌드·타입·lint·회귀·CI·실제 browser/video A/B를 실행하지 않았고, 버전/CHANGELOG도 아직 갱신하지 않았다.
+
+7단계에서는 최신 `main` 통합, 버전/CHANGELOG 갱신, 새 요구에 맞는 회귀 검사 정리, 빌드·필수 CI, 동일 조건 baseline/candidate 실제 영상 비교를 수행한다. 그 전까지 Draft PR base는 `staging/stellar-collision-refinement-base`를 유지한다.

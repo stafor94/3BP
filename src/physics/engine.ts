@@ -2,6 +2,7 @@ import { mergeCollisionLineageIds, selectCollisionPrimary } from '../collisionId
 import { getEquilibriumStellarDisplayColor, getStellarTemperatureKelvin } from '../starColors'
 import type { BodyState, BodyType, EffectVisualState, StellarCollisionOutcome, Vec3 } from '../types'
 import { getCollisionContactDistance, getLinearCollisionContactFraction } from './collisionContact'
+import { getStellarCollisionEjectaDirection } from './stellarEjectaDirection'
 import { add, magnitude, magnitudeSquared, scale, sub } from './vector'
 
 const G = 1
@@ -580,6 +581,11 @@ function getStableEjectaSeed(a: BodyState, b: BodyState, geometry: CollisionGeom
   ].join(':')
 }
 
+function getStableStellarDirectionSeed(a: BodyState, b: BodyState) {
+  const ids = [a.id, b.id].sort()
+  return `${ids[0]}:${ids[1]}`
+}
+
 function selectStellarEjectaSource(
   seed: string,
   index: number,
@@ -605,6 +611,7 @@ function getStellarEjectaSpawnPosition(
   is2d: boolean,
   large: boolean,
   ejectaRadius: number,
+  travelDirection?: Vec3,
 ) {
   const contactNormal = source === a ? geometry.normal : scale(geometry.normal, -1)
   const patchScale = large ? 0.13 : 0.22
@@ -620,6 +627,11 @@ function getStellarEjectaSpawnPosition(
     const binormalOffset = (seededScalar(`${seed}:patch-binormal:${index}`) * 2 - 1) *
       (large ? 0.11 : 0.2) * (0.85 + geometry.headOn * 0.25)
     patchDirection = add(patchDirection, scale(binormal, binormalOffset))
+  }
+
+  if (travelDirection) {
+    const launchTangent = projectToCollisionPlane(travelDirection, geometry, geometry.tangent)
+    patchDirection = add(patchDirection, scale(launchTangent, large ? 0.05 : 0.08))
   }
 
   const surfaceDirection = normalize(patchDirection, contactNormal)
@@ -836,7 +848,6 @@ function getEjectaDirection(
   geometry: CollisionGeometry,
   stellarBias?: StellarEjectaBias,
   large = false,
-  stellarCollision = false,
 ) {
   const randomDirection = seededUnit(seed, index, is2d)
   const randomProjected = sub(randomDirection, scale(geometry.normal, dot(randomDirection, geometry.normal)))
@@ -865,27 +876,14 @@ function getEjectaDirection(
     return randomDirection
   }
 
-  if (stellarCollision) {
-    const grazing = geometry.grazing
-    const sign = grazing > 0.6
-      ? (index % 5 === 4 ? -stellarBias.dominantTangentSign : stellarBias.dominantTangentSign)
-      : (index % 2 ? 1 : -1)
-    // Stratify the fan: adjacent string-hash seeds were correlated enough to
-    // collapse almost every parcel onto the same two narrow trajectories.
-    const phase = (seededScalar(`${seed}:fan`) + index * 0.61803398875) % 1
-    const angle = (phase - 0.5) * (1.45 - grazing * 0.1 + stellarBias.massAsymmetry * 0.3)
-    const spread = add(scale(geometry.tangent, sign * Math.cos(angle)), scale(geometry.normal, Math.sin(angle)))
-    return normalize(add(spread, scale(randomDirection, is2d ? 0.08 : 0.28)), randomDirection)
-  }
-
   const { massAsymmetry, strippedDirection, relativeDirection, dominantTangentSign } = stellarBias
   const speedEnergy = clamp(geometry.speedRatio / 2.6, 0, 1)
   const planarStripped = projectToCollisionPlane(strippedDirection, geometry, geometry.tangent)
   const planarRelative = projectToCollisionPlane(relativeDirection, geometry, geometry.tangent)
 
   if (geometry.grazing > 0.6) {
-    // Grazing collisions are stripping events: most streams share one dominant
-    // tangent direction, while only a sparse minority forms a counter-stream.
+    // Mixed stellar collisions retain their legacy stripping distribution. The
+    // star-star path is handled separately by getStellarCollisionEjectaDirection().
     const counterStream = index % 5 === 4
     const sign = counterStream ? -dominantTangentSign : dominantTangentSign
     const tangentWeight = large
@@ -914,9 +912,8 @@ function getEjectaDirection(
   }
 
   if (geometry.headOn > 0.7) {
-    // Vent compressed material mostly inside the plane perpendicular to the
-    // collision normal. In 2D this becomes the two ±tangent splash directions;
-    // in 3D seeded in-plane turbulence prevents a perfectly symmetric ring.
+    // Mixed star/non-star behavior is unchanged: vent mostly perpendicular to
+    // the normal without using the star-star outcome-aware distribution.
     const sign = index % 2 === 0 ? 1 : -1
     const alignedSplash = dot(splashRandom, geometry.tangent) * sign < 0
       ? scale(splashRandom, -1)
@@ -1065,8 +1062,10 @@ function makeEjecta(
 
   // Keep IDs serialised for uniqueness, but derive all ejecta randomness from
   // collision state so replaying the same initial state produces the same patch,
-  // source selection, directions, speeds, and visual variation.
+  // source selection, speeds, and visual variation. Star-star directions use a
+  // separate identity seed so geometry thresholds do not reshuffle angle samples.
   const seed = getStableEjectaSeed(a, b, geometry)
+  const stellarDirectionSeed = getStableStellarDirectionSeed(a, b)
   const largeCount = stellarEjecta
     ? Math.min(
         count,
@@ -1108,11 +1107,31 @@ function makeEjecta(
     const volume = requestedVolume * share
     const radius = Math.cbrt(Math.max(volume, 1e-12))
     const large = stellarEjecta && index < largeCount
-    const direction = getEjectaDirection(seed, index, is2d, geometry, stellarBias, large, stellarCollision)
+    const source = stellarEjecta && stellarBias
+      ? selectStellarEjectaSource(seed, index, geometry, stellarBias)
+      : undefined
+    const direction = stellarCollision && stellarBias && source
+      ? getStellarCollisionEjectaDirection({
+          seed: stellarDirectionSeed,
+          index,
+          count,
+          is2d,
+          normal: geometry.normal,
+          tangent: geometry.tangent,
+          grazing: geometry.grazing,
+          speedRatio: geometry.speedRatio,
+          outcome: decision.stellarOutcome ?? 'merge',
+          massAsymmetry: stellarBias.massAsymmetry,
+          strippedDirection: stellarBias.strippedDirection,
+          relativeDirection: stellarBias.relativeDirection,
+          dominantTangentSign: stellarBias.dominantTangentSign,
+          sourceIsSmaller: source === stellarBias.smaller,
+          large,
+        })
+      : getEjectaDirection(seed, index, is2d, geometry, stellarBias, large)
     const tiny = radius < MIN_PERSISTENT_FRAGMENT_RADIUS || mass < MIN_PERSISTENT_FRAGMENT_MASS
 
-    if (stellarEjecta && stellarBias) {
-      const source = selectStellarEjectaSource(seed, index, geometry, stellarBias)
+    if (stellarEjecta && stellarBias && source) {
       const inheritedSourceWeight = large ? 0.82 : 0.62
       const inheritedVelocity = add(
         scale(source.velocity, inheritedSourceWeight),
@@ -1132,6 +1151,7 @@ function makeEjecta(
         is2d,
         large,
         radius,
+        stellarCollision ? travelDirection : undefined,
       )
       const lifetimeNoise = seededScalar(`${seed}:life:${index}`)
       const lifetime = clamp(
@@ -1175,11 +1195,11 @@ function makeEjecta(
     const speedNoise = 0.78 + seededScalar(`${seed}:speed:${index}`) * 0.72
     const velocity = add(centerVelocity, scale(direction, baseKick * speedNoise))
     const position = add(centerPosition, scale(direction, solidSpawnDistance + radius * 2.5))
-    const source = index % 2 === 0 ? a : b
+    const solidSource = index % 2 === 0 ? a : b
     return {
       id: `${a.id}+${b.id}+${tiny ? 'fx' : 'frag'}${serial}-${index}`,
       name: tiny ? 'Collision spark' : 'Debris',
-      color: source.color,
+      color: solidSource.color,
       mass,
       radius,
       position,
