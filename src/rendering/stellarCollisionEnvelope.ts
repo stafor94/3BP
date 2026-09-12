@@ -1,6 +1,10 @@
 import * as THREE from 'three'
 import type { BodyState, StellarCollisionPresentation, StellarCollisionSource } from '../types'
 import { getStellarDisplayColorFromBody } from '../starColors'
+import {
+  getStellarCollisionTimeline,
+  STELLAR_COLLISION_SETTLE_DURATION_SECONDS,
+} from '../stellarCollisionTimeline'
 import { createStellarPhotosphereMaterialValues, getStellarPhotosphereFrame, updateStellarPhotosphereMaterial } from './stellarPhotosphereMaterial'
 
 const AXIAL = 36
@@ -8,7 +12,7 @@ const RADIAL = 24
 const VERTICES_PER_RING = RADIAL + 1
 const VERTEX_COUNT = (AXIAL + 1) * VERTICES_PER_RING
 const HALO_STRIDE = 2
-export const STELLAR_SETTLE_SECONDS = 0.16
+export const STELLAR_SETTLE_SECONDS = STELLAR_COLLISION_SETTLE_DURATION_SECONDS
 const smooth = (t: number) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t) }
 const vector = (p: { x: number; y: number; z: number }) => new THREE.Vector3(p.x, p.y, p.z)
 const star = (s: StellarCollisionSource): BodyState => ({ ...s, name: s.id, bodyType: 'star' })
@@ -50,6 +54,20 @@ type NormalTopology = {
   accumulatedNormals: Float32Array
 }
 
+function getPresentationTimeline(state: StellarCollisionPresentation) {
+  const contactDurationSeconds = state.contactDurationSeconds ?? state.duration
+  const eventAgeSeconds = state.eventAgeSeconds ?? (
+    state.phase === 'settle'
+      ? contactDurationSeconds + state.elapsed
+      : state.progress * contactDurationSeconds
+  )
+  return getStellarCollisionTimeline({
+    eventAgeSeconds,
+    contactDurationSeconds,
+    settleDurationSeconds: state.settleDurationSeconds ?? STELLAR_COLLISION_SETTLE_DURATION_SECONDS,
+  })
+}
+
 /** Smooth union of cross sections, followed by volume transfer and one lopsided
  * remnant. This is an opaque 3D surface, not a screen-facing topology mask. */
 export function getMergedEnvelopeShape(state: StellarCollisionPresentation, result?: BodyState): EnvelopeShape {
@@ -58,14 +76,12 @@ export function getMergedEnvelopeShape(state: StellarCollisionPresentation, resu
   const axis = vector(b.position).sub(vector(a.position)).normalize()
   const distance = vector(b.position).distanceTo(vector(a.position))
   const center = vector(a.position).multiplyScalar(a.mass / total).addScaledVector(vector(b.position), b.mass / total)
-  const settle = state.phase === 'settle' ? smooth(state.elapsed / STELLAR_SETTLE_SECONDS) : 0
-  // The solver contact lasts only ~24 ms at 1x. Continue the visible volume
-  // transfer through the shared settling clock instead of losing the small
-  // lobe in the very first result frame. Physical resolution is unchanged.
-  const transferDuration = state.duration + STELLAR_SETTLE_SECONDS * .75
-  const contactElapsed = state.phase === 'settle' ? state.duration + state.elapsed : state.progress * state.duration
-  const p = Math.min(1, contactElapsed / transferDuration)
-  const transfer = smooth((p - 0.14) / 0.78)
+  const timeline = getPresentationTimeline(state)
+  const settle = state.phase === 'settle' ? timeline.settleProgress : 0
+  // Preserve the existing overlapping transfer curve while sourcing its clock
+  // from the event timeline shared with physics and heat decay.
+  const p = timeline.transferClockProgress
+  const transfer = timeline.transferProgress
   const target = state.targets[0] ?? { ...a, mass: total, radius: Math.cbrt(a.radius ** 3 + b.radius ** 3) }
   const targetRadius = THREE.MathUtils.lerp(target.radius, result?.radius ?? target.radius, settle)
   if (result && state.phase === 'settle') {
@@ -129,13 +145,14 @@ function getSeparateShape(body: BodyState, partner: BodyState | undefined, state
     const other = state.sources.find((s) => s.id !== source.id)!
     axis = vector(other.position).sub(vector(source.position)).normalize()
     const target = state.targets.find((s) => s.id === body.id) ?? body
+    const timeline = getPresentationTimeline(state)
     if (state.phase === 'contact') {
-      const p = state.progress
+      const p = timeline.contactProgress
       radius = THREE.MathUtils.lerp(source.radius, target.radius, smooth(p))
       strength = Math.sin(Math.PI * p) * (state.outcome === 'partialDisruption' ? 0.18 : 0.10)
       axialStretch = 0.035 * Math.min(1, other.mass / source.mass) * (1 - smooth(p / .2)) - strength * .4
     } else {
-      const release = smooth(state.elapsed / 0.045)
+      const release = timeline.releaseProgress
       center.copy(vector(source.position).lerp(vector(body.position), release))
       radius = THREE.MathUtils.lerp(target.radius, body.radius, release)
     }
@@ -538,12 +555,16 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
       for (const body of stars) {
         const state = body.stellarCollisionPresentation
         if (state?.outcome === 'merge') {
-          if (!active.has(state.key)) show(state.key, getMergedEnvelopeShape(state, state.phase === 'settle' ? body : undefined),
+          const eventKey = state.eventId ?? state.key
+          if (!active.has(eventKey)) show(eventKey, getMergedEnvelopeShape(state, state.phase === 'settle' ? body : undefined),
             [...state.sources.map((s) => s.id), body.id])
         } else {
           const partner = stars.find((b) => b !== body && !b.stellarCollisionPresentation &&
             vector(b.position).distanceTo(vector(body.position)) < (b.radius + body.radius) * 1.18)
-          if (state || partner) show(body.id, getSeparateShape(body, partner, state), [body.id])
+          if (state || partner) {
+            const visualKey = state ? `${state.eventId ?? state.key}:${body.id}` : body.id
+            show(visualKey, getSeparateShape(body, partner, state), [body.id])
+          }
         }
       }
       for (const key of visuals.keys()) if (!active.has(key)) remove(key)

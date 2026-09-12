@@ -7,6 +7,10 @@ import {
   getStellarSurfaceTemperatureFromBody,
   mixStellarDisplayColors,
 } from '../starColors'
+import {
+  getStellarCollisionTimeline,
+  STELLAR_COLLISION_SETTLE_DURATION_SECONDS,
+} from '../stellarCollisionTimeline'
 import type { BodyState } from '../types'
 import { getStellarRenderProfile, type StellarRenderProfile } from './stellarRenderProfile'
 
@@ -35,8 +39,31 @@ function getTransientHeatStrength(body: BodyState) {
   const decayMs = body.transientHeatDecayMs ?? 0
   if (!token || initialStrength <= 0 || decayMs <= 0) return 0
 
+  if (
+    body.stellarCollisionEventId &&
+    body.stellarCollisionAge !== undefined &&
+    body.stellarCollisionContactDurationSeconds !== undefined
+  ) {
+    // Production stellar collisions own one simulation-time event clock. Heat
+    // keeps the existing settle-local 0.16 s decay curve, but derives that age
+    // from the cumulative contact->settle timeline instead of wall time.
+    stellarHeatClock.delete(body.id)
+    const timeline = getStellarCollisionTimeline({
+      eventAgeSeconds: body.stellarCollisionAge,
+      contactDurationSeconds: body.stellarCollisionContactDurationSeconds,
+    })
+    const progress = timeline.settleDurationSeconds <= 0
+      ? 1
+      : Math.min(1, Math.max(0, timeline.settleAgeSeconds / timeline.settleDurationSeconds))
+    return initialStrength * (1 - progress) ** 1.55
+  }
+
   if (body.stellarCollisionAge !== undefined) {
-    const progress = Math.min(1, body.stellarCollisionAge / 0.16)
+    // Compatibility for snapshots/fixtures created before event metadata existed.
+    const progress = Math.min(
+      1,
+      Math.max(0, body.stellarCollisionAge / STELLAR_COLLISION_SETTLE_DURATION_SECONDS),
+    )
     return initialStrength * (1 - progress) ** 1.55
   }
   const existing = stellarHeatClock.get(body.id)
