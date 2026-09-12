@@ -863,6 +863,17 @@ export function createSimulationRenderer(
   ]
 
   const visuals = new Map<string, VisualBody>()
+  // Expose the renderer-owned body-id map to collision presentation without
+  // making the envelope infer ownership from uSeed hashes or scene child order.
+  scene.userData.resolveStellarRenderObjects = (bodyId: string) => {
+    const visual = visuals.get(bodyId)
+    if (!visual || !visual.mesh.visible) return undefined
+    return {
+      photosphere: visual.mesh,
+      corona: visual.glowInner,
+      secondaryGlow: visual.glowOuter,
+    }
+  }
   const trailExcitationClock = new Map<string, { token: string; startedAt: number }>()
 
   const getTrailExcitation = (body: BodyState, timeMs: number) => {
@@ -1879,6 +1890,7 @@ export function createSimulationRenderer(
     sharedBodyGeometry.dispose()
     sharedGlowTexture.dispose()
     disposeLiveCollisionVfxScene(scene)
+    delete scene.userData.resolveStellarRenderObjects
     renderer.dispose()
     renderer.domElement.remove()
   }

@@ -5,6 +5,9 @@ import { createStellarPhotosphereMaterialValues, getStellarPhotosphereFrame, upd
 
 const AXIAL = 36
 const RADIAL = 24
+const VERTICES_PER_RING = RADIAL + 1
+const VERTEX_COUNT = (AXIAL + 1) * VERTICES_PER_RING
+const HALO_STRIDE = 2
 export const STELLAR_SETTLE_SECONDS = 0.16
 const smooth = (t: number) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t) }
 const vector = (p: { x: number; y: number; z: number }) => new THREE.Vector3(p.x, p.y, p.z)
@@ -26,6 +29,20 @@ export type EnvelopeShape = {
   colorA: THREE.Color
   colorB: THREE.Color
   body: BodyState
+}
+
+type StellarRenderObjects = {
+  photosphere: THREE.Object3D
+  corona: THREE.Object3D
+  secondaryGlow: THREE.Object3D
+}
+
+type StellarRenderObjectResolver = (bodyId: string) => StellarRenderObjects | undefined
+
+type NormalTopology = {
+  logicalIndexByVertex: Int32Array
+  representativeByLogical: Int32Array
+  accumulatedNormals: Float32Array
 }
 
 /** Smooth union of cross sections, followed by volume transfer and one lopsided
@@ -135,6 +152,166 @@ function getSeparateShape(body: BodyState, partner: BodyState | undefined, state
     } }
 }
 
+function vertexIndex(i: number, j: number) {
+  return i * VERTICES_PER_RING + j
+}
+
+function createSurfaceIndices() {
+  const indices: number[] = []
+  const startPole = vertexIndex(0, 0)
+  const endPole = vertexIndex(AXIAL, 0)
+
+  for (let j = 0; j < RADIAL; j++) {
+    indices.push(startPole, vertexIndex(1, j + 1), vertexIndex(1, j))
+  }
+  for (let i = 1; i < AXIAL - 1; i++) for (let j = 0; j < RADIAL; j++) {
+    const a = vertexIndex(i, j)
+    const b = vertexIndex(i + 1, j)
+    indices.push(a, a + 1, b, a + 1, b + 1, b)
+  }
+  for (let j = 0; j < RADIAL; j++) {
+    indices.push(vertexIndex(AXIAL - 1, j), vertexIndex(AXIAL - 1, j + 1), endPole)
+  }
+  return indices
+}
+
+function createHaloIndices() {
+  const indices: number[] = []
+  const startPole = vertexIndex(0, 0)
+  const endPole = vertexIndex(AXIAL, 0)
+
+  for (let j = 0; j < RADIAL; j += HALO_STRIDE) {
+    indices.push(startPole, vertexIndex(HALO_STRIDE, j + HALO_STRIDE), vertexIndex(HALO_STRIDE, j))
+  }
+  for (let i = HALO_STRIDE; i < AXIAL - HALO_STRIDE; i += HALO_STRIDE) {
+    for (let j = 0; j < RADIAL; j += HALO_STRIDE) {
+      const a = vertexIndex(i, j)
+      const b = vertexIndex(i + HALO_STRIDE, j)
+      indices.push(a, a + HALO_STRIDE, b, a + HALO_STRIDE, b + HALO_STRIDE, b)
+    }
+  }
+  for (let j = 0; j < RADIAL; j += HALO_STRIDE) {
+    indices.push(
+      vertexIndex(AXIAL - HALO_STRIDE, j),
+      vertexIndex(AXIAL - HALO_STRIDE, j + HALO_STRIDE),
+      endPole,
+    )
+  }
+  return indices
+}
+
+function createNormalTopology(): NormalTopology {
+  const logicalIndexByVertex = new Int32Array(VERTEX_COUNT)
+  const logicalCount = 2 + (AXIAL - 1) * RADIAL
+  const representativeByLogical = new Int32Array(logicalCount)
+  representativeByLogical.fill(-1)
+
+  for (let i = 0; i <= AXIAL; i++) for (let j = 0; j <= RADIAL; j++) {
+    const physical = vertexIndex(i, j)
+    const logical = i === 0
+      ? 0
+      : i === AXIAL
+        ? 1
+        : 2 + (i - 1) * RADIAL + (j % RADIAL)
+    logicalIndexByVertex[physical] = logical
+    if (representativeByLogical[logical] < 0) representativeByLogical[logical] = physical
+  }
+
+  return {
+    logicalIndexByVertex,
+    representativeByLogical,
+    accumulatedNormals: new Float32Array(logicalCount * 3),
+  }
+}
+
+function addFaceNormal(accumulated: Float32Array, logical: number, nx: number, ny: number, nz: number) {
+  const offset = logical * 3
+  accumulated[offset] += nx
+  accumulated[offset + 1] += ny
+  accumulated[offset + 2] += nz
+}
+
+function updateEnvelopeNormals(
+  geometry: THREE.BufferGeometry,
+  indices: number[],
+  topology: NormalTopology,
+  minX: number,
+  maxX: number,
+) {
+  const positions = geometry.getAttribute('position') as THREE.BufferAttribute
+  const normals = geometry.getAttribute('normal') as THREE.BufferAttribute
+  const positionArray = positions.array as Float32Array
+  const normalArray = normals.array as Float32Array
+  const accumulated = topology.accumulatedNormals
+  accumulated.fill(0)
+
+  for (let offset = 0; offset < indices.length; offset += 3) {
+    const ia = indices[offset]
+    const ib = indices[offset + 1]
+    const ic = indices[offset + 2]
+    const a = ia * 3, b = ib * 3, c = ic * 3
+    const abx = positionArray[b] - positionArray[a]
+    const aby = positionArray[b + 1] - positionArray[a + 1]
+    const abz = positionArray[b + 2] - positionArray[a + 2]
+    const acx = positionArray[c] - positionArray[a]
+    const acy = positionArray[c + 1] - positionArray[a + 1]
+    const acz = positionArray[c + 2] - positionArray[a + 2]
+    const nx = aby * acz - abz * acy
+    const ny = abz * acx - abx * acz
+    const nz = abx * acy - aby * acx
+    if (nx * nx + ny * ny + nz * nz <= 1e-20) continue
+
+    const la = topology.logicalIndexByVertex[ia]
+    const lb = topology.logicalIndexByVertex[ib]
+    const lc = topology.logicalIndexByVertex[ic]
+    addFaceNormal(accumulated, la, nx, ny, nz)
+    if (lb !== la) addFaceNormal(accumulated, lb, nx, ny, nz)
+    if (lc !== la && lc !== lb) addFaceNormal(accumulated, lc, nx, ny, nz)
+  }
+
+  const midpoint = (minX + maxX) * 0.5
+  for (let logical = 0; logical < topology.representativeByLogical.length; logical++) {
+    const normalOffset = logical * 3
+    let nx = accumulated[normalOffset]
+    let ny = accumulated[normalOffset + 1]
+    let nz = accumulated[normalOffset + 2]
+    let lengthSq = nx * nx + ny * ny + nz * nz
+
+    if (lengthSq <= 1e-20) {
+      const representative = topology.representativeByLogical[logical] * 3
+      const x = positionArray[representative]
+      const y = positionArray[representative + 1]
+      const z = positionArray[representative + 2]
+      const radialSq = y * y + z * z
+      if (radialSq > 1e-20) {
+        nx = 0
+        ny = y
+        nz = z
+        lengthSq = radialSq
+      } else {
+        nx = x <= midpoint ? -1 : 1
+        ny = 0
+        nz = 0
+        lengthSq = 1
+      }
+    }
+
+    const inverseLength = 1 / Math.sqrt(lengthSq)
+    accumulated[normalOffset] = nx * inverseLength
+    accumulated[normalOffset + 1] = ny * inverseLength
+    accumulated[normalOffset + 2] = nz * inverseLength
+  }
+
+  for (let physical = 0; physical < VERTEX_COUNT; physical++) {
+    const logicalOffset = topology.logicalIndexByVertex[physical] * 3
+    const physicalOffset = physical * 3
+    normalArray[physicalOffset] = accumulated[logicalOffset]
+    normalArray[physicalOffset + 1] = accumulated[logicalOffset + 1]
+    normalArray[physicalOffset + 2] = accumulated[logicalOffset + 2]
+  }
+  normals.needsUpdate = true
+}
+
 const vertexShader = `
   attribute vec3 collisionColor;
   varying vec3 vCollisionColor;
@@ -151,63 +328,125 @@ const vertexShader = `
   }
 `
 
+const haloVertexShader = `
+  attribute vec3 collisionColor;
+  attribute float haloSectionRadius;
+  uniform float uShellOffset;
+  uniform float uProfileRadius;
+  varying vec3 vCollisionColor;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+  varying float vShellDistance;
+  varying float vSectionRadius;
+  void main() {
+    float profile01 = clamp(haloSectionRadius / max(uProfileRadius, 0.000001), 0.0, 1.0);
+    float shellDistance = uShellOffset * mix(0.38, 1.0, sqrt(profile01));
+    vec3 shellPosition = position + normalize(normal) * shellDistance;
+    vCollisionColor = collisionColor;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vShellDistance = shellDistance;
+    vSectionRadius = haloSectionRadius;
+    vec4 world = modelMatrix * vec4(shellPosition, 1.0);
+    vWorldPosition = world.xyz;
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`
+
+const haloFragmentShader = `
+  uniform float uOpacity;
+  uniform float uProfileRadius;
+  varying vec3 vCollisionColor;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+  varying float vShellDistance;
+  varying float vSectionRadius;
+  void main() {
+    float profileRadius = max(uProfileRadius, 0.000001);
+    float profile01 = clamp(vSectionRadius / profileRadius, 0.0, 1.0);
+    float distance01 = vShellDistance / profileRadius;
+    float distanceFalloff = 0.72 * exp(-distance01 * 1.35) + 0.28 * exp(-distance01 * 0.58);
+    float sectionCoverage = smoothstep(0.025, 0.18, profile01);
+    vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
+    float viewMu = abs(dot(normalize(vWorldNormal), viewDirection));
+    float limbCoverage = mix(0.22, 1.0, smoothstep(0.08, 0.92, 1.0 - viewMu));
+    float alpha = uOpacity * distanceFalloff * sectionCoverage * limbCoverage;
+    gl_FragColor = vec4(vCollisionColor, alpha);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`
+
 function createEnvelope() {
   const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array((AXIAL + 1) * (RADIAL + 1) * 3), 3))
-  geometry.setAttribute('collisionColor', new THREE.BufferAttribute(new Float32Array((AXIAL + 1) * (RADIAL + 1) * 3), 3))
-  const indices: number[] = []
-  for (let i = 0; i < AXIAL; i++) for (let j = 0; j < RADIAL; j++) {
-    const a = i * (RADIAL + 1) + j, b = a + RADIAL + 1
-    indices.push(a, a + 1, b, a + 1, b + 1, b)
-  }
-  geometry.setIndex(indices)
+  const positions = new THREE.BufferAttribute(new Float32Array(VERTEX_COUNT * 3), 3).setUsage(THREE.DynamicDrawUsage)
+  const colors = new THREE.BufferAttribute(new Float32Array(VERTEX_COUNT * 3), 3).setUsage(THREE.DynamicDrawUsage)
+  const normals = new THREE.BufferAttribute(new Float32Array(VERTEX_COUNT * 3), 3).setUsage(THREE.DynamicDrawUsage)
+  const haloSectionRadius = new THREE.BufferAttribute(new Float32Array(VERTEX_COUNT), 1).setUsage(THREE.DynamicDrawUsage)
+  geometry.setAttribute('position', positions)
+  geometry.setAttribute('collisionColor', colors)
+  geometry.setAttribute('normal', normals)
+  geometry.setAttribute('haloSectionRadius', haloSectionRadius)
+  const surfaceIndices = createSurfaceIndices()
+  geometry.setIndex(surfaceIndices)
+  const normalTopology = createNormalTopology()
+
   const values = createStellarPhotosphereMaterialValues({ vertexShader, uniforms: {
     uSeed: { value: 0 }, uIdentityColor: { value: new THREE.Color() }, uOpacity: { value: 1 },
     uDetailStrength: { value: 1 }, uRimStrength: { value: 0.045 },
   } })
   values.fragmentShader = values.fragmentShader.replace('uniform vec3 uIdentityColor;', 'varying vec3 vCollisionColor;').replaceAll('uIdentityColor', 'vCollisionColor')
   const material = new THREE.ShaderMaterial(values)
+  material.depthTest = true
+  material.depthWrite = true
   const surface = new THREE.Mesh(geometry, material)
+  surface.renderOrder = 0
   const group = new THREE.Group()
   group.add(surface)
-  // One expanded back-face surface carries the diffuse column density. Reusing
-  // the photosphere geometry keeps shape coherent without six extra draw calls.
-  const haloVertexShader = 'uniform float uShellOffset;\n' + vertexShader.replace(
-    'vec4(position, 1.0)', 'vec4(position + normal * uShellOffset, 1.0)',
-  )
-  const haloMaterial = new THREE.ShaderMaterial({ vertexShader: haloVertexShader, transparent: true, depthWrite: false,
-    // Back faces are behind the opaque photosphere wherever their projections
-    // overlap. Depth testing removes interior light instead of bleaching color.
+
+  // A single back-face shell follows the actual deformed envelope. The shell
+  // offset and fade use the current cross-section radius instead of inferring a
+  // spherical projected radius from viewMu, which is invalid for lobes/necks.
+  const haloMaterial = new THREE.ShaderMaterial({
+    vertexShader: haloVertexShader,
+    fragmentShader: haloFragmentShader,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
     side: THREE.BackSide,
-    blending: THREE.AdditiveBlending, uniforms: { uOpacity: { value: 0.22 }, uShellOffset: { value: 0 } },
-    fragmentShader: `varying vec3 vCollisionColor; varying vec3 vWorldNormal; varying vec3 vWorldPosition;
-      uniform float uOpacity;
-      void main() { float mu = abs(dot(normalize(vWorldNormal), normalize(cameraPosition-vWorldPosition)));
-        float projectedRadius = 2.4 * sqrt(max(0.0, 1.0-mu*mu));
-        float distanceOutside = max(0.0, projectedRadius-1.0);
-        float column = 0.8 * exp(-pow(distanceOutside/.4, 2.0)) + 0.2 * exp(-distanceOutside/.65);
-        gl_FragColor=vec4(vCollisionColor, uOpacity * column * smoothstep(0.0, 0.15, mu));
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }`,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uOpacity: { value: 0.22 },
+      uShellOffset: { value: 0 },
+      uProfileRadius: { value: 1 },
+    },
+    toneMapped: true,
   })
-  // Share the exact surface buffers but use a coarser index grid for diffuse
-  // light. Expanding normals preserves lobe centers; scaling the whole pair
-  // around its COM creates detached duplicate glows on either side.
   const haloGeometry = new THREE.BufferGeometry()
-  haloGeometry.setAttribute('position', geometry.getAttribute('position'))
-  haloGeometry.setAttribute('collisionColor', geometry.getAttribute('collisionColor'))
-  const haloIndices: number[] = []
-  for (let i = 0; i < AXIAL; i += 2) for (let j = 0; j < RADIAL; j += 2) {
-    const a = i * (RADIAL + 1) + j, b = a + 2 * (RADIAL + 1)
-    haloIndices.push(a, a + 2, b, a + 2, b + 2, b)
-  }
-  haloGeometry.setIndex(haloIndices)
+  haloGeometry.setAttribute('position', positions)
+  haloGeometry.setAttribute('collisionColor', colors)
+  haloGeometry.setAttribute('normal', normals)
+  haloGeometry.setAttribute('haloSectionRadius', haloSectionRadius)
+  haloGeometry.setIndex(createHaloIndices())
   const halo = new THREE.Mesh(haloGeometry, haloMaterial)
   halo.renderOrder = 1
   group.add(halo)
   group.traverse((o) => { o.frustumCulled = false })
-  return { group, geometry, haloGeometry, material, haloMaterial, time: NaN, bodies: null as BodyState[] | null }
+  return {
+    group,
+    geometry,
+    haloGeometry,
+    material,
+    haloMaterial,
+    surfaceIndices,
+    normalTopology,
+    time: NaN,
+    bodies: null as BodyState[] | null,
+  }
+}
+
+function getStellarRenderObjectResolver(scene: THREE.Scene) {
+  const resolver = scene.userData.resolveStellarRenderObjects
+  return typeof resolver === 'function' ? resolver as StellarRenderObjectResolver : undefined
 }
 
 export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
@@ -222,13 +461,23 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
     const v = visuals.get(id)!
     group.remove(v.group); v.geometry.dispose(); v.haloGeometry.dispose(); v.material.dispose(); v.haloMaterial.dispose(); visuals.delete(id)
   }
+  const applySuppression = (objects: Set<THREE.Object3D>) => {
+    hidden.forEach((previousVisible, object) => {
+      if (objects.has(object)) return
+      object.visible = previousVisible
+      hidden.delete(object)
+    })
+    objects.forEach((object) => {
+      if (!hidden.has(object)) hidden.set(object, object.visible)
+      object.visible = false
+    })
+  }
   return {
     update(bodies: BodyState[], simulationTime: number) {
-      hidden.forEach((visible, object) => { object.visible = visible }); hidden.clear()
       const stars = bodies.filter((b) => b.bodyType === 'star')
-      const active = new Set<string>(), suppressed = new Set<number>()
+      const active = new Set<string>(), suppressed = new Set<string>()
       const show = (key: string, shape: EnvelopeShape, ids: string[]) => {
-        active.add(key); ids.forEach((id) => suppressed.add(seed(id)))
+        active.add(key); ids.forEach((id) => suppressed.add(id))
         let v = visuals.get(key)
         if (!v) { v = createEnvelope(); visuals.set(key, v); group.add(v.group) }
         v.group.position.copy(shape.center)
@@ -237,21 +486,28 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         v.time = simulationTime; v.bodies = bodies
         const positions = v.geometry.getAttribute('position') as THREE.BufferAttribute
         const colors = v.geometry.getAttribute('collisionColor') as THREE.BufferAttribute
+        const haloSectionRadius = v.geometry.getAttribute('haloSectionRadius') as THREE.BufferAttribute
+        let maxSectionRadius = 0
         for (let i = 0; i <= AXIAL; i++) {
           const t = (1 - Math.cos(Math.PI * i / AXIAL)) / 2
           const x = shape.min + (shape.max - shape.min) * t
           color.copy(shape.colorA).lerp(shape.colorB, shape.colorMix(x))
           for (let j = 0; j <= RADIAL; j++) {
             const angle = j / RADIAL * Math.PI * 2
-            const r = shape.radius(x, angle), index = i * (RADIAL + 1) + j
+            const r = shape.radius(x, angle), index = vertexIndex(i, j)
             positions.setXYZ(index, x, r * Math.cos(angle), r * Math.sin(angle))
             colors.setXYZ(index, color.r, color.g, color.b)
+            haloSectionRadius.setX(index, r)
+            maxSectionRadius = Math.max(maxSectionRadius, r)
           }
         }
-        positions.needsUpdate = true; colors.needsUpdate = true
-        v.geometry.computeVertexNormals()
-        v.haloGeometry.setAttribute('normal', v.geometry.getAttribute('normal'))
-        v.haloMaterial.uniforms.uShellOffset.value = shape.body.radius * 1.4
+        positions.needsUpdate = true
+        colors.needsUpdate = true
+        haloSectionRadius.needsUpdate = true
+        updateEnvelopeNormals(v.geometry, v.surfaceIndices, v.normalTopology, shape.min, shape.max)
+        const profileRadius = Math.max(maxSectionRadius, 1e-6)
+        v.haloMaterial.uniforms.uProfileRadius.value = profileRadius
+        v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.62
         updateStellarPhotosphereMaterial(v.material, getStellarPhotosphereFrame(shape.body, simulationTime))
         v.material.uniforms.uSurfaceSeed.value = seed(shape.body.id)
       }
@@ -267,16 +523,17 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         }
       }
       for (const key of visuals.keys()) if (!active.has(key)) remove(key)
-      // Match the production body by its stable seed; never put envelope proxies
-      // in the N-body array or interfere with camera/tracking lineage.
-      scene.children.forEach((object, i) => {
-        if (!(object instanceof THREE.Mesh) || !(object.material instanceof THREE.ShaderMaterial)) return
-        if (!suppressed.has(object.material.uniforms.uSeed?.value)) return
-        for (const item of [object, scene.children[i - 1], scene.children[i - 2]]) {
-          if (!item || (item !== object && !(item instanceof THREE.Sprite))) continue
-          hidden.set(item, item.visible); item.visible = false
-        }
+
+      const resolveRenderObjects = getStellarRenderObjectResolver(scene)
+      const objectsToHide = new Set<THREE.Object3D>()
+      suppressed.forEach((bodyId) => {
+        const renderObjects = resolveRenderObjects?.(bodyId)
+        if (!renderObjects) return
+        objectsToHide.add(renderObjects.photosphere)
+        objectsToHide.add(renderObjects.corona)
+        objectsToHide.add(renderObjects.secondaryGlow)
       })
+      applySuppression(objectsToHide)
     },
     dispose() {
       hidden.forEach((visible, object) => { object.visible = visible }); hidden.clear()
