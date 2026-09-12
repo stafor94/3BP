@@ -110,6 +110,12 @@ function getPresentationTimeline(state: StellarCollisionPresentation) {
   })
 }
 
+function getOrdinaryCoronaBlend(state: StellarCollisionPresentation) {
+  if (state.phase !== 'settle') return 0
+  const settle = getPresentationTimeline(state).settleProgress
+  return smooth((settle - 0.52) / 0.48)
+}
+
 function ellipsoidRadiusSquared(x: number, center: number, volumeRadius: number, axialScale: number) {
   const safeRadius = Math.max(0, volumeRadius)
   const safeAxialScale = Math.max(0.2, axialScale)
@@ -592,7 +598,13 @@ function createEnvelope() {
     uSeed: { value: 0 }, uIdentityColor: { value: new THREE.Color() }, uOpacity: { value: 1 },
     uDetailStrength: { value: 1 }, uRimStrength: { value: 0.045 },
   } })
-  values.fragmentShader = values.fragmentShader.replace('uniform vec3 uIdentityColor;', 'varying vec3 vCollisionColor;').replaceAll('uIdentityColor', 'vCollisionColor')
+  values.fragmentShader = values.fragmentShader
+    .replace('uniform vec3 uIdentityColor;', 'varying vec3 vCollisionColor;')
+    .replaceAll('uIdentityColor', 'vCollisionColor')
+    .replace(
+      'float edgeCoverage = getStellarEdgeCoverage(viewMu);',
+      'float edgeCoverage = smoothstep(0.0, max(0.11, fwidth(viewMu) * 0.75), viewMu);',
+    )
   const material = new THREE.ShaderMaterial(values)
   material.depthTest = true
   material.depthWrite = true
@@ -610,7 +622,7 @@ function createEnvelope() {
     side: THREE.BackSide,
     blending: THREE.AdditiveBlending,
     uniforms: {
-      uOpacity: { value: 0.18 },
+      uOpacity: { value: 0.20 },
       uShellOffset: { value: 0 },
       uProfileRadius: { value: 1 },
     },
@@ -727,8 +739,13 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
     update(bodies: BodyState[], simulationTime: number) {
       const stars = bodies.filter((b) => b.bodyType === 'star')
       const active = new Set<string>(), suppressed = new Set<string>()
-      const show = (key: string, shape: EnvelopeShape, ids: string[]) => {
-        active.add(key); ids.forEach((id) => suppressed.add(id))
+      const coronaBlendByBodyId = new Map<string, number>()
+      const show = (key: string, shape: EnvelopeShape, ids: string[], ordinaryCoronaBlend: number) => {
+        active.add(key)
+        ids.forEach((id) => {
+          suppressed.add(id)
+          coronaBlendByBodyId.set(id, ordinaryCoronaBlend)
+        })
         let v = visuals.get(key)
         if (!v) { v = createEnvelope(); visuals.set(key, v); group.add(v.group) }
         v.group.position.copy(shape.center)
@@ -772,6 +789,7 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
               eventKey,
               getMergedEnvelopeShape(state, state.phase === 'settle' ? body : undefined),
               [...state.sources.map((source) => source.id), body.id],
+              getOrdinaryCoronaBlend(state),
             )
           }
         } else if (state) {
@@ -779,24 +797,57 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
           // state. A mere distance threshold must not replace the normal star and
           // corona during close orbital passes or screen-space overlap.
           const visualKey = `${state.eventId ?? state.key}:${body.id}`
-          show(visualKey, getSeparateShape(body, undefined, state), [body.id])
+          show(
+            visualKey,
+            getSeparateShape(body, undefined, state),
+            [body.id],
+            getOrdinaryCoronaBlend(state),
+          )
         }
       }
       for (const key of visuals.keys()) if (!active.has(key)) remove(key)
 
       const resolveRenderObjects = getStellarRenderObjectResolver(scene)
       const objectsToHide = new Map<THREE.Object3D, string>()
+      const coronaToBlend: Array<{ sprite: THREE.Sprite; material: THREE.SpriteMaterial; blend: number }> = []
       suppressed.forEach((bodyId) => {
         const renderObjects = resolveRenderObjects?.(bodyId)
         if (!renderObjects) return
-        // The envelope owns both the solid stellar surface and its collision-time
-        // limb glow. Hiding the spherical corona carrier prevents a black/blue
-        // circular membrane from being exposed behind the deformed contact lobes.
         objectsToHide.set(renderObjects.photosphere, bodyId)
-        objectsToHide.set(renderObjects.corona, bodyId)
         objectsToHide.set(renderObjects.secondaryGlow, bodyId)
+
+        const coronaBlend = coronaBlendByBodyId.get(bodyId) ?? 0
+        if (
+          coronaBlend > 0.002 &&
+          renderObjects.corona instanceof THREE.Sprite &&
+          renderObjects.corona.material instanceof THREE.SpriteMaterial
+        ) {
+          coronaToBlend.push({
+            sprite: renderObjects.corona,
+            material: renderObjects.corona.material,
+            blend: coronaBlend,
+          })
+        } else {
+          // Early collision topology is visibly non-spherical, so the ordinary
+          // circular corona carrier must stay out of the frame until the envelope
+          // has relaxed close enough to the survivor silhouette.
+          objectsToHide.set(renderObjects.corona, bodyId)
+        }
       })
       applySuppression(objectsToHide, resolveRenderObjects)
+
+      coronaToBlend.forEach(({ sprite, material, blend }) => {
+        sprite.visible = true
+        material.opacity *= blend
+        // Once the envelope is nearly spherical again, restore only the ordinary
+        // outside-limb corona. The earlier full-interior collision mask is exactly
+        // what exposed the blue circular carrier behind the contact lobes.
+        material.userData.stellarCoronaEnvelope = 0
+        const uniforms = material.userData.stellarCoronaUniforms as
+          | { uCoronaEnvelope?: { value: number } }
+          | undefined
+        if (uniforms?.uCoronaEnvelope) uniforms.uCoronaEnvelope.value = 0
+      })
     },
     dispose() {
       const resolveRenderObjects = getStellarRenderObjectResolver(scene)
