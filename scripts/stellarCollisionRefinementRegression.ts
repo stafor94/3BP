@@ -310,7 +310,7 @@ function testFragmentAwareOvershootPauseAndFreshEvents() {
     'a later physical stellar collision must receive a fresh event id')
 }
 
-function testMixedCollisionPreservesPriorStellarEventMetadata() {
+function testMixedCollisionClearsPriorStellarEventMetadata() {
   const contactDuration = getStellarCollisionContactDurationSeconds('merge')
   const completedAge = contactDuration + STELLAR_COLLISION_SETTLE_DURATION_SECONDS
   const star: BodyState = {
@@ -335,10 +335,11 @@ function testMixedCollisionPreservesPriorStellarEventMetadata() {
   const resolved = stepFragmentAwareBodies(contact, 0.05)
   const survivingStar = resolved.find((body) => body.bodyType === 'star')
   assert(survivingStar, 'mixed stellar/non-stellar collision must retain a stellar result')
-  assert(survivingStar.stellarCollisionEventId === 'stellar:prior-event',
-    'mixed collision must not erase unrelated latest stellar event identity')
-  assert(survivingStar.stellarCollisionContactDurationSeconds === contactDuration,
-    'mixed collision must not erase unrelated stellar event timing metadata')
+  assert(survivingStar.stellarCollisionEventId === undefined,
+    'mixed collision result must not retain an unrelated completed stellar event identity')
+  assert(survivingStar.stellarCollisionAge === undefined &&
+    survivingStar.stellarCollisionContactDurationSeconds === undefined,
+  'mixed collision result must not retain stale stellar event timing metadata')
 }
 
 function testDirectionSamplerHasNoRuntimeEntropy() {
@@ -353,7 +354,7 @@ testDirectionFrameIsFiniteDeterministicAndContinuous()
 testHeadOnBalanceAndOutcomeSpecificGrazingShape()
 testStellarPhysicalOutcomesPreserveMassAndMomentum()
 testFragmentAwareOvershootPauseAndFreshEvents()
-testMixedCollisionPreservesPriorStellarEventMetadata()
+testMixedCollisionClearsPriorStellarEventMetadata()
 testDirectionSamplerHasNoRuntimeEntropy()
 
 console.log('stellar collision refinement integration regression passed')
