@@ -79,8 +79,8 @@ function testLuminosityAndHaloContractsStayBounded() {
   assert(hot.render.coronaOpacity > cool.render.coronaOpacity, 'luminosity must still affect halo brightness')
   for (const mass of [0.1, 0.35, 1, 8, 30]) {
     const { render } = renderProfile(makeStar(mass))
-    assert(render.photosphereIntensity > 1 && render.photosphereIntensity < 1.35, 'photosphere emission must stay below the ACES white shoulder')
-    assert(render.centerHighlightStrength >= 0.48 && render.centerHighlightStrength <= 0.58, 'white-hot highlight must remain compact and bounded')
+    assert(render.photosphereIntensity > 1 && render.photosphereIntensity < 1.35,
+      'temperature-colored photosphere emission must stay luminous but below the ACES white shoulder')
     assert(render.coronaScale >= 6 && render.coronaScale <= 10, 'carrier must fit a diffuse halo without unbounded fill cost')
     assert(render.coronaOpacity > 0 && render.coronaOpacity <= 1, 'halo opacity must be valid')
   }
@@ -142,10 +142,17 @@ function testPhotosphereTimeEvolutionDoesNotSlideSurfaceCoordinates() {
   assert(stellarMaterialSource.includes('material.uniforms.uTime.value = frame.animationTimeSeconds'), 'time uses the existing frame contract')
 }
 
-function testPhotosphereUsesLuminousCenterToLimbResponse() {
-  assert(stellarMaterialSource.includes('drawStellarEmission(viewMu) * uEmissionStrength'), 'stellar HDR emission remains before tone mapping')
-  assert(stellarMaterialSource.includes('vec3 coloredEmission = uIdentityColor * linearIntensity'), 'temperature identity must remain the base photosphere emission')
-  assert(stellarMaterialSource.includes('uCenterHighlightStrength * centerHighlightMask'), 'white highlight must be added separately near the center')
+function testPhotosphereUsesTemperatureColoredCenterToLimbResponseWithoutWhiteHotspot() {
+  assert(stellarMaterialSource.includes('drawStellarEmission(viewMu) * uEmissionStrength'),
+    'stellar HDR emission remains before tone mapping')
+  assert(stellarMaterialSource.includes('vec3 coloredEmission = uIdentityColor * linearIntensity'),
+    'temperature identity must remain the sole photosphere emission color path')
+  assert(!stellarMaterialSource.includes('uCenterHighlightStrength'),
+    'removed center-highlight uniform must not be restored')
+  assert(!stellarMaterialSource.includes('centerHighlightMask'),
+    'removed compact center-highlight mask must not be restored')
+  assert(!stellarMaterialSource.includes('coloredEmission + vec3('),
+    'photosphere must not add a separate neutral/white center emission term')
   assert(!stellarMaterialSource.includes('neutralHue01'), 'do not lower neutral-star highlights to reveal granulation')
 }
 
@@ -215,7 +222,7 @@ const tests = [
   testPhotosphereRemovesExplicitCellularTopology,
   testPhotosphereUsesScreenSpaceSurfaceLod,
   testPhotosphereTimeEvolutionDoesNotSlideSurfaceCoordinates,
-  testPhotosphereUsesLuminousCenterToLimbResponse,
+  testPhotosphereUsesTemperatureColoredCenterToLimbResponseWithoutWhiteHotspot,
   testPhotosphereUsesSoftStellarLimbAndCoverage,
   testPhotosphereUsesSingleLinearHdrToneMappingPath,
   testStellarOnlySurfaceLogicDoesNotLeakIntoGenericShader,
