@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { BodyState } from '../types'
+import { getBodyPresentationRadius } from './bodyPresentationRadius'
 
 const CAPACITY = 40
 const HISTORY_SECONDS = 0.52
@@ -9,6 +10,9 @@ const MIN_SAMPLE_INTERVAL_SECONDS = 0.006
 const TARGET_SAMPLE_INTERVAL_SECONDS = 0.014
 const MIN_SAMPLE_DISTANCE_SCALE = 0.018
 const MAX_SEGMENT_DISTANCE_SCALE = 0.14
+const DISCONTINUITY_RADIUS_SCALE = 1.25
+const DISCONTINUITY_SPEED_TOLERANCE = 3.0
+const DISCONTINUITY_RADIUS_TOLERANCE = 0.24
 const MAX_INTERPOLATED_SAMPLES_PER_UPDATE = 4
 const TIME_EPSILON = 1e-9
 
@@ -170,6 +174,19 @@ function appendSample(
   })
 }
 
+function restartTrailSegment(
+  trail: ReturnType<typeof createStellarGasTrail>,
+  simulatedAt: number,
+  position: THREE.Vector3,
+) {
+  // A world-space parcel may legitimately continue after its parent has moved,
+  // but two observations that cannot belong to one continuous parcel trajectory
+  // must never be joined by a giant presentation quad.
+  trail.samples.length = 0
+  trail.geometry.setDrawRange(0, 0)
+  appendSample(trail, simulatedAt, position)
+}
+
 function compactToCapacity(trail: ReturnType<typeof createStellarGasTrail>, sourceRadius: number) {
   const samples = trail.samples
   while (samples.length > CAPACITY) {
@@ -193,6 +210,7 @@ function sampleObservedPosition(
   simulationTime: number,
   position: THREE.Vector3,
   sourceRadius: number,
+  speed: number,
 ) {
   const samples = trail.samples
   if (samples.length === 0) {
@@ -205,6 +223,24 @@ function sampleObservedPosition(
   if (dt <= TIME_EPSILON) return
 
   const travelled = previous.position.distanceTo(position)
+  const expectedTravel = Math.max(0, speed) * dt
+  const continuityLimit = Math.max(
+    sourceRadius * DISCONTINUITY_RADIUS_SCALE,
+    expectedTravel * DISCONTINUITY_SPEED_TOLERANCE + sourceRadius * DISCONTINUITY_RADIUS_TOLERANCE,
+  )
+  // If the old history is already outside the retained time window, or the new
+  // observation is far beyond what this parcel's velocity can plausibly connect,
+  // start a new strip. This fixes coordinate/lifecycle discontinuities at their
+  // source instead of clamping a malformed triangle after geometry generation.
+  if (
+    dt >= HISTORY_SECONDS ||
+    !Number.isFinite(travelled) ||
+    travelled > continuityLimit
+  ) {
+    restartTrailSegment(trail, simulationTime, position)
+    return
+  }
+
   const minDistance = sourceRadius * MIN_SAMPLE_DISTANCE_SCALE
   const maxSegmentDistance = sourceRadius * MAX_SEGMENT_DISTANCE_SCALE
   const enoughTime = dt >= TARGET_SAMPLE_INTERVAL_SECONDS
@@ -297,7 +333,10 @@ export function updateStellarGasTrail(
   if (resetRequired) resetTrail(trail, eventKey, currentTime, bodyAge)
 
   const samples = trail.samples
-  const sourceRadius = Math.max(body.effectVisual?.sourceMaxRadius ?? body.radius, 1e-6)
+  const sourceRadius = getBodyPresentationRadius(
+    Math.max(body.effectVisual?.sourceMaxRadius ?? body.radius, 0),
+  )
+  const speed = Math.hypot(body.velocity.x, body.velocity.y, body.velocity.z)
   const repeatedSimulationTime = samples.length > 0 &&
     Math.abs(currentTime - trail.lastSimulationTime) <= TIME_EPSILON
   if (!repeatedSimulationTime) {
@@ -306,6 +345,7 @@ export function updateStellarGasTrail(
       currentTime,
       new THREE.Vector3(body.position.x, body.position.y, body.position.z),
       sourceRadius,
+      speed,
     )
   }
 
