@@ -10,7 +10,7 @@
 - Stage 2 code commits:
   - `41ef763573ac106262d78ec998acff7c69a42ca9` — stellar corona compositing/depth/fade
   - `d09d1d53d110c8885fc875c5692e6c9d9565cbca` — collision-envelope ownership/halo continuity
-- Stage 2 handoff head: `1df5d72b573ef3145135b529880913ad7c5ce569`
+- Stage 2 handoff documentation commits: `94861df0603f5dddbaf80984d27126d02c73689d`, `1df5d72b573ef3145135b529880913ad7c5ce569`, `f42c44f505266681158f88f5843de541bd599fdc`
 - Status: **2단계 개발 완료, 실행·시각 검증 미실시**.
 - No stage-local version bump or CHANGELOG entry is made. Repository policy still requires version/CHANGELOG plus required automated/runtime/A-B validation in the final integration stage before merge.
 - Draft PR pushes may automatically start the repository PR workflows. No test/build/workflow command was manually invoked, awaited, or rerun for Stage 2, and automatic runs are not used as the Stage-2 visual acceptance decision.
