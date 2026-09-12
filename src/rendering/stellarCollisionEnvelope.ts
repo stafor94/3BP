@@ -624,6 +624,10 @@ function createEnvelope() {
   haloGeometry.setIndex(createHaloIndices())
   const halo = new THREE.Mesh(haloGeometry, haloMaterial)
   halo.renderOrder = 1
+  // Stage 2 gives surrounding-light ownership back to the renderer's existing
+  // per-star corona. The expanded BackSide shell is retained structurally for
+  // compatibility but is not submitted, avoiding a second spherical glow surface.
+  halo.visible = false
   group.add(halo)
   group.traverse((o) => { o.frustumCulled = false })
   return {
@@ -770,17 +774,12 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
               [...state.sources.map((source) => source.id), body.id],
             )
           }
-        } else {
-          const partner = stars.find((candidate) => (
-            candidate !== body &&
-            !candidate.stellarCollisionPresentation &&
-            vector(candidate.position).distanceTo(vector(body.position)) <
-              (candidate.radius + body.radius) * 1.18
-          ))
-          if (state || partner) {
-            const visualKey = state ? `${state.eventId ?? state.key}:${body.id}` : body.id
-            show(visualKey, getSeparateShape(body, partner, state), [body.id])
-          }
+        } else if (state) {
+          // Collision envelope ownership is driven only by explicit presentation
+          // state. A mere distance threshold must not replace the normal star and
+          // corona during close orbital passes or screen-space overlap.
+          const visualKey = `${state.eventId ?? state.key}:${body.id}`
+          show(visualKey, getSeparateShape(body, undefined, state), [body.id])
         }
       }
       for (const key of visuals.keys()) if (!active.has(key)) remove(key)
@@ -791,7 +790,9 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         const renderObjects = resolveRenderObjects?.(bodyId)
         if (!renderObjects) return
         objectsToHide.set(renderObjects.photosphere, bodyId)
-        objectsToHide.set(renderObjects.corona, bodyId)
+        // The collision envelope replaces the solid photosphere, not the broad
+        // renderer-owned corona. Keeping the same corona object alive across
+        // contact/settle removes the glow-off/glow-on material handoff.
         objectsToHide.set(renderObjects.secondaryGlow, bodyId)
       })
       applySuppression(objectsToHide, resolveRenderObjects)
