@@ -162,20 +162,26 @@ export const stellarPhotosphereFragmentShader = `
   }
 
   float drawStellarSurfaceVariation(vec3 objectNormal) {
-    // Photographic highlights carry only a minute, broad brightness variation.
-    // Fade it out at gameplay size; no mid/fine granulation or contrast boost.
+    // Restore restrained object-space surface structure instead of relying on a
+    // nearly uniform disk. Each octave fades out as its projected footprint can
+    // no longer resolve it, so small stars do not acquire noisy pixels or shimmer.
     float footprint = max(length(fwidth(objectNormal)), 0.000001);
-    float resolved = 1.0 - smoothstep(0.012, 0.045, footprint);
+    float broadResolved = 1.0 - smoothstep(0.020, 0.070, footprint);
+    float mediumResolved = 1.0 - smoothstep(0.010, 0.032, footprint);
     vec3 offset = vec3(uSurfaceSeed * 0.051, uSurfaceSeed * 0.089, uSurfaceVariant);
-    float broad = valueNoise(objectNormal * 2.6 + offset);
-    float evolution = 1.0 + 0.01 * sin(uTime * 0.0031 + uSurfaceSeed * 0.009);
-    return 1.0 + (broad - 0.5) * 0.012 * resolved * evolution * uDetailStrength;
+    float broad = valueNoise(objectNormal * 2.7 + offset);
+    float medium = valueNoise(objectNormal * 5.4 - offset * 1.37);
+    float variation =
+      (broad - 0.5) * 0.105 * broadResolved +
+      (medium - 0.5) * 0.045 * mediumResolved;
+    return clamp(1.0 + variation * uDetailStrength, 0.92, 1.07);
   }
 
   float drawStellarEmission(float viewMu) {
-    // Keep the disk luminous without pushing every identity-color channel into
-    // the ACES white shoulder. Radial depth must not expose a shaded sphere.
-    return 0.78 + 0.22 * smoothstep(0.0, 0.75, viewMu);
+    // A broad continuous center-to-limb gradient supplies spherical depth while
+    // keeping the whole disk emissive. There is deliberately no white center term
+    // and no dark rim multiplier; the temperature identity scales every radius.
+    return 0.68 + 0.32 * smoothstep(0.0, 0.94, viewMu);
   }
 
   float getStellarEdgeCoverage(float viewMu) {
@@ -196,8 +202,8 @@ export const stellarPhotosphereFragmentShader = `
     float edgeCoverage = getStellarEdgeCoverage(viewMu);
     float linearIntensity = drawStellarEmission(viewMu) * uEmissionStrength * surfaceDetail;
 
-    // Keep the photosphere on one temperature-colored emission path. The broad
-    // center-to-limb response above provides depth without a separate bright core.
+    // Keep one temperature-colored emission path across the full photosphere.
+    // Surface structure and radial depth modulate intensity, never hue toward white.
     vec3 coloredEmission = uIdentityColor * linearIntensity;
 
     gl_FragColor = vec4(coloredEmission, uOpacity * edgeCoverage);
@@ -266,7 +272,7 @@ export function updateStellarPhotosphereMaterial(
 ) {
   const identityColor = material.uniforms.uIdentityColor?.value
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
-  // Only a faint broad variation may resolve when enlarged.
+  // Low-frequency detail is LOD-filtered in the shader before it reaches small disks.
   if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 1.0
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds
