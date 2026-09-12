@@ -40,7 +40,7 @@ jobs:
           cat /tmp/3bp-preview.log
           exit 1
       - name: Collision VFX Stage4/Stage5 browser A/B regression
-        run: python scripts/collisionVfxStageFiveVisualRegression.py
+        run: python scripts/collisionVfxStageFiveVisualRegressionRunner.py
       - name: Upload Collision VFX Stage4/Stage5 captures
         if: always()
         uses: actions/upload-artifact@v4

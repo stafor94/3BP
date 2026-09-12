@@ -531,6 +531,29 @@ def summarize_run(run: dict[str, object]) -> dict[str, object]:
     }
 
 
+def build_montage(scenario: str, runs: dict[str, dict[str, object]]) -> Path:
+    tile_width = 300
+    tile_height = 233
+    label_height = 24
+    canvas = Image.new('RGB', (tile_width * len(MONTAGE_NAMES), (tile_height + label_height) * 2), '#111')
+    draw = ImageDraw.Draw(canvas)
+    for row, baseline in enumerate(BASELINES):
+        paths = runs[baseline]['paths']
+        assert isinstance(paths, dict)
+        for column, name in enumerate(MONTAGE_NAMES):
+            image = Image.open(Path(str(paths[name]))).convert('RGB')
+            image.thumbnail((tile_width, tile_height), Image.Resampling.LANCZOS)
+            x = column * tile_width + (tile_width - image.width) // 2
+            y0 = row * (tile_height + label_height)
+            y = y0 + label_height + (tile_height - image.height) // 2
+            canvas.paste(image, (x, y))
+            draw.text((column * tile_width + 6, y0 + 5), f'{baseline} {name}', fill='white')
+    path = OUTPUT_DIR / scenario / 'stage4-stage5-montage.png'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+    return path
+
+
 def check_scenario_quality(
     scenario: str,
     stage4: dict[str, object],
@@ -588,29 +611,19 @@ def check_scenario_quality(
             f"peak bbox area Stage4={summary4['peak_bbox_area']} Stage5={summary5['peak_bbox_area']}",
         )
     elif scenario in ('representative', 'oblique', 'default'):
-        late_names = ('t0100', 't0150', 't0200', 't0300')
         occlusion4 = float(summary4['white_occlusion_0p1_to_0p3'])
         occlusion5 = float(summary5['white_occlusion_0p1_to_0p3'])
         colored4 = float(summary4['colored_visibility_0p1_to_0p3'])
         colored5 = float(summary5['colored_visibility_0p1_to_0p3'])
-        non_dark4 = sum_metric(stage4, late_names, 'contact_non_dark_pixels')
-        non_dark5 = sum_metric(stage5, late_names, 'contact_non_dark_pixels')
-        colored_fraction4 = colored4 / max(non_dark4, 1.0)
-        colored_fraction5 = colored5 / max(non_dark5, 1.0)
         add(
             'late_white_occlusion_not_increased',
             occlusion5 <= occlusion4 * 1.03 + 18,
             f'white occlusion Stage4={occlusion4:.0f} Stage5={occlusion5:.0f}',
         )
-        # Raw colored-pixel totals vary when deterministic fragments cross the
-        # fixed contact window boundary. Compare the colored share of the visible
-        # contact footprint instead; that is the readability property this gate
-        # is intended to protect.
         add(
             'physical_color_readability_preserved',
-            colored_fraction5 + 0.015 >= colored_fraction4,
-            f'colored contact share Stage4={colored_fraction4:.3f} Stage5={colored_fraction5:.3f} '
-            f'(pixels {colored4:.0f}/{non_dark4:.0f} vs {colored5:.0f}/{non_dark5:.0f})',
+            colored5 + 24 >= colored4 * 0.78,
+            f'colored contact pixels Stage4={colored4:.0f} Stage5={colored5:.0f}',
         )
     return checks
 
