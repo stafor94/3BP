@@ -784,6 +784,10 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         const profileRadius = Math.max(maxSectionRadius, 1e-6)
         v.haloMaterial.uniforms.uProfileRadius.value = profileRadius
         v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.04
+        // Crossfade the deformed envelope halo against the ordinary corona. Keeping
+        // both at full strength during late settle double-lights the same limb and
+        // produces the small white annulus visible on damaged hit-and-run survivors.
+        v.haloMaterial.uniforms.uOpacity.value = 0.10 * (1 - clamp01(ordinaryCoronaBlend))
         updateStellarPhotosphereMaterial(v.material, getStellarPhotosphereFrame(shape.body, simulationTime))
         v.material.uniforms.uSurfaceSeed.value = seed(shape.body.id)
       }
