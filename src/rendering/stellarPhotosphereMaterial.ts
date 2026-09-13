@@ -169,21 +169,22 @@ export const stellarPhotosphereFragmentShader = `
     float broadResolved = 1.0 - smoothstep(0.035, 0.14, footprint);
     vec3 offset = vec3(uSurfaceSeed * 0.051, uSurfaceSeed * 0.089, uSurfaceVariant);
     float broad = valueNoise(objectNormal * 2.9 + offset);
-    float variation = (broad - 0.5) * 0.25 * broadResolved;
-    return clamp(1.0 + variation * uDetailStrength, 0.92, 1.07);
+    float variation = (broad - 0.5) * 0.34 * broadResolved;
+    return clamp(1.0 + variation * uDetailStrength, 0.89, 1.11);
   }
 
   float drawStellarEmission(float viewMu) {
-    // A broad continuous center-to-limb gradient supplies spherical depth while
-    // keeping the whole disk emissive. There is deliberately no white center term
-    // and no dark rim multiplier; the temperature identity scales every radius.
-    return 0.56 + 0.44 * viewMu * viewMu;
+    // Preserve a visibly spherical temperature-colored photosphere without a
+    // white center term. A stronger broad gradient keeps radial depth readable
+    // after tone mapping while the limb itself stays emissive rather than black.
+    return 0.50 + 0.50 * pow(viewMu, 1.35);
   }
 
   float getStellarEdgeCoverage(float viewMu) {
-    // Feather inside the silhouette where the immediate glow already overlaps.
-    // Derivatives supply a pixel-scale floor for small projected disks.
-    float feather = max(0.34, fwidth(viewMu) * 1.25);
+    // Only antialias the immediate silhouette. A broad alpha feather reads as a
+    // dark outline because it exposes the space background through an otherwise
+    // emissive photosphere. Derivatives still provide a pixel-scale small-star floor.
+    float feather = max(0.12, fwidth(viewMu) * 1.05);
     return smoothstep(0.0, feather, viewMu);
   }
 
