@@ -113,15 +113,11 @@ export function configureStellarCoronaMaterial(
           // edge so sprite scaling/rotation cannot reveal a circular cutoff.
           float carrierFade = 1.0 - smoothstep(0.74, 1.0, coronaRadius);
 
-          // Let only a very small pixel-aware overlap bridge photosphere AA. Most
-          // corona energy begins outside the physical limb, preventing additive
-          // light from becoming a bright annulus inside a dimmer stellar edge.
-          float overlapWidth = clamp(pixelR * 1.5, 0.025, 0.05);
-          float coronaCoverage = smoothstep(
-            -overlapWidth * 0.20,
-            overlapWidth * 0.80,
-            signedDistance
-          );
+          // Keep the long-standing pixel-aware overlap contract, but make it much
+          // narrower than the diffuse halo itself so only AA coverage bridges the
+          // photosphere edge instead of creating an additive annulus inside it.
+          float overlapWidth = clamp(pixelR * 0.65, 0.008, 0.018);
+          float coronaCoverage = smoothstep(-overlapWidth, 0.0, signedDistance);
           // A deformed envelope has no circular hidden-body outline. The envelope
           // factor is continuously relaxed during late settle by its owner layer.
           coronaCoverage = mix(coronaCoverage, 1.0, uCoronaEnvelope);
