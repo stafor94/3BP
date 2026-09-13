@@ -282,44 +282,51 @@ export function getCollisionEffectProfile(body: BodyState): CollisionEffectProfi
       kind,
       progress,
       fadeAlpha: rise * decay,
+      // Physical stellar compression is a body-attached pressure patch. The
+      // physics metadata still describes the impact plane, but renderer geometry
+      // must not reinterpret it as a long luminous sheet extending off the star.
       baseOpacity: syntheticStellar
         ? 0.56
         : physicalStellar
           ? stellarOutcome === 'merge'
-            ? 0.62
+            ? 0.50
             : stellarOutcome === 'partialDisruption'
-              ? 0.58
-              : 0.50
+              ? 0.46
+              : 0.42
           : 0.68,
-      innerGlow: syntheticStellar ? 0.42 : physicalStellar ? 0.46 : stellar ? 0.6 : 0.68,
-      outerGlow: syntheticStellar ? 0.12 : physicalStellar ? 0.10 : stellar ? 0.15 : 0.18,
+      innerGlow: syntheticStellar ? 0.42 : physicalStellar ? 0.24 : stellar ? 0.6 : 0.68,
+      outerGlow: syntheticStellar ? 0.12 : physicalStellar ? 0.08 : stellar ? 0.15 : 0.18,
       visualRadius: physicalStellar
-        ? clamp(sourcePresentationRadius * 0.28, 0.065, 0.21)
+        ? clamp(sourcePresentationRadius * 0.22, 0.055, 0.15)
         : stellar
           ? clamp(sourcePresentationRadius * 0.25, 0.06, 0.19)
           : clamp(body.radius * 0.34, 0.045, 0.11),
-      anisotropicStretch: clamp(
-        rawStretch * (0.92 + progress * (physicalStellar ? 0.12 : 0.1)),
-        stellar ? 1.65 : 1.25,
-        syntheticStellar ? 3.05 : physicalStellar ? 3.35 : stellar ? 3.55 : 1.55,
-      ),
-      widthScale: clamp(
-        rawWidth * (1 + progress * (physicalStellar ? 0.16 : 0.1)),
-        physicalStellar ? 0.4 : stellar ? 0.34 : 0.86,
-        stellar ? 0.78 : 1.00,
-      ),
-      tailLength: stellar
-        ? clamp(
-            (visual?.tailLength ?? 0.16) * (physicalStellar && stellarOutcome === 'hitAndRun' ? 1.08 : 1),
-            0,
-            0.46,
-          )
-        : -1,
-      pulseStrength: clamp(visual?.pulseStrength ?? 0.05, 0, 0.075),
+      anisotropicStretch: physicalStellar
+        ? THREE.MathUtils.lerp(1.18, 1.26, smooth01(progress))
+        : clamp(
+            rawStretch * (0.92 + progress * 0.1),
+            stellar ? 1.65 : 1.25,
+            syntheticStellar ? 3.05 : stellar ? 3.55 : 1.55,
+          ),
+      widthScale: physicalStellar
+        ? THREE.MathUtils.lerp(0.88, 0.94, smooth01(progress))
+        : clamp(
+            rawWidth * (1 + progress * 0.1),
+            stellar ? 0.34 : 0.86,
+            stellar ? 0.78 : 1.00,
+          ),
+      tailLength: physicalStellar
+        ? 0
+        : stellar
+          ? clamp(visual?.tailLength ?? 0.16, 0, 0.46)
+          : -1,
+      pulseStrength: physicalStellar ? 0 : clamp(visual?.pulseStrength ?? 0.05, 0, 0.075),
       brightness: syntheticStellar
         ? (visual?.brightness ?? 1.08) * (0.78 + syntheticBuild * 0.22)
-        : (visual?.brightness ?? (physicalStellar ? 1.26 : 1.14)) * outcomeBoost,
-      turbulence: visual?.turbulence ?? (physicalStellar ? 0.82 : 0.56),
+        : physicalStellar
+          ? 0.90 * outcomeBoost
+          : (visual?.brightness ?? 1.14) * outcomeBoost,
+      turbulence: visual?.turbulence ?? (physicalStellar ? 0.58 : 0.56),
       cooling: syntheticStellar ? progress * 0.1 : smooth01(progress),
     }
   }
