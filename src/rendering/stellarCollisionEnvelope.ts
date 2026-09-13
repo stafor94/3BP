@@ -605,10 +605,10 @@ function createEnvelope() {
     .replaceAll('uIdentityColor', 'vCollisionColor')
     .replace(
       'float edgeCoverage = getStellarEdgeCoverage(viewMu);',
-      // The coarse collision envelope already has an explicit BackSide limb halo.
-      // Restrict alpha antialiasing to the immediate silhouette so it cannot form
-      // the dark inner crescent seen on small settled collision envelopes.
-      'float edgeCoverage = smoothstep(0.0, max(0.045, fwidth(viewMu) * 0.55), viewMu);',
+      // The collision envelope owns the depth silhouette while ordinary corona
+      // can be crossfading behind it. Keep this surface opaque so corona cannot
+      // leak through a translucent edge and read as a white annulus.
+      'float edgeCoverage = 1.0;',
     )
   const material = new THREE.ShaderMaterial(values)
   material.depthTest = true
