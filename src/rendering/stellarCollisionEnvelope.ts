@@ -846,14 +846,16 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
       coronaToBlend.forEach(({ sprite, material, blend }) => {
         sprite.visible = true
         material.opacity *= blend
-        // Once the envelope is nearly spherical again, restore only the ordinary
-        // outside-limb corona. The earlier full-interior collision mask is exactly
-        // what exposed the blue circular carrier behind the contact lobes.
-        material.userData.stellarCoronaEnvelope = 0
+        // While the collision envelope owns the photosphere, keep corona coverage
+        // continuous through the carrier and let the envelope's actual depth edge
+        // perform the occlusion. Reintroducing the circular UV hole before envelope
+        // release creates a bright annulus whenever a damaged survivor radius and
+        // the still-relaxing envelope silhouette differ by even a few pixels.
+        material.userData.stellarCoronaEnvelope = 1
         const uniforms = material.userData.stellarCoronaUniforms as
           | { uCoronaEnvelope?: { value: number } }
           | undefined
-        if (uniforms?.uCoronaEnvelope) uniforms.uCoronaEnvelope.value = 0
+        if (uniforms?.uCoronaEnvelope) uniforms.uCoronaEnvelope.value = 1
       })
     },
     dispose() {
