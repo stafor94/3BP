@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
 import json
 import math
 import os
@@ -119,6 +120,7 @@ def install_handoff_frame_collector(driver: webdriver.Chrome) -> None:
     driver.execute_script(
         """
         window.__collisionSolidHandoffFrameHistory = [];
+        window.__collisionSolidHandoffFirstFramePng = null;
         window.__collisionSolidHandoffCollectorLastSequence = 0;
         window.__collisionSolidHandoffCollectorActive = true;
 
@@ -129,6 +131,14 @@ def install_handoff_frame_collector(driver: webdriver.Chrome) -> None:
           if (metric) {
             const sequence = Number(metric.renderFrameSequence || 0);
             if (sequence > 0 && sequence !== window.__collisionSolidHandoffCollectorLastSequence) {
+              // Capture pixels in the same animation-frame callback as the applied
+              // renderer telemetry. A later WebDriver element screenshot can run
+              // hundreds of milliseconds later and measure an almost settled body
+              // as if it were the first post-solver frame.
+              if (window.__collisionSolidHandoffFrameHistory.length === 0) {
+                const canvas = document.querySelector('.simulation-view canvas');
+                window.__collisionSolidHandoffFirstFramePng = canvas?.toDataURL('image/png') || null;
+              }
               window.__collisionSolidHandoffFrameHistory.push(JSON.parse(JSON.stringify(metric)));
               window.__collisionSolidHandoffCollectorLastSequence = sequence;
             }
@@ -306,7 +316,14 @@ def main() -> None:
 
         install_handoff_frame_collector(driver)
         advance_step(driver, 16, settle_frames=1)
-        first_path = capture_canvas(driver, '01-first-post-solver')
+        first_png = WebDriverWait(driver, 4, poll_frequency=0.01).until(
+            lambda browser: browser.execute_script(
+                'return window.__collisionSolidHandoffFirstFramePng || null;'
+            )
+        )
+        require(first_png.startswith('data:image/png;base64,'), 'first renderer frame must provide PNG pixels')
+        first_path = OUTPUT_DIR / '01-first-post-solver.png'
+        first_path.write_bytes(base64.b64decode(first_png.split(',', 1)[1]))
         first_visual = silhouette_metrics(first_path)
 
         post_physics = root_diagnostics(driver)

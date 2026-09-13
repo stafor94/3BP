@@ -172,6 +172,8 @@ def validate_star(metrics, name):
     # acceptance target. Keep an absolute luminance floor plus relative disk
     # continuity instead: this rejects a dark sphere without requiring clipping.
     require(metrics['core_luma'] >= 0.55, f'{name}: photosphere became too dark after hotspot removal')
+    require(radial['0.15'] - radial['0.65'] >= 0.02,
+            f'{name}: broad center-to-limb depth collapsed into a flat disk')
     require(radial['0.72'] >= 0.45, f'{name}: temperature-colored mid-disk is not luminous enough')
     require(metrics['core_luma'] <= radial['0.35'] + 0.065,
             f'{name}: compact center is independently brighter than the surrounding photosphere')

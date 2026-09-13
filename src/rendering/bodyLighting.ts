@@ -381,6 +381,7 @@ function setBodyGlowVisibility(
       timeSeconds: stellarFrame.animationTimeSeconds,
       photosphereRadiusUv: 2 / renderProfile.coronaScale,
       outerWhiteMix: renderProfile.coronaOuterWhiteMix,
+      envelopeActive: Boolean(body.stellarCollisionPresentation),
     })
     glowInner.visible = true
     glowInner.material.color.set(stellarFrame.displayColor)

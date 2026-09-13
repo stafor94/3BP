@@ -162,26 +162,29 @@ export const stellarPhotosphereFragmentShader = `
   }
 
   float drawStellarSurfaceVariation(vec3 objectNormal) {
-    // Photographic highlights carry only a minute, broad brightness variation.
-    // Fade it out at gameplay size; no mid/fine granulation or contrast boost.
+    // One restrained object-space low-frequency sample is enough to break the
+    // uniform disk without creating granular noise. It fades continuously once
+    // the projected footprint can no longer resolve it, avoiding small-star shimmer.
     float footprint = max(length(fwidth(objectNormal)), 0.000001);
-    float resolved = 1.0 - smoothstep(0.012, 0.045, footprint);
+    float broadResolved = 1.0 - smoothstep(0.035, 0.14, footprint);
     vec3 offset = vec3(uSurfaceSeed * 0.051, uSurfaceSeed * 0.089, uSurfaceVariant);
-    float broad = valueNoise(objectNormal * 2.6 + offset);
-    float evolution = 1.0 + 0.01 * sin(uTime * 0.0031 + uSurfaceSeed * 0.009);
-    return 1.0 + (broad - 0.5) * 0.012 * resolved * evolution * uDetailStrength;
+    float broad = valueNoise(objectNormal * 2.9 + offset);
+    float variation = (broad - 0.5) * 0.34 * broadResolved;
+    return clamp(1.0 + variation * uDetailStrength, 0.89, 1.11);
   }
 
   float drawStellarEmission(float viewMu) {
-    // Keep the disk luminous without pushing every identity-color channel into
-    // the ACES white shoulder. Radial depth must not expose a shaded sphere.
-    return 0.78 + 0.22 * smoothstep(0.0, 0.75, viewMu);
+    // Preserve a visibly spherical temperature-colored photosphere without a
+    // white center term. A stronger broad gradient keeps radial depth readable
+    // after tone mapping while the limb itself stays emissive rather than black.
+    return 0.50 + 0.50 * pow(viewMu, 1.35);
   }
 
   float getStellarEdgeCoverage(float viewMu) {
-    // Feather inside the silhouette where the immediate glow already overlaps.
-    // Derivatives supply a pixel-scale floor for small projected disks.
-    float feather = max(0.34, fwidth(viewMu) * 1.25);
+    // Only antialias the immediate silhouette. A broad alpha feather reads as a
+    // dark outline because it exposes the space background through an otherwise
+    // emissive photosphere. Derivatives still provide a pixel-scale small-star floor.
+    float feather = max(0.12, fwidth(viewMu) * 1.05);
     return smoothstep(0.0, feather, viewMu);
   }
 
@@ -196,8 +199,8 @@ export const stellarPhotosphereFragmentShader = `
     float edgeCoverage = getStellarEdgeCoverage(viewMu);
     float linearIntensity = drawStellarEmission(viewMu) * uEmissionStrength * surfaceDetail;
 
-    // Keep the photosphere on one temperature-colored emission path. The broad
-    // center-to-limb response above provides depth without a separate bright core.
+    // Keep one temperature-colored emission path across the full photosphere.
+    // Surface structure and radial depth modulate intensity, never hue toward white.
     vec3 coloredEmission = uIdentityColor * linearIntensity;
 
     gl_FragColor = vec4(coloredEmission, uOpacity * edgeCoverage);
@@ -266,7 +269,7 @@ export function updateStellarPhotosphereMaterial(
 ) {
   const identityColor = material.uniforms.uIdentityColor?.value
   if (identityColor instanceof THREE.Color) identityColor.set(frame.displayColor)
-  // Only a faint broad variation may resolve when enlarged.
+  // Low-frequency detail is LOD-filtered in the shader before it reaches small disks.
   if (material.uniforms.uDetailStrength) material.uniforms.uDetailStrength.value = 1.0
   if (material.uniforms.uRimStrength) material.uniforms.uRimStrength.value = 0.045
   if (material.uniforms.uTime) material.uniforms.uTime.value = frame.animationTimeSeconds

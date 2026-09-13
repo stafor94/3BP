@@ -55,8 +55,8 @@ function testOneCoronaDrawPerStellarBody() {
     'the legacy outer Sprite must never become a second stellar corona draw',
   )
   assert(
-    coronaSource.includes("export const STELLAR_CORONA_RENDER_PATH = 'stellar-corona-pass5'"),
-    'the established single-carrier corona shader path must remain unchanged',
+    coronaSource.includes("export const STELLAR_CORONA_RENDER_PATH = 'stellar-corona-pass6'"),
+    'the single-carrier corona shader must use the current program cache version',
   )
 }
 

@@ -110,6 +110,12 @@ function getPresentationTimeline(state: StellarCollisionPresentation) {
   })
 }
 
+function getOrdinaryCoronaBlend(state: StellarCollisionPresentation) {
+  if (state.phase !== 'settle') return 0
+  const settle = getPresentationTimeline(state).settleProgress
+  return smooth((settle - 0.52) / 0.48)
+}
+
 function ellipsoidRadiusSquared(x: number, center: number, volumeRadius: number, axialScale: number) {
   const safeRadius = Math.max(0, volumeRadius)
   const safeAxialScale = Math.max(0.2, axialScale)
@@ -566,8 +572,10 @@ const haloFragmentShader = `
     float sectionCoverage = smoothstep(0.025, 0.18, profile01);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
     float viewMu = abs(dot(normalize(vWorldNormal), viewDirection));
-    float limbCoverage = mix(0.22, 1.0, smoothstep(0.08, 0.92, 1.0 - viewMu));
-    float alpha = uOpacity * distanceFalloff * sectionCoverage * limbCoverage;
+    // The collision halo is a silhouette spill only. Keeping a non-zero frontal
+    // floor lets a BackSide shell read as a second circular body on small stars.
+    float limbCoverage = 1.0 - smoothstep(0.06, 0.52, viewMu);
+    float alpha = uOpacity * distanceFalloff * sectionCoverage * limbCoverage * limbCoverage;
     gl_FragColor = vec4(vCollisionColor, alpha);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -592,7 +600,16 @@ function createEnvelope() {
     uSeed: { value: 0 }, uIdentityColor: { value: new THREE.Color() }, uOpacity: { value: 1 },
     uDetailStrength: { value: 1 }, uRimStrength: { value: 0.045 },
   } })
-  values.fragmentShader = values.fragmentShader.replace('uniform vec3 uIdentityColor;', 'varying vec3 vCollisionColor;').replaceAll('uIdentityColor', 'vCollisionColor')
+  values.fragmentShader = values.fragmentShader
+    .replace('uniform vec3 uIdentityColor;', 'varying vec3 vCollisionColor;')
+    .replaceAll('uIdentityColor', 'vCollisionColor')
+    .replace(
+      'float edgeCoverage = getStellarEdgeCoverage(viewMu);',
+      // The collision envelope owns the depth silhouette while ordinary corona
+      // can be crossfading behind it. Keep this surface opaque so corona cannot
+      // leak through a translucent edge and read as a white annulus.
+      'float edgeCoverage = 1.0;',
+    )
   const material = new THREE.ShaderMaterial(values)
   material.depthTest = true
   material.depthWrite = true
@@ -610,7 +627,9 @@ function createEnvelope() {
     side: THREE.BackSide,
     blending: THREE.AdditiveBlending,
     uniforms: {
-      uOpacity: { value: 0.22 },
+      // Keep a deformed collision-attached limb cue without allowing a separate
+      // spherical carrier to dominate the survivor silhouette.
+      uOpacity: { value: 0.10 },
       uShellOffset: { value: 0 },
       uProfileRadius: { value: 1 },
     },
@@ -624,6 +643,10 @@ function createEnvelope() {
   haloGeometry.setIndex(createHaloIndices())
   const halo = new THREE.Mesh(haloGeometry, haloMaterial)
   halo.renderOrder = 1
+  // During an active collision the glow follows the deformed envelope itself.
+  // Keep the offset close to the true limb so it reads as emissive spill rather
+  // than a second expanded body around the contact lobes.
+  halo.visible = true
   group.add(halo)
   group.traverse((o) => { o.frustumCulled = false })
   return {
@@ -723,8 +746,13 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
     update(bodies: BodyState[], simulationTime: number) {
       const stars = bodies.filter((b) => b.bodyType === 'star')
       const active = new Set<string>(), suppressed = new Set<string>()
-      const show = (key: string, shape: EnvelopeShape, ids: string[]) => {
-        active.add(key); ids.forEach((id) => suppressed.add(id))
+      const coronaBlendByBodyId = new Map<string, number>()
+      const show = (key: string, shape: EnvelopeShape, ids: string[], ordinaryCoronaBlend: number) => {
+        active.add(key)
+        ids.forEach((id) => {
+          suppressed.add(id)
+          coronaBlendByBodyId.set(id, ordinaryCoronaBlend)
+        })
         let v = visuals.get(key)
         if (!v) { v = createEnvelope(); visuals.set(key, v); group.add(v.group) }
         v.group.position.copy(shape.center)
@@ -755,7 +783,11 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         updateEnvelopeNormals(v.geometry, v.surfaceIndices, v.normalTopology, shape.min, shape.max)
         const profileRadius = Math.max(maxSectionRadius, 1e-6)
         v.haloMaterial.uniforms.uProfileRadius.value = profileRadius
-        v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.62
+        v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.04
+        // Crossfade the deformed envelope halo against the ordinary corona. Keeping
+        // both at full strength during late settle double-lights the same limb and
+        // produces the small white annulus visible on damaged hit-and-run survivors.
+        v.haloMaterial.uniforms.uOpacity.value = 0.10 * (1 - clamp01(ordinaryCoronaBlend))
         updateStellarPhotosphereMaterial(v.material, getStellarPhotosphereFrame(shape.body, simulationTime))
         v.material.uniforms.uSurfaceSeed.value = seed(shape.body.id)
       }
@@ -768,33 +800,67 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
               eventKey,
               getMergedEnvelopeShape(state, state.phase === 'settle' ? body : undefined),
               [...state.sources.map((source) => source.id), body.id],
+              getOrdinaryCoronaBlend(state),
             )
           }
-        } else {
-          const partner = stars.find((candidate) => (
-            candidate !== body &&
-            !candidate.stellarCollisionPresentation &&
-            vector(candidate.position).distanceTo(vector(body.position)) <
-              (candidate.radius + body.radius) * 1.18
-          ))
-          if (state || partner) {
-            const visualKey = state ? `${state.eventId ?? state.key}:${body.id}` : body.id
-            show(visualKey, getSeparateShape(body, partner, state), [body.id])
-          }
+        } else if (state) {
+          // Collision envelope ownership is driven only by explicit presentation
+          // state. A mere distance threshold must not replace the normal star and
+          // corona during close orbital passes or screen-space overlap.
+          const visualKey = `${state.eventId ?? state.key}:${body.id}`
+          show(
+            visualKey,
+            getSeparateShape(body, undefined, state),
+            [body.id],
+            getOrdinaryCoronaBlend(state),
+          )
         }
       }
       for (const key of visuals.keys()) if (!active.has(key)) remove(key)
 
       const resolveRenderObjects = getStellarRenderObjectResolver(scene)
       const objectsToHide = new Map<THREE.Object3D, string>()
+      const coronaToBlend: Array<{ sprite: THREE.Sprite; material: THREE.SpriteMaterial; blend: number }> = []
       suppressed.forEach((bodyId) => {
         const renderObjects = resolveRenderObjects?.(bodyId)
         if (!renderObjects) return
         objectsToHide.set(renderObjects.photosphere, bodyId)
-        objectsToHide.set(renderObjects.corona, bodyId)
         objectsToHide.set(renderObjects.secondaryGlow, bodyId)
+
+        const coronaBlend = coronaBlendByBodyId.get(bodyId) ?? 0
+        if (
+          coronaBlend > 0.002 &&
+          renderObjects.corona instanceof THREE.Sprite &&
+          renderObjects.corona.material instanceof THREE.SpriteMaterial
+        ) {
+          coronaToBlend.push({
+            sprite: renderObjects.corona,
+            material: renderObjects.corona.material,
+            blend: coronaBlend,
+          })
+        } else {
+          // Early collision topology is visibly non-spherical, so the ordinary
+          // circular corona carrier must stay out of the frame until the envelope
+          // has relaxed close enough to the survivor silhouette.
+          objectsToHide.set(renderObjects.corona, bodyId)
+        }
       })
       applySuppression(objectsToHide, resolveRenderObjects)
+
+      coronaToBlend.forEach(({ sprite, material, blend }) => {
+        sprite.visible = true
+        material.opacity *= blend
+        // While the collision envelope owns the photosphere, keep corona coverage
+        // continuous through the carrier and let the envelope's actual depth edge
+        // perform the occlusion. Reintroducing the circular UV hole before envelope
+        // release creates a bright annulus whenever a damaged survivor radius and
+        // the still-relaxing envelope silhouette differ by even a few pixels.
+        material.userData.stellarCoronaEnvelope = 1
+        const uniforms = material.userData.stellarCoronaUniforms as
+          | { uCoronaEnvelope?: { value: number } }
+          | undefined
+        if (uniforms?.uCoronaEnvelope) uniforms.uCoronaEnvelope.value = 1
+      })
     },
     dispose() {
       const resolveRenderObjects = getStellarRenderObjectResolver(scene)

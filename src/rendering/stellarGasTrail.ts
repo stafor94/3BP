@@ -1,14 +1,19 @@
 import * as THREE from 'three'
 import type { BodyState } from '../types'
+import { getBodyPresentationRadius } from './bodyPresentationRadius'
 
 const CAPACITY = 40
-const HISTORY_SECONDS = 0.52
-const HISTORY_FADE_START_SECONDS = 0.36
-const HEAD_FADE_SECONDS = 0.04
+const HISTORY_SECONDS = 0.36
+const HISTORY_FADE_START_SECONDS = 0.20
+const HEAD_FADE_SECONDS = 0.025
+const MAX_VISIBLE_LENGTH_SCALE = 0.78
 const MIN_SAMPLE_INTERVAL_SECONDS = 0.006
 const TARGET_SAMPLE_INTERVAL_SECONDS = 0.014
 const MIN_SAMPLE_DISTANCE_SCALE = 0.018
 const MAX_SEGMENT_DISTANCE_SCALE = 0.14
+const DISCONTINUITY_RADIUS_SCALE = 1.25
+const DISCONTINUITY_SPEED_TOLERANCE = 3.0
+const DISCONTINUITY_RADIUS_TOLERANCE = 0.24
 const MAX_INTERPOLATED_SAMPLES_PER_UPDATE = 4
 const TIME_EPSILON = 1e-9
 
@@ -81,16 +86,18 @@ const trailFragmentShader = `
     float detailNoise = valueNoise(vec2(vTrailCoord * 0.68 - seed * 0.43, vTrailAcross * 1.15 + seed));
     float densityNoise = broadNoise * 0.72 + detailNoise * 0.28;
 
-    float edgeBoundary = clamp(0.77 + (broadNoise - 0.5) * 0.20 * (0.55 + uTurbulence * 0.45), 0.61, 0.90);
-    float lateralFade = 1.0 - smoothstep(edgeBoundary, 1.0, across);
-    float porousDensity = 0.64 + densityNoise * 0.36;
-    float alpha = lateralFade * porousDensity * vTrailDensity * vTrailEndFade * uOpacity;
-    if (alpha <= 0.002) discard;
+    // A physical parcel leaves a diffuse plume, not an opaque ribbon. Keep the
+    // center readable while continuously softening both lateral edges and breaking
+    // up the interior density so the retained path never reads as a hard strip.
+    float lateralShape = exp(-2.9 * across * across);
+    float porousDensity = 0.22 + densityNoise * 0.78;
+    float alpha = lateralShape * porousDensity * vTrailDensity * vTrailEndFade * uOpacity;
+    if (alpha <= 0.003) discard;
 
     float cooling = smoothstep(0.18, 1.0, vTrailAge01);
     vec3 color = mix(uMidColor, uEdgeColor, cooling * 0.62);
-    color = mix(color, uEdgeColor, smoothstep(0.58, 1.0, across) * 0.18);
-    color *= uBrightness * (0.90 + broadNoise * 0.10);
+    color = mix(color, uEdgeColor, smoothstep(0.48, 1.0, across) * 0.28);
+    color *= uBrightness * (0.78 + broadNoise * 0.22);
 
     gl_FragColor = vec4(color, clamp(alpha, 0.0, 1.0));
     #include <colorspace_fragment>
@@ -170,6 +177,19 @@ function appendSample(
   })
 }
 
+function restartTrailSegment(
+  trail: ReturnType<typeof createStellarGasTrail>,
+  simulatedAt: number,
+  position: THREE.Vector3,
+) {
+  // A world-space parcel may legitimately continue after its parent has moved,
+  // but two observations that cannot belong to one continuous parcel trajectory
+  // must never be joined by a giant presentation quad.
+  trail.samples.length = 0
+  trail.geometry.setDrawRange(0, 0)
+  appendSample(trail, simulatedAt, position)
+}
+
 function compactToCapacity(trail: ReturnType<typeof createStellarGasTrail>, sourceRadius: number) {
   const samples = trail.samples
   while (samples.length > CAPACITY) {
@@ -193,6 +213,7 @@ function sampleObservedPosition(
   simulationTime: number,
   position: THREE.Vector3,
   sourceRadius: number,
+  speed: number,
 ) {
   const samples = trail.samples
   if (samples.length === 0) {
@@ -205,6 +226,24 @@ function sampleObservedPosition(
   if (dt <= TIME_EPSILON) return
 
   const travelled = previous.position.distanceTo(position)
+  const expectedTravel = Math.max(0, speed) * dt
+  const continuityLimit = Math.max(
+    sourceRadius * DISCONTINUITY_RADIUS_SCALE,
+    expectedTravel * DISCONTINUITY_SPEED_TOLERANCE + sourceRadius * DISCONTINUITY_RADIUS_TOLERANCE,
+  )
+  // If the old history is already outside the retained time window, or the new
+  // observation is far beyond what this parcel's velocity can plausibly connect,
+  // start a new strip. This fixes coordinate/lifecycle discontinuities at their
+  // source instead of clamping a malformed triangle after geometry generation.
+  if (
+    dt >= HISTORY_SECONDS ||
+    !Number.isFinite(travelled) ||
+    travelled > continuityLimit
+  ) {
+    restartTrailSegment(trail, simulationTime, position)
+    return
+  }
+
   const minDistance = sourceRadius * MIN_SAMPLE_DISTANCE_SCALE
   const maxSegmentDistance = sourceRadius * MAX_SEGMENT_DISTANCE_SCALE
   const enoughTime = dt >= TARGET_SAMPLE_INTERVAL_SECONDS
@@ -297,7 +336,10 @@ export function updateStellarGasTrail(
   if (resetRequired) resetTrail(trail, eventKey, currentTime, bodyAge)
 
   const samples = trail.samples
-  const sourceRadius = Math.max(body.effectVisual?.sourceMaxRadius ?? body.radius, 1e-6)
+  const sourceRadius = getBodyPresentationRadius(
+    Math.max(body.effectVisual?.sourceMaxRadius ?? body.radius, 0),
+  )
+  const speed = Math.hypot(body.velocity.x, body.velocity.y, body.velocity.z)
   const repeatedSimulationTime = samples.length > 0 &&
     Math.abs(currentTime - trail.lastSimulationTime) <= TIME_EPSILON
   if (!repeatedSimulationTime) {
@@ -306,10 +348,23 @@ export function updateStellarGasTrail(
       currentTime,
       new THREE.Vector3(body.position.x, body.position.y, body.position.z),
       sourceRadius,
+      speed,
     )
   }
 
   while (samples.length > 1 && currentTime - samples[0].simulatedAt > HISTORY_SECONDS) {
+    samples.shift()
+  }
+  // Time alone can retain a screen-spanning ribbon for fast ejecta. Preserve the
+  // actual parcel trajectory but cap only the visible recent path to a fraction of
+  // the source presentation radius. The emitted parcel itself remains independent
+  // and continues moving under the solver; only stale trail history is discarded.
+  const newest = samples[samples.length - 1]
+  while (
+    samples.length > 1 &&
+    newest &&
+    newest.distance - samples[0].distance > sourceRadius * MAX_VISIBLE_LENGTH_SCALE
+  ) {
     samples.shift()
   }
   compactToCapacity(trail, sourceRadius)
@@ -344,10 +399,10 @@ export function updateStellarGasTrail(
 
     const localAge = Math.max(0, currentTime - sample.simulatedAt)
     const age01 = clamp01(localAge / HISTORY_SECONDS)
-    const minWidth = sourceRadius * 0.085
+    const minWidth = sourceRadius * 0.065
     const width = Math.min(
-      sourceRadius * 0.46,
-      sourceRadius * (0.085 + Math.sqrt(age01) * 0.34),
+      sourceRadius * 0.34,
+      sourceRadius * (0.065 + Math.sqrt(age01) * 0.25),
     )
     // This is a renderer density approximation for a ribbon: widening one
     // transverse dimension reduces surface brightness inversely with width.
