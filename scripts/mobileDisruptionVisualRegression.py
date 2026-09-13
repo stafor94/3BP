@@ -136,11 +136,12 @@ def main() -> None:
         impact_components = regression.warm_components(impact, 24)
         regression.require(bool(impact_components), 'mobile impact capture has no collision body component')
 
-        # The visual event timestamp is created when trigger() invokes the fixture,
-        # before React commit/stage polling completes. Start the wall-clock reference
-        # here as well so CI commit latency is not added to every requested offset.
-        started_at = time.monotonic()
+        # The harness starts destructionElapsedMs only after React commits the
+        # destruction stage. trigger() waits for that commit plus two animation
+        # frames, so anchor requested offsets after trigger() returns rather than
+        # counting variable React commit latency as simulated destruction time.
         regression.trigger(driver)
+        started_at = time.monotonic()
         captures: dict[str, Path] = {'impact': impact}
         for name, target in regression.CAPTURES:
             regression.wait_until(started_at, target)
