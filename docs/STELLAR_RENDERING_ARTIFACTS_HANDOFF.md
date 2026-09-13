@@ -1,5 +1,18 @@
 # Stellar rendering artifacts handoff
 
+## Final integration — 2026-09-13
+
+- Release: v0.28.1; PR #160 remains unmerged while final gates run.
+- Integrated rendering head before final validation documentation: `eaba4906ce8d5377d52ab43a0324e4f2e27aad92`.
+- Stages 1–3 and subsequent integration now include surface depth, corona/envelope ownership and crossfade, compact anchored contact/shear, diffuse afterglow, and bounded soft ejecta plumes with discontinuous trail segmentation. Physics state is unchanged.
+- Final integration also repaired a GLSL reserved identifier, preserved cool-star chromaticity, and synchronized the mobile disruption fixture with the committed visual clock.
+- The final draw-structure test is updated from corona cache version pass5 to pass6. The single-carrier checks and all photographic brightness, hue, edge, noise and depth gates remain enforced.
+- Validation: run 34736566007 passed production stellar collision capture and its strict gate; background and Collision VFX workflows passed. The photographic workflow stopped before browser capture on the stale cache-version assertion, so photographic acceptance is still pending.
+- Final acceptance requires the latest complete workflow results plus direct inspection of identical-condition baseline/candidate images and continuous collision frames. Exact original video initial conditions and the user's Android GPU are unavailable; CI production Chromium mobile/desktop cases provide comparable scenarios, not a claim of device-specific acceptance.
+- The canonical final commit, evidence links, merge and deployment results are recorded in PR #160. The stage-3 section below is retained as historical context; its pending status describes that earlier stage only.
+
+## Historical stage-3 handoff
+
 ## Working state
 
 - Baseline `main`: `c99a3fe0d4a031f7c36809c6d80d71f9aa23269a` (merged PR #159, v0.28.0)
