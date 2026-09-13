@@ -622,7 +622,9 @@ function createEnvelope() {
     side: THREE.BackSide,
     blending: THREE.AdditiveBlending,
     uniforms: {
-      uOpacity: { value: 0.20 },
+      // Keep a deformed collision-attached limb cue, but do not let the BackSide
+      // carrier read as a separate gray spherical shell around the photosphere.
+      uOpacity: { value: 0.12 },
       uShellOffset: { value: 0 },
       uProfileRadius: { value: 1 },
     },
@@ -637,8 +639,8 @@ function createEnvelope() {
   const halo = new THREE.Mesh(haloGeometry, haloMaterial)
   halo.renderOrder = 1
   // During an active collision the glow follows the deformed envelope itself.
-  // A small BackSide offset creates a soft limb without exposing a spherical
-  // carrier behind the lobes or recreating the old expanded gray shell.
+  // Keep the offset close to the true limb so it reads as emissive spill rather
+  // than a second expanded body around the contact lobes.
   halo.visible = true
   group.add(halo)
   group.traverse((o) => { o.frustumCulled = false })
@@ -776,7 +778,7 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         updateEnvelopeNormals(v.geometry, v.surfaceIndices, v.normalTopology, shape.min, shape.max)
         const profileRadius = Math.max(maxSectionRadius, 1e-6)
         v.haloMaterial.uniforms.uProfileRadius.value = profileRadius
-        v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.18
+        v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.06
         updateStellarPhotosphereMaterial(v.material, getStellarPhotosphereFrame(shape.body, simulationTime))
         v.material.uniforms.uSurfaceSeed.value = seed(shape.body.id)
       }
