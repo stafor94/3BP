@@ -572,8 +572,10 @@ const haloFragmentShader = `
     float sectionCoverage = smoothstep(0.025, 0.18, profile01);
     vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
     float viewMu = abs(dot(normalize(vWorldNormal), viewDirection));
-    float limbCoverage = mix(0.22, 1.0, smoothstep(0.08, 0.92, 1.0 - viewMu));
-    float alpha = uOpacity * distanceFalloff * sectionCoverage * limbCoverage;
+    // The collision halo is a silhouette spill only. Keeping a non-zero frontal
+    // floor lets a BackSide shell read as a second circular body on small stars.
+    float limbCoverage = 1.0 - smoothstep(0.06, 0.52, viewMu);
+    float alpha = uOpacity * distanceFalloff * sectionCoverage * limbCoverage * limbCoverage;
     gl_FragColor = vec4(vCollisionColor, alpha);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -603,7 +605,10 @@ function createEnvelope() {
     .replaceAll('uIdentityColor', 'vCollisionColor')
     .replace(
       'float edgeCoverage = getStellarEdgeCoverage(viewMu);',
-      'float edgeCoverage = smoothstep(0.0, max(0.11, fwidth(viewMu) * 0.75), viewMu);',
+      // The coarse collision envelope already has an explicit BackSide limb halo.
+      // Restrict alpha antialiasing to the immediate silhouette so it cannot form
+      // the dark inner crescent seen on small settled collision envelopes.
+      'float edgeCoverage = smoothstep(0.0, max(0.045, fwidth(viewMu) * 0.55), viewMu);',
     )
   const material = new THREE.ShaderMaterial(values)
   material.depthTest = true
@@ -622,9 +627,9 @@ function createEnvelope() {
     side: THREE.BackSide,
     blending: THREE.AdditiveBlending,
     uniforms: {
-      // Keep a deformed collision-attached limb cue, but do not let the BackSide
-      // carrier read as a separate gray spherical shell around the photosphere.
-      uOpacity: { value: 0.12 },
+      // Keep a deformed collision-attached limb cue without allowing a separate
+      // spherical carrier to dominate the survivor silhouette.
+      uOpacity: { value: 0.10 },
       uShellOffset: { value: 0 },
       uProfileRadius: { value: 1 },
     },
@@ -778,7 +783,7 @@ export function createStellarCollisionEnvelopeLayer(scene: THREE.Scene) {
         updateEnvelopeNormals(v.geometry, v.surfaceIndices, v.normalTopology, shape.min, shape.max)
         const profileRadius = Math.max(maxSectionRadius, 1e-6)
         v.haloMaterial.uniforms.uProfileRadius.value = profileRadius
-        v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.06
+        v.haloMaterial.uniforms.uShellOffset.value = profileRadius * 0.04
         updateStellarPhotosphereMaterial(v.material, getStellarPhotosphereFrame(shape.body, simulationTime))
         v.material.uniforms.uSurfaceSeed.value = seed(shape.body.id)
       }
